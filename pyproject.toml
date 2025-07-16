@@ -1,0 +1,30 @@
+[project]
+authors = [{name = "Moritz Feik", email = "uxlha@student.kit.edu"}]
+dependencies = []
+name = "genpp"
+requires-python = ">= 3.11"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+genpp = { path = ".", editable = true }
+#weatherbench2 = { git = "https://github.com/google-research/weatherbench2.git" }
+
+[tool.pixi.tasks]
+install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
+
+[tool.pixi.dependencies]
+pre-commit = ">=4.2.0,<5"
+ipykernel = ">=6.29.5,<7"
+zarr = ">=3.0.10,<4"
+gcsfs = ">=2025.5.1,<2026"
+dask = ">=2025.7.0,<2026"
+xarray = ">=2025.7.1,<2026"
+netcdf4 = ">=1.7.2,<2"
