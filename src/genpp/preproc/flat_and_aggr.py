@@ -57,14 +57,16 @@ if __name__ == "__main__":
     obs = obs[FC_VARS]
 
     flat_obs = flatten_levels(obs)
-    flat_obs = flat_obs.transpose("time", ...)
+    flat_obs = flat_obs.transpose("time", "latitude", "longitude", "variable")
 
     # Compute mean and std across the 'number' dimension (ensemble members) and save to file
     mean_ens = flat_ens.mean(dim="number")
     std_ens = flat_ens.std(dim="number", ddof=1)
     idx = Index(["mean", "std"], name="aggregate")
     flat_ens_aggr = xr.concat([mean_ens, std_ens], dim=idx)
-    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", ...)
+    flat_ens_aggr = flat_ens_aggr.transpose(
+        "prediction_time", "latitude", "longitude", "aggregate", "variable"
+    )
 
     # Save to disk for later use and faster loading
     flat_obs.to_netcdf(OUTPUT_DIR / "flat_obs_preproc.nc", mode="w", format="NETCDF4")
