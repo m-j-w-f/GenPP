@@ -1,90 +1,78 @@
-import dask
-import dask.config
-import gcsfs
+"""
+Slice the IFS ensemble Zarr dataset in parallel with Dask,
+write a local NetCDF, then upload it to GCS.
+
+This script is designed to run on a gcloud compute instance.
+"""
+
+import os
+import subprocess
+
 import xarray as xr
-from dask.distributed import Client, LocalCluster, progress
+from dask.diagnostics.progress import ProgressBar
+from dask.distributed import Client, LocalCluster
 
 from genpp.data import (
-    FC_VARS,
-    FORECAST,
-    FORECAST_ENS,
-    LATITUDE_SLICE,
-    LEVEL,
-    LONGITUDE_SLICE,
-    OBSERVATIONS,
-    OUTPUT_DIR,
-    PREDICTION_TIMEDELTA,
-    TIME_SLICE,
+    FORECAST_ENS_SLICE,
+    FORECAST_ENS_URL,
+    FORECAST_SLICE,
+    FORECAST_URL,
+    OBSERVATIONS_SLICE,
+    OBSERVATIONS_URL,
 )
 
 
-def main() -> None:
-    dataset_url = FORECAST_ENS
-    output_path = OUTPUT_DIR / "hres_t0.nc"
-
-    # Configure Dask to maximize throughput
-    dask.config.set(
-        {
-            "array.chunk-size": "128MiB",
-            "distributed.worker.memory.target": 0.8,
-            "distributed.worker.memory.spill": 0.9,
-            "distributed.comm.timeouts.connect": 100,
-            "distributed.comm.timeouts.tcp": 100,
-        }
-    )
-
-    # Set up client with more resources for better throughput
+def main():
+    # Use 8 processes, each with 2 threads, ~12 GB per worker
     cluster = LocalCluster(
-        n_workers=4,
+        n_workers=8,
         threads_per_worker=2,
-        memory_limit="4GB",
+        memory_limit="12GB",
+        processes=True,
     )
     client = Client(cluster)
-    print(f"Dashboard: {client.dashboard_link}")
+    print("Dask dashboard:", client.dashboard_link)
+    print(client)
 
-    fs = gcsfs.GCSFileSystem(
-        retries=10,
-        timeout=120,
-    )
+    for dataset_url, slice_dict, local_nc, gcs_dest in [
+        (
+            FORECAST_URL,
+            FORECAST_SLICE,
+            "hres_slice.nc",
+            "gs://slice-data-output/hres_slice.nc",
+        ),
+        (
+            FORECAST_ENS_URL,
+            FORECAST_ENS_SLICE,
+            "ifs_ens_slice.nc",
+            "gs://slice-data-output/ifs_ens_slice.nc",
+        ),
+        (
+            OBSERVATIONS_URL,
+            OBSERVATIONS_SLICE,
+            "hres_t0_slice.nc",
+            "gs://slice-data-output/hres_t0_slice.nc",
+        ),
+    ]:
+        # Open the Zarr store lazily
+        ds = xr.open_zarr(dataset_url, decode_timedelta=True)
 
-    ds = xr.open_zarr(fs.get_mapper(dataset_url), consolidated=True)
+        # Select the region and forecast lead time
+        ds_sliced = ds.sel(slice_dict)
 
-    print("Downloading spatial subset (Germany)...")
-    if dataset_url == FORECAST_ENS:
-        ds_subset = ds.sel(
-            latitude=LATITUDE_SLICE,
-            longitude=LONGITUDE_SLICE,
-            prediction_timedelta=PREDICTION_TIMEDELTA,
-            level=LEVEL,
-        )
-    elif dataset_url == OBSERVATIONS:
-        ds_subset = ds[FC_VARS].sel(latitude=LATITUDE_SLICE, longitude=LONGITUDE_SLICE)
-    elif dataset_url == FORECAST:
-        ds_subset = ds.sel(
-            latitude=LATITUDE_SLICE,
-            longitude=LONGITUDE_SLICE,
-            time=TIME_SLICE,
-            level=LEVEL,
-        )
-    else:
-        raise ValueError(f"Unknown dataset URL: {dataset_url}")
+        # Remove existing local output if present
+        if os.path.exists(local_nc):
+            os.remove(local_nc)
 
-    ds_subset = ds_subset.chunk(
-        {
-            "time": "auto",
-            "latitude": "auto",
-            "longitude": "auto",
-        }
-    )
+        # Write to local NetCDF in parallel
+        print("Writing local NetCDF with Dask...")
+        with ProgressBar():
+            ds_sliced.to_netcdf(local_nc, engine="netcdf4")
+        print(f"Local NetCDF written to {local_nc}.")
 
-    # Start download with progress monitoring
-    print("Beginning download...")
-    future = client.persist(ds_subset)
-    progress(future)
-
-    # Save result
-    result = future.compute()  # type: ignore
-    result.to_netcdf(path=output_path, mode="w", format="NETCDF4")
+        print(f"Uploading {local_nc} to {gcs_dest} ...")
+        subprocess.check_call(["gsutil", "-m", "cp", local_nc, gcs_dest])
+        print("Upload complete.")
 
 
 if __name__ == "__main__":

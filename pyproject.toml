@@ -1,6 +1,5 @@
 [project]
 authors = [{name = "Moritz Feik", email = "uxlha@student.kit.edu"}]
-dependencies = []
 name = "genpp"
 requires-python = ">= 3.11"
 version = "0.1.0"
@@ -15,7 +14,6 @@ platforms = ["osx-arm64", "linux-64"]
 
 [tool.pixi.pypi-dependencies]
 genpp = { path = ".", editable = true }
-#weatherbench2 = { git = "https://github.com/google-research/weatherbench2.git" }
 
 [tool.pixi.tasks]
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
@@ -28,3 +26,9 @@ gcsfs = ">=2025.5.1,<2026"
 dask = ">=2025.7.0,<2026"
 xarray = ">=2025.7.1,<2026"
 netcdf4 = ">=1.7.2,<2"
+matplotlib = ">=3.10.3,<4"
+pytorch = ">=2.7.1,<3"
+einops = ">=0.8.1,<0.9"
+lightning = ">=2.5.2,<3"
+xbatcher = ">=0.4.0,<0.5"
+scipy = ">=1.7.2,<2"
