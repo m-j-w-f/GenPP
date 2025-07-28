@@ -25,14 +25,19 @@ def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
     for var_name, var_data in ds.data_vars.items():
         if level_dim in var_data.dims:
             # Create separate variables for each level
-            for level in var_data.level.values:
+            for level in var_data[level_dim].values:
                 new_name = f"{var_name}_lev{level}"
-                ds_flat[new_name] = var_data.sel(level=level).reset_coords(
+                ds_flat[new_name] = var_data.sel({level_dim: level}).reset_coords(
                     level_dim, drop=True
                 )
         else:
             # Keep variables without level as-is
             ds_flat[var_name] = var_data
+
+    # Handle empty dataset case
+    if len(ds_flat.data_vars) == 0:
+        return xr.DataArray(data=[], coords={"variable": []}, dims=["variable"])
+
     return ds_flat.to_array()
 
 
