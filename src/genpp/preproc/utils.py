@@ -6,19 +6,15 @@ import xarray as xr
 
 
 class StandardScaler:
-    def __init__(self, dim: list[str] | str) -> None:
+    def __init__(self, dim: str) -> None:
         self.dim = dim
 
     def fit(self, data: xr.DataArray) -> None:
-        mean_da = data.mean(dim=self.dim)
-        scale_da = data.std(dim=self.dim, ddof=1)
+        mean_da = data.mean(dim=self.dim).compute()
+        scale_da = data.std(dim=self.dim, ddof=1).compute()
 
         self.mean = torch.Tensor(mean_da.values)
         self.scale = torch.Tensor(scale_da.values)
-
-        # Store the dimension info for proper broadcasting during transform
-        self._mean_da = mean_da
-        self._scale_da = scale_da
 
         # Check for zero standard deviation and warn
         if torch.any(self.scale == 0):
@@ -30,8 +26,9 @@ class StandardScaler:
 
     def transform(self, data: xr.DataArray) -> torch.Tensor:
         # Use the stored DataArrays for proper broadcasting
-        normalized = (data - self._mean_da) / self._scale_da
-        return torch.Tensor(normalized.values)
+        # TODO: this transform in xarray is slow af and probably not correct somehow
+        normalized = (torch.Tensor(data.values) - self.mean) / self.scale
+        return normalized
 
     def fit_transform(self, data: xr.DataArray) -> torch.Tensor:
         self.fit(data)

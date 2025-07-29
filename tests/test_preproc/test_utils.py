@@ -25,26 +25,10 @@ class TestStandardScaler:
         )
         return data
 
-    @pytest.fixture
-    def sample_data_3d(self):
-        """Create a 3D xarray DataArray for testing."""
-        np.random.seed(42)  # For reproducible tests
-        data = xr.DataArray(
-            np.random.randn(4, 3, 2),
-            dims=["time", "lat", "lon"],
-            coords={"time": range(4), "lat": range(3), "lon": range(2)},
-        )
-        return data
-
     def test_init_single_dim(self):
         """Test initialization with a single dimension."""
         scaler = StandardScaler(dim="time")
         assert scaler.dim == "time"
-
-    def test_init_multiple_dims(self):
-        """Test initialization with multiple dimensions."""
-        scaler = StandardScaler(dim=["time", "space"])
-        assert scaler.dim == ["time", "space"]
 
     def test_fit_single_dim(self, sample_data_1d):
         """Test fitting the scaler on a single dimension."""
@@ -56,18 +40,6 @@ class TestStandardScaler:
         expected_scale = torch.tensor(
             np.std([1.0, 2.0, 3.0, 4.0, 5.0], ddof=1), dtype=torch.float32
         )
-
-        assert torch.allclose(scaler.mean, expected_mean, atol=1e-6)
-        assert torch.allclose(scaler.scale, expected_scale, atol=1e-6)
-
-    def test_fit_multiple_dims(self, sample_data_2d):
-        """Test fitting the scaler on multiple dimensions."""
-        scaler = StandardScaler(dim=["time", "space"])
-        scaler.fit(sample_data_2d)
-
-        # Should compute mean and std across all elements
-        expected_mean = torch.tensor(sample_data_2d.mean().values, dtype=torch.float32)
-        expected_scale = torch.tensor(sample_data_2d.std(ddof=1).values, dtype=torch.float32)
 
         assert torch.allclose(scaler.mean, expected_mean, atol=1e-6)
         assert torch.allclose(scaler.scale, expected_scale, atol=1e-6)
@@ -157,21 +129,6 @@ class TestStandardScaler:
         # Transform should result in NaN or inf (division by zero)
         result = scaler.transform(data)
         assert torch.isinf(result).any() or torch.isnan(result).any()
-
-    def test_3d_data_multiple_dims(self, sample_data_3d):
-        """Test with 3D data and multiple dimensions."""
-        scaler = StandardScaler(dim=["lat", "lon"])
-        scaler.fit(sample_data_3d)
-
-        # After fitting on ["lat", "lon"], mean and scale should have shape [time]
-        assert scaler.mean.shape == (4,)  # 4 time steps
-        assert scaler.scale.shape == (4,)
-
-        result = scaler.transform(sample_data_3d)
-
-        # Should preserve original shape
-        assert result.shape == sample_data_3d.shape
-        assert isinstance(result, torch.Tensor)
 
     def test_mismatched_dimensions_error(self, sample_data_1d):
         """Test error when dimension doesn't exist in data."""
