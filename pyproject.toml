@@ -32,4 +32,13 @@ einops = ">=0.8.1,<0.9"
 lightning = ">=2.5.2,<3"
 xbatcher = ">=0.4.0,<0.5"
 scipy = ">=1.7.2,<2"
+
+[tool.pixi.feature.test.dependencies]
 pytest = ">=8.4.1,<9"
+scoringrules = ">=0.8.0,<0.9"
+
+[tool.pixi.feature.test.tasks]
+test = "pytest"
+
+[tool.pixi.environments]
+test = ["test"]
