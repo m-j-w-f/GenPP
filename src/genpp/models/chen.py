@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -6,52 +7,22 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from torch import Tensor
 
-
-class LocallyConnected2D(nn.Module):
-    def __init__(self, height: int, width: int, in_features: int, out_features: int) -> None:
-        """
-        A custom layer that applies a separate linear transformation for each (height, width) location.
-
-        Args:
-            height (int): Height of the input feature map.
-            width (int): Width of the input feature map.
-            in_features (int): Number of input features per location.
-            out_features (int): Number of output features per location.
-        """
-        super(LocallyConnected2D, self).__init__()
-        self.height = height
-        self.width = width
-        self.in_features = in_features
-        self.out_features = out_features
-
-        # Create a weight tensor for all spatial locations
-        self.weight = nn.Parameter(torch.randn(height, width, in_features, out_features))
-        self.bias = nn.Parameter(torch.zeros(height, width, out_features))
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Forward pass for the LocallyConnected2D layer.
-
-        Args:
-            x (Tensor): Input tensor of shape [batch_size, in_features, height, width].
-
-        Returns:
-            Tensor: Output tensor of shape [batch_size, out_features, height, width].
-        """
-        # Perform the linear transformation for all spatial locations in parallel
-        out = torch.einsum("bhwc,hwco->bhwo", x, self.weight) + self.bias
-        return out
+from genpp.models.layers import Crop2D, LocallyConnected2D, UNet
 
 
-# TODO: can this model already handle multivariate predictions? -> Yes
-
-# NOTE: This model now has an insane number (9M) of parameters,
-# the linear layers in the std_model and in the noise_decoder should be replaced
-# with a LocallyConnected2D layer followed by fully connected layers or a cnn.
-
-
-# TODO generate a superclas of the chen model which can then be used as a consturct to parametrize the model.
 class BaseChenModel(ABC, nn.Module):
+    """Base class for generative models with mean, std, and noise decoder components.
+
+    Args:
+        in_features (int): Number of input features.
+        out_features (int): Number of output features.
+        latent_dim (int): Dimensionality of the latent space.
+        embedding_dim (int, optional): Dimensionality of the embeddings. Defaults to 5. If set to 0, no embeddings are used.
+        n_samples_train (int, optional): Number of samples to generate during training. Defaults to 50.
+        final_activation (nn.Module, optional): Activation function to apply at the end of the model.
+            Defaults to nn.Identity(), which means no activation is applied.
+    """
+
     def __init__(
         self,
         in_features: int,
@@ -61,17 +32,6 @@ class BaseChenModel(ABC, nn.Module):
         n_samples_train: int = 50,
         final_activation: nn.Module = nn.Identity(),
     ) -> None:
-        """Base class for generative models with mean, std, and noise decoder components.
-
-        Args:
-            in_features (int): Number of input features.
-            out_features (int): Number of output features.
-            latent_dim (int): Dimensionality of the latent space.
-            embedding_dim (int, optional): Dimensionality of the embeddings. Defaults to 5. If set to 0, no embeddings are used.
-            n_samples_train (int, optional): Number of samples to generate during training. Defaults to 50.
-            final_activation (nn.Module, optional): Activation function to apply at the end of the model.
-                Defaults to nn.Identity(), which means no activation is applied.
-        """
         super(BaseChenModel, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -126,12 +86,21 @@ class BaseChenModel(ABC, nn.Module):
         """
         pass
 
+    @abstractmethod
+    def get_noise(self, batch_size: int) -> torch.Tensor:
+        """Get the noise tensor for the model.
+
+        Returns:
+            torch.Tensor: Noise tensor.
+        """
+        pass
+
     def forward(self, x: torch.Tensor, doy: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = x.shape[0]
         mean, std = rearrange(
             x, "batch lat lon (two aggr) var -> two batch lat lon aggr var", two=2
         )  # Mean, Std have now shape [batch_size, lat, lon, 1, var]
-        mean = mean.squeeze()
+        mean = mean.squeeze()  # [batch_size, lat, lon, var]
         std = std.squeeze()
 
         # TODO it would make sense to use a residual connection here, but the original paper does not use it.
@@ -139,9 +108,7 @@ class BaseChenModel(ABC, nn.Module):
         pred_mean = self.mean_model(mean)  # Shape [batch_size, lat, lon, out_features]
         delta = self.std_model(std)  # Shape [batch_size, latent_dim]
         # NOTE: which device should this be on? (PyTorch lighning should handle this)
-        z = torch.randn(
-            size=(batch_size, self.n_samples_train, self.latent_dim)
-        )  # Shape [batch_size, n_samples_train, latent_dim]
+        z = self.get_noise(batch_size)  # Shape [batch_size, n_samples_train, latent_dim]
 
         noise = z * delta  # Shape [batch_size, n_samples_train, latent_dim]
 
@@ -158,6 +125,18 @@ class BaseChenModel(ABC, nn.Module):
 
 
 class FcChenModel(BaseChenModel):
+    """Model from GENERATIVE MACHINE LEARNING METHODS FOR MULTIVARIATE ENSEMBLE POSTPROCESSING by J. Chen et al. (2024).
+
+    Args:
+        width (int): Width of the input feature map.
+        height (int): Height of the input feature map.
+        hidden_dim_std (int): Dimensionality of the hidden layers for the standard deviation model.
+        hidden_dim_decoder (int): Dimensionality of the hidden layers for the decoder.
+    """
+
+    # NOTE: This model now has an insane number (9M) of parameters,
+    # the linear layers in the std_model and in the noise_decoder should be replaced
+    # with a LocallyConnected2D layer followed by fully connected layers or a cnn.
     def __init__(
         self,
         *args,
@@ -167,14 +146,6 @@ class FcChenModel(BaseChenModel):
         hidden_dim_decoder: int,
         **kwargs,
     ) -> None:
-        """Model from GENERATIVE MACHINE LEARNING METHODS FOR MULTIVARIATE ENSEMBLE POSTPROCESSING by J. Chen et al. (2024).
-
-        Args:
-            width (int): Width of the input feature map.
-            height (int): Height of the input feature map.
-            hidden_dim_std (int): Dimensionality of the hidden layers for the standard deviation model.
-            hidden_dim_decoder (int): Dimensionality of the hidden layers for the decoder.
-        """
         super(FcChenModel, self).__init__(*args, **kwargs)
 
         self.height = height
@@ -254,6 +225,9 @@ class FcChenModel(BaseChenModel):
         grid_embeddings_flat = grid_embeddings_flat.expand(batch_size, -1)
         return grid_embeddings_flat
 
+    def get_noise(self, batch_size: int) -> torch.Tensor:
+        return torch.randn(size=(batch_size, self.n_samples_train, self.latent_dim))
+
     def concat_noise_decoder_input(
         self, mean: torch.Tensor, std: torch.Tensor, noise: torch.Tensor
     ) -> torch.Tensor:
@@ -288,3 +262,110 @@ class FcChenModel(BaseChenModel):
         )  # Reshape so that all processing of all samples can be done in parallel.
         # Shape [batch_size * n_samples_train, lat * lon * (2 * in_features + embedding_dim) + latent_dim]
         return full_input_repeated_noise
+
+
+class CNNChenModel(BaseChenModel):
+    """CNN-based Chen model. This is a placeholder for a CNN-based implementation."""
+
+    def __init__(
+        self, *args, width: int, height: int, padding: Tuple[int, int, int, int], **kwargs
+    ) -> None:
+        super(CNNChenModel, self).__init__(*args, **kwargs)
+        self.width = width
+        self.height = height
+        self.padding = padding
+
+        self.padding = padding
+        self.crop = Crop2D(padding=self.padding)
+
+        self._mean_model = nn.Sequential(  # This model operates on the cropped input
+            self.crop,
+            LocallyConnected2D(
+                height=self.height - self.padding[0] - self.padding[1],
+                width=self.width - self.padding[2] - self.padding[3],
+                in_features=self.in_features,
+                out_features=self.out_features,
+            ),
+            Rearrange("b h w o -> b 1 h w o"),
+        )
+
+        # [batch_size, lat, lon, var]
+        self._std_model = nn.Sequential(
+            Rearrange("b h w c -> b c h w"),
+            UNet(
+                in_features=self.in_features,
+                out_features=self.latent_dim,
+            ),
+            Rearrange("b o h w -> b 1 h w o"),
+        )
+
+        self._noise_decoder = nn.Sequential(
+            UNet(
+                in_features=2 * self.in_features + self.latent_dim + self.embedding_dim,
+                out_features=self.out_features,
+            ),
+            Rearrange("(b n) o h w -> b n h w o", n=self.n_samples_train),
+            self.crop,  # Crop back to the original size
+        )
+
+        if self.use_embedding:
+            self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
+
+    @property
+    def mean_model(self) -> nn.Module:
+        """Model to compute the mean of the input features."""
+        return self._mean_model
+
+    @property
+    def std_model(self) -> nn.Module:
+        """Model to compute the standard deviation of the input features."""
+        return self._std_model
+
+    @property
+    def noise_decoder(self) -> nn.Module:
+        """Model to decode the noise and generate samples."""
+        return self._noise_decoder
+
+    def get_noise(self, batch_size: int) -> torch.Tensor:
+        """Get the noise tensor for the model."""
+        return torch.randn(
+            size=(batch_size, self.n_samples_train, self.height, self.width, self.latent_dim)
+        )
+
+    def get_embedding(self, batch_size: int) -> torch.Tensor:
+        """Get the embedding layer."""
+        # This model does not use embeddings, so we return an empty tensor
+        emb = self.embedding.weight  # Shape [gridpoints, embedding_dim]
+        emb = rearrange(
+            emb, "(h w) emb -> h w emb", h=self.height, w=self.width
+        )  # Shape [height, width, embedding_dim]
+        return repeat(emb, "h w emb -> b h w emb", b=batch_size)
+
+    def concat_noise_decoder_input(
+        self, mean: torch.Tensor, std: torch.Tensor, noise: torch.Tensor
+    ) -> torch.Tensor:
+        """Concatenate the mean and standard deviation tensors for the noise decoder input.
+        mean, std have shape [batch_size, height, width, var]
+        embeddings have shape [batch_size, height, width, embedding_dim]
+        noise has shape [batch_size, n_samples_train, height, width, latent_dim]
+        """
+        if self.use_embedding:
+            emb = self.get_embedding(
+                batch_size=mean.shape[0]
+            )  # Shape [batch_size, height, width, embedding_dim]
+            full_det = torch.cat([mean, std, emb], dim=-1)
+        else:
+            full_det = torch.cat([mean, std], dim=-1)
+        full_det = repeat(full_det, "b h w c -> b n h w c", n=self.n_samples_train)
+        full_stoch = torch.cat([full_det, noise], dim=-1)
+        full_stoch = rearrange(
+            full_stoch, "b n h w c -> (b n) c h w"
+        )  # Can be processed in parallel now.
+        return full_stoch  # Shape [batch_size, n_samples_train, (2 * var + embedding_dim + latent_dim), height, width]
+
+
+class PatchwiseChenModel(BaseChenModel):
+    """Patchwise Chen model. This is a placeholder for a patchwise implementation."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super(PatchwiseChenModel, self).__init__(*args, **kwargs)

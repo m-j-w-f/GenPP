@@ -1,6 +1,6 @@
 import warnings
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, override
 
 import torch
 import torch.nn.functional as F
@@ -38,6 +38,9 @@ class Transform(ABC):
 
 
 class StandardScaler(Transform):
+    # TODO since this transform is pixel-wise, it does not work when the input is cropped.
+    # However me might be able to get the lat and lon dimensions from the xarray data and cut the mean and scale accordingly.
+    # However this information is in the __call__ method so we have to override it.
     def __init__(self, dim: str) -> None:
         self.dim = dim
 
@@ -61,6 +64,12 @@ class StandardScaler(Transform):
     def transform(self, data: torch.Tensor) -> torch.Tensor:
         normalized = (data - self.mean) / self.scale
         return normalized
+
+    @override
+    def __call__(self, data: xr.DataArray | torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "This is a TODO. The StandardScaler is pixel-wise and does not work with cropped data. "
+        )
 
     def fit_transform(self, data: xr.DataArray) -> torch.Tensor:
         self.fit(data)
