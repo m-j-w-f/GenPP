@@ -4,7 +4,7 @@ import pytest
 import torch
 import xarray as xr
 
-from genpp.preproc.utils import Pad, Pipe, StandardScaler
+from genpp.preproc.transforms import Pad, Pipe, StandardScaler
 
 
 class TestStandardScaler:
@@ -418,7 +418,7 @@ class TestPipe:
 
     def test_pipe_inheritance_from_transform(self):
         """Test that Pipe properly inherits from Transform."""
-        from genpp.preproc.utils import Transform
+        from genpp.preproc.transforms import Transform
 
         pipe = Pipe([])
         assert isinstance(pipe, Transform)
