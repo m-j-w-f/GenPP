@@ -1,6 +1,5 @@
-import warnings
 from abc import ABC, abstractmethod
-from typing import List, Tuple, override
+from typing import List, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -9,7 +8,9 @@ from einops import rearrange
 
 
 class Transform(ABC):
-    """Abstract base class for data transformations."""
+    """Abstract base class for data transformations.
+    These transformations can be supplied to the xbatcher.MapDataset
+    to apply on the fly to the data."""
 
     @abstractmethod
     def transform(self, data: torch.Tensor) -> torch.Tensor:
@@ -35,48 +36,6 @@ class Transform(ABC):
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(data.values)
         return self.transform(data)
-
-
-class StandardScaler(Transform):
-    # TODO since this transform is pixel-wise, it does not work when the input is cropped.
-    # However me might be able to get the lat and lon dimensions from the xarray data and cut the mean and scale accordingly.
-    # However this information is in the __call__ method so we have to override it.
-    def __init__(self, dim: str) -> None:
-        self.dim = dim
-
-    def fit(self, data: xr.DataArray) -> None:
-        mean_da = data.mean(dim=self.dim)
-        scale_da = data.std(dim=self.dim, ddof=1)
-
-        self.mean = torch.tensor(mean_da.values)
-        self.scale = torch.tensor(scale_da.values)
-
-        del mean_da, scale_da  # Free memory, sometimes you have to do this explicitly
-
-        # Check for zero standard deviation and warn
-        if torch.any(self.scale == 0):
-            warnings.warn(
-                "Standard deviation is zero for one or more features. "
-                "This will result in division by zero and produce inf/nan values during transformation.",
-                RuntimeWarning,
-            )
-
-    def transform(self, data: torch.Tensor) -> torch.Tensor:
-        normalized = (data - self.mean) / self.scale
-        return normalized
-
-    @override
-    def __call__(self, data: xr.DataArray | torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError(
-            "This is a TODO. The StandardScaler is pixel-wise and does not work with cropped data. "
-        )
-
-    def fit_transform(self, data: xr.DataArray) -> torch.Tensor:
-        self.fit(data)
-        return self(data)
-
-    def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
-        return data * self.scale + self.mean
 
 
 class Pad(Transform):

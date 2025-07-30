@@ -1,7 +1,7 @@
 [project]
 authors = [{name = "Moritz Feik", email = "uxlha@student.kit.edu"}]
 name = "genpp"
-requires-python = ">= 3.11"
+requires-python = ">= 3.13"
 version = "0.1.0"
 
 [build-system]
