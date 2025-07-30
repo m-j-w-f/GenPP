@@ -9,10 +9,11 @@ Outputs:
 - flat_obs_preproc.nc: Preprocessed observation data.
 - flat_ens_preproc_agg.nc: Preprocessed ensemble data with aggregated statistics.
 """
+# TODO fatten the aggregations and append _mean and _std to the variable names, this way we can add Metadata to the variables and still use the same code for the MapDataset
+# We only need to keep track of the length of the variables to slice them correctly later
 
 import xarray as xr
 from dask.distributed import Client
-from pandas import Index
 
 from genpp.data import (
     FC_VARS,
@@ -43,9 +44,9 @@ if __name__ == "__main__":
     )
     # Cut out the missing days first, since they are in time, not prediction_time
     ens = ens.sel(time=~ens.time.isin(MISSING_DAYS))
-    ens = ens.assign_coords(
-        prediction_time=ens.time + ens.prediction_timedelta
-    ).swap_dims({"time": "prediction_time"})
+    ens = ens.assign_coords(prediction_time=ens.time + ens.prediction_timedelta).swap_dims(
+        {"time": "prediction_time"}
+    )
 
     times = get_time_intersection(ens, obs)
 
@@ -62,15 +63,20 @@ if __name__ == "__main__":
     # Compute mean and std across the 'number' dimension (ensemble members) and save to file
     mean_ens = flat_ens.mean(dim="number")
     std_ens = flat_ens.std(dim="number", ddof=1)
-    idx = Index(["mean", "std"], name="aggregate")
-    flat_ens_aggr = xr.concat([mean_ens, std_ens], dim=idx)
-    flat_ens_aggr = flat_ens_aggr.transpose(
-        "prediction_time", "latitude", "longitude", "aggregate", "variable"
-    )
+
+    # Create new variable coordinates with _mean and _std suffixes
+    mean_vars = [f"{var}_mean" for var in mean_ens.coords["variable"].values]
+    std_vars = [f"{var}_std" for var in std_ens.coords["variable"].values]
+
+    # Assign new variable coordinates
+    mean_ens = mean_ens.assign_coords(variable=mean_vars)
+    std_ens = std_ens.assign_coords(variable=std_vars)
+
+    # Concatenate along variable dimension
+    flat_ens_aggr = xr.concat([mean_ens, std_ens], dim="variable")
+    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "latitude", "longitude", "variable")
 
     # Save to disk for later use and faster loading
     flat_obs.to_netcdf(OUTPUT_DIR / "flat_obs_preproc.nc", mode="w", format="NETCDF4")
 
-    flat_ens_aggr.to_netcdf(
-        OUTPUT_DIR / "flat_ens_preproc_agg.nc", mode="w", format="NETCDF4"
-    )
+    flat_ens_aggr.to_netcdf(OUTPUT_DIR / "flat_ens_preproc_agg.nc", mode="w", format="NETCDF4")

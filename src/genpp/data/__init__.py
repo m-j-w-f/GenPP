@@ -1,4 +1,5 @@
 from datetime import timedelta
+from enum import Enum
 
 import numpy as np
 
@@ -50,3 +51,43 @@ FC_VARS = [
     "2m_temperature",
     "10m_wind_speed",
 ]
+
+ALL_VARS = [
+    "10m_u_component_of_wind",
+    "10m_v_component_of_wind",
+    "10m_wind_speed",
+    "2m_temperature",
+    "geopotential_lev500",
+    "geopotential_lev700",
+    "geopotential_lev850",
+    "mean_sea_level_pressure",
+    "relative_humidity_lev500",
+    "relative_humidity_lev700",
+    "relative_humidity_lev850",
+    "specific_humidity_lev500",
+    "specific_humidity_lev700",
+    "specific_humidity_lev850",
+    "temperature_lev500",
+    "temperature_lev700",
+    "temperature_lev850",
+    "total_precipitation",
+    "total_precipitation_24hr",
+    "total_precipitation_6hr",
+    "u_component_of_wind_lev500",
+    "u_component_of_wind_lev700",
+    "u_component_of_wind_lev850",
+    "v_component_of_wind_lev500",
+    "v_component_of_wind_lev700",
+    "v_component_of_wind_lev850",
+    "wind_speed_lev500",
+    "wind_speed_lev700",
+    "wind_speed_lev850",
+]
+
+
+class MetadataVars(Enum):
+    PIXEL_IDX = "pixel_idx"
+    LATITUDE = "latitude"
+    LONGITUDE = "longitude"
+    SIN_PREDICTION_TIME = "sin_prediction_time"
+    COS_PREDICTION_TIME = "cos_prediction_time"

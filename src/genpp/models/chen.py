@@ -15,6 +15,7 @@ class BaseChenModel(ABC, nn.Module):
 
     Args:
         in_features (int): Number of input features.
+        meta_features (int): Number of metadata features.
         out_features (int): Number of output features.
         latent_dim (int): Dimensionality of the latent space.
         embedding_dim (int, optional): Dimensionality of the embeddings. Defaults to 5. If set to 0, no embeddings are used.
@@ -26,6 +27,7 @@ class BaseChenModel(ABC, nn.Module):
     def __init__(
         self,
         in_features: int,
+        meta_features: int,
         out_features: int,
         latent_dim: int,
         embedding_dim: int = 5,
@@ -34,6 +36,7 @@ class BaseChenModel(ABC, nn.Module):
     ) -> None:
         super(BaseChenModel, self).__init__()
         self.in_features = in_features
+        self.meta_features = meta_features
         self.out_features = out_features
         self.latent_dim = latent_dim
         self.embedding_dim = embedding_dim
@@ -55,7 +58,7 @@ class BaseChenModel(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def get_embedding(self, batch_size: int) -> Tensor:
+    def get_embedding(self, batch_size: int, pixel_idx: torch.Tensor) -> Tensor:
         """Get the embedding layer."""
         pass
 
@@ -71,6 +74,7 @@ class BaseChenModel(ABC, nn.Module):
         self,
         mean: torch.Tensor,
         std: torch.Tensor,
+        meta: torch.Tensor,
         noise: torch.Tensor,
         *args,
         **kwargs,
@@ -80,6 +84,7 @@ class BaseChenModel(ABC, nn.Module):
         Args:
             mean (torch.Tensor): Mean tensor. Output of the mean_model.
             std (torch.Tensor): Standard deviation tensor. Output of the std_model.
+            meta (torch.Tensor): Metadata tensor.
             noise (torch.Tensor): Noise tensor. Output of the noise_model.
             *args: Additional positional arguments for subclass implementations
             **kwargs: Additional keyword arguments for subclass implementations
@@ -95,13 +100,11 @@ class BaseChenModel(ABC, nn.Module):
         """
         pass
 
-    def forward(self, x: torch.Tensor, doy: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[0]
-        mean, std = rearrange(
-            x, "batch lat lon (two aggr) var -> two batch lat lon aggr var", two=2
-        )  # Mean, Std have now shape [batch_size, lat, lon, 1, var]
-        mean = mean.squeeze()  # [batch_size, lat, lon, var]
-        std = std.squeeze()
+        mean, std, meta = x.split(
+            (self.in_features, self.in_features, self.meta_features), dim=-1
+        )  # Mean, Std, Meta have now shape [batch_size, lat, lon, var]
 
         # TODO it would make sense to use a residual connection here, but the original paper does not use it.
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
@@ -113,7 +116,7 @@ class BaseChenModel(ABC, nn.Module):
         noise = z * delta  # Shape [batch_size, n_samples_train, latent_dim]
 
         full_input_repeated_noise = self.concat_noise_decoder_input(
-            mean=mean, std=std, noise=noise
+            mean=mean, std=std, meta=meta, noise=noise
         )  # Shape [batch_size * n_samples_train, lat * lon * (2 * embedding_dim + latent_dim)]
         std_samples = self.noise_decoder(
             full_input_repeated_noise
@@ -184,6 +187,7 @@ class FcChenModel(BaseChenModel):
                 * self.in_features
                 * self.gridpoints  # mean and std for each gridpoint
                 + self.embedding_dim * self.gridpoints  # embedding dimension for each gridpoint
+                + self.meta_features * self.gridpoints  # metadata for each gridpoint
                 + self.latent_dim,  # latent noise for each gridpoint
                 out_features=self.hidden_dim_decoder,
             ),
@@ -216,8 +220,9 @@ class FcChenModel(BaseChenModel):
         """Model to decode the noise and generate samples."""
         return self._noise_decoder
 
-    def get_embedding(self, batch_size: int) -> torch.Tensor:
+    def get_embedding(self, batch_size: int, pixel_idx: torch.Tensor) -> torch.Tensor:
         """Get the embedding layer."""
+        # TODO modify so that we will use the metadata feature to pick the correct embedding
         embedding = self.embedding.weight  # Shape [gridpoints, embedding_dim]
         grid_embeddings_flat = rearrange(
             embedding, "gridpoints emb -> 1 (gridpoints emb)"
@@ -229,38 +234,39 @@ class FcChenModel(BaseChenModel):
         return torch.randn(size=(batch_size, self.n_samples_train, self.latent_dim))
 
     def concat_noise_decoder_input(
-        self, mean: torch.Tensor, std: torch.Tensor, noise: torch.Tensor
+        self, mean: torch.Tensor, std: torch.Tensor, meta: torch.Tensor, noise: torch.Tensor
     ) -> torch.Tensor:
         """Concatenate the mean and standard deviation tensors for the noise decoder input."""
         mean_flat = mean.flatten(start_dim=1)  # Shape [batch_size, lat * lon * in_features]
         std_flat = std.flatten(start_dim=1)  # Shape [batch_size, lat * lon * in_features]
+        meta_flat = meta.flatten(start_dim=1)  # Shape [batch_size, lat * lon * meta_features]
 
         if self.use_embedding:
             embedding = self.get_embedding(
-                batch_size=mean.shape[0]
+                batch_size=mean.shape[0], pixel_idx=meta
             )  # Shape [batch_size, lat * lon * embedding_dim]
 
             full_input = torch.cat(
-                [mean_flat, std_flat, embedding], dim=-1
-            )  # Shape [batch_size, lat * lon * (2 * in_features + embedding_dim)]
+                [mean_flat, std_flat, meta_flat, embedding], dim=-1
+            )  # Shape [batch_size, lat * lon * (2 * in_features + embedding_dim + meta_features)]
         else:
             full_input = torch.cat(
-                [mean_flat, std_flat], dim=-1
-            )  # Shape [batch_size, lat * lon * (2 * in_features)]
+                [mean_flat, std_flat, meta_flat], dim=-1
+            )  # Shape [batch_size, lat * lon * (2 * in_features + meta_features)]
 
         full_input_repeated = repeat(
             full_input, "b d -> b n d", n=self.n_samples_train
-        )  # Shape [batch_size, n_samples_train, lat * lon * (2 * in_features + embedding_dim)]
+        )  # Shape [batch_size, n_samples_train, lat * lon * (2 * in_features + embedding_dim + meta_features)]
 
         # Concatenate along the last dimension
         full_input_repeated_noise = torch.cat(
             [full_input_repeated, noise], dim=-1
-        )  # Shape [batch_size, lat * lon * (2 * in_features + embedding_dim) + latent_dim, n_samples_train]
+        )  # Shape [batch_size, n_samples_train, lat * lon * (2 * in_features + embedding_dim + meta_features) + latent_dim]
 
         full_input_repeated_noise = rearrange(
             full_input_repeated_noise, "b n d -> (b n) d"
         )  # Reshape so that all processing of all samples can be done in parallel.
-        # Shape [batch_size * n_samples_train, lat * lon * (2 * in_features + embedding_dim) + latent_dim]
+        # Shape [batch_size * n_samples_train, lat * lon * (2 * in_features + embedding_dim + meta_features) + latent_dim]
         return full_input_repeated_noise
 
 
@@ -332,9 +338,10 @@ class CNNChenModel(BaseChenModel):
             size=(batch_size, self.n_samples_train, self.height, self.width, self.latent_dim)
         )
 
-    def get_embedding(self, batch_size: int) -> torch.Tensor:
+    def get_embedding(self, batch_size: int, pixel_idx: torch.Tensor) -> torch.Tensor:
         """Get the embedding layer."""
         # This model does not use embeddings, so we return an empty tensor
+        # TODO get corret embeddings for the pixel_idx
         emb = self.embedding.weight  # Shape [gridpoints, embedding_dim]
         emb = rearrange(
             emb, "(h w) emb -> h w emb", h=self.height, w=self.width
@@ -342,7 +349,7 @@ class CNNChenModel(BaseChenModel):
         return repeat(emb, "h w emb -> b h w emb", b=batch_size)
 
     def concat_noise_decoder_input(
-        self, mean: torch.Tensor, std: torch.Tensor, noise: torch.Tensor
+        self, mean: torch.Tensor, std: torch.Tensor, meta: torch.Tensor, noise: torch.Tensor
     ) -> torch.Tensor:
         """Concatenate the mean and standard deviation tensors for the noise decoder input.
         mean, std have shape [batch_size, height, width, var]
@@ -351,7 +358,7 @@ class CNNChenModel(BaseChenModel):
         """
         if self.use_embedding:
             emb = self.get_embedding(
-                batch_size=mean.shape[0]
+                batch_size=mean.shape[0], pixel_idx=meta
             )  # Shape [batch_size, height, width, embedding_dim]
             full_det = torch.cat([mean, std, emb], dim=-1)
         else:

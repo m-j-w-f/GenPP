@@ -1,7 +1,14 @@
+import warnings
 from abc import ABC, abstractmethod
+from enum import Enum
+from typing import List
 
+import dask  # noqa: F401
+import dask.array as da
 import torch
 import xarray as xr
+
+from genpp.data import MetadataVars
 
 
 class Preprocessor(ABC):
@@ -60,3 +67,104 @@ class StandardScalerPreprocessor(Preprocessor):
         raise NotImplementedError(
             "TODO Inverse transform is not implemented for StandardScalerPreprocessor."
         )
+
+
+class AddMetadataPreprocessor(Preprocessor):
+    """A preprocessor that adds metadata to the data."""
+
+    def __init__(self, meta_features: List[MetadataVars] | Enum) -> None:
+        self.meta_features = meta_features
+        self.num_meta_features = len(meta_features)  # type: ignore
+
+    def preprocess(self, data: xr.DataArray) -> xr.DataArray:
+        """Add metadata to the input data."""
+        # TODO this function could need some optimization, dask is complaining about the graph size.
+        if not isinstance(data, xr.DataArray):
+            raise TypeError("Input data must be an xarray DataArray.")
+
+        meta_vars = []
+
+        try:
+            times = data.prediction_time
+        except KeyError:
+            warnings.warn(
+                "The input data does not have a 'prediction_time' dimension. "
+                "Metadata variables that depend on 'prediction_time' will now depend on 'time'."
+            )
+            times = data.time
+
+        times_doy = times.dt.dayofyear
+
+        if MetadataVars.SIN_PREDICTION_TIME in self.meta_features:  # type: ignore
+            transformed_times = da.sin(times_doy * 2 * da.pi / 365)
+            # Use dask's broadcast_to instead of einops
+            time_grid = transformed_times.expand_dims(
+                {
+                    "latitude": data.latitude,
+                    "longitude": data.longitude,
+                    "variable": [MetadataVars.SIN_PREDICTION_TIME.value],
+                }
+            )
+            meta_vars.append(time_grid)
+
+        if MetadataVars.COS_PREDICTION_TIME in self.meta_features:  # type: ignore
+            transformed_times = da.cos(times_doy * 2 * da.pi / 365)
+            time_grid = transformed_times.expand_dims(
+                {
+                    "latitude": data.latitude,
+                    "longitude": data.longitude,
+                    "variable": [MetadataVars.COS_PREDICTION_TIME.value],
+                }
+            )
+            meta_vars.append(time_grid)
+
+        if MetadataVars.LATITUDE in self.meta_features:  # type: ignore
+            lat_grid = data.latitude.expand_dims(
+                {
+                    "prediction_time": data.prediction_time,
+                    "longitude": data.longitude,
+                    "variable": [MetadataVars.LATITUDE.value],
+                }
+            )
+            meta_vars.append(lat_grid)
+
+        if MetadataVars.LONGITUDE in self.meta_features:  # type: ignore
+            lon_grid = data.longitude.expand_dims(
+                {
+                    "prediction_time": data.prediction_time,
+                    "latitude": data.latitude,
+                    "variable": [MetadataVars.LONGITUDE.value],
+                }
+            )
+            meta_vars.append(lon_grid)
+
+        if MetadataVars.PIXEL_IDX in self.meta_features:  # type: ignore
+            pixel_idx = da.arange(data.latitude.size * data.longitude.size, chunks="auto")
+            pixel_idx_reshaped = pixel_idx.reshape(data.latitude.size, data.longitude.size)
+            pixel_idx_xr = xr.DataArray(
+                pixel_idx_reshaped,
+                dims={
+                    "latitude": data.latitude,
+                    "longitude": data.longitude,
+                },
+            )
+            pixel_idx_grid = pixel_idx_xr.expand_dims(
+                {
+                    "prediction_time": data.prediction_time,
+                    "variable": [MetadataVars.PIXEL_IDX.value],
+                }
+            )
+            meta_vars.append(pixel_idx_grid)
+
+        # Concatenate all metadata variables along the last dimension using dask
+        if meta_vars:
+            meta_xr = xr.concat(meta_vars, dim="variable", coords="minimal").transpose(
+                "prediction_time", "latitude", "longitude", "variable"
+            )
+            return xr.concat([data, meta_xr], dim="variable")
+        else:
+            return data
+
+    def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
+        """Remove metadata from the preprocessed data."""
+        return data[..., : -self.num_meta_features]  # Remove the last 'meta_features' dimensions
