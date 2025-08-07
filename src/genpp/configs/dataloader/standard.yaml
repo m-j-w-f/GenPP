@@ -1,0 +1,6 @@
+# Standard DataLoader configuration
+batch_size: null  # Determined by the batch size of the generators
+prefetch_factor: 3
+num_workers: 4
+multiprocessing_context: "forkserver"
+pin_memory: true

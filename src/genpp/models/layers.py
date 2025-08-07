@@ -1,6 +1,6 @@
 """Custom neural network layers for the GenPP project."""
 
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -121,3 +121,25 @@ class Crop2D(nn.Module):
         """
         cropped = x[..., self.padding[0] : -self.padding[1], self.padding[2] : -self.padding[3], :]
         return cropped
+
+
+class FinalActivation(nn.Module):
+    """A final activation layer that applies a specified activation function.
+    Splits the input tensor into multiple parts and applies the activation function to each part.
+    The split is done along the last dimension.
+
+    Args:
+        activation (str): The activation function to use. Options are 'relu', 'sigmoid', 'tanh', 'softmax'.
+    """
+
+    def __init__(self, activations: List[torch.nn.Module]) -> None:
+        super(FinalActivation, self).__init__()
+        self.activations = activations
+        self.len = len(activations)
+
+    def __repr__(self) -> str:
+        return f"FinalActivation(activations={self.activations})"
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = torch.stack([act(x[..., i]) for i, act in enumerate(self.activations)], dim=-1)
+        return x

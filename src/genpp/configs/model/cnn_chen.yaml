@@ -1,0 +1,36 @@
+# CNN-based Chen Model Configuration
+_target_: genpp.models.chen.CNNChenModel
+
+# Model architecture parameters
+in_features: 29
+meta_features: 5
+out_features: 2
+width: 48
+height: 32
+noise_dim: 1 # Every gridpoint has noise added of noise_dim
+embedding_dim: 5
+n_samples_train: 50
+
+# CNN-specific parameters
+# TODO: put acutal padding here
+padding: [2, 2, 3, 3]  # [top, bottom, left, right] padding applied to input
+
+# Training parameters
+lr: 3e-4
+
+# Activation function
+final_activation:
+  _target_: genpp.models.layers.FinalActivation
+  activations:
+    - _target_: torch.nn.Identity # Temperature
+    - _target_: torch.nn.ReLU # Wind speed
+
+# Loss function
+loss_fn:
+  _target_: genpp.models.loss.EnergyScore
+  beta: 1.0
+  clamp: true
+  mean: false
+
+# Optimizer
+optimizer: torch.optim.AdamW

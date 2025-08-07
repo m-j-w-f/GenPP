@@ -1,7 +1,6 @@
 import warnings
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import List
+from typing import List, Type
 
 import dask  # noqa: F401
 import dask.array as da
@@ -30,6 +29,15 @@ class Preprocessor(ABC):
         pass
 
     @abstractmethod
+    def fit(self, data: xr.DataArray) -> None:
+        """Fit the preprocessor to the data.
+
+        Args:
+            data: The input data to fit the preprocessor on.
+        """
+        pass
+
+    @abstractmethod
     def inverse_transform(self, data: torch.Tensor) -> xr.DataArray | torch.Tensor:
         """Inverse transform the preprocessed data back to its original form.
 
@@ -51,6 +59,7 @@ class StandardScalerPreprocessor(Preprocessor):
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the mean and standard deviation."""
+        # TODO change mean computation as discussed
         self.mean = data.mean(dim=self.dim).compute()
         self.std = data.std(dim=self.dim, ddof=1).compute()
         self.is_fitted = True
@@ -72,9 +81,13 @@ class StandardScalerPreprocessor(Preprocessor):
 class AddMetadataPreprocessor(Preprocessor):
     """A preprocessor that adds metadata to the data."""
 
-    def __init__(self, meta_features: List[MetadataVars] | Enum) -> None:
+    def __init__(self, meta_features: List[MetadataVars] | Type[MetadataVars]) -> None:
         self.meta_features = meta_features
         self.num_meta_features = len(meta_features)  # type: ignore
+
+    def fit(self, data: xr.DataArray) -> None:
+        """Fit the preprocessor to the data. This preprocessor does not require fitting."""
+        pass
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Add metadata to the input data."""

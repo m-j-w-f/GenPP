@@ -12,24 +12,29 @@ Outputs:
 # TODO fatten the aggregations and append _mean and _std to the variable names, this way we can add Metadata to the variables and still use the same code for the MapDataset
 # We only need to keep track of the length of the variables to slice them correctly later
 
+from pathlib import Path
+
 import xarray as xr
 from dask.distributed import Client
 
 from genpp.data import (
     FC_VARS,
-    FORECAST_ENS_PATH,
+    FORECAST_ENS_FLAT_AGG_NAME,
+    FORECAST_ENS_NAME,
     MISSING_DAYS,
-    OBSERVATIONS_PATH,
+    OBSERVATIONS_FLAT_NAME,
+    OBSERVATIONS_NAME,
     OUTPUT_DIR,
 )
 from genpp.data.utils import flatten_levels, get_time_intersection
 
-if __name__ == "__main__":
+
+def main(base_dir: Path = OUTPUT_DIR) -> None:
     client = Client()
     print("Dask dashboard link:", client.dashboard_link)
 
     ens = xr.open_dataset(
-        FORECAST_ENS_PATH,
+        base_dir / FORECAST_ENS_NAME,
         chunks={
             "time": "auto",
             "number": -1,
@@ -39,7 +44,7 @@ if __name__ == "__main__":
         },
     )
     obs = xr.open_dataset(
-        OBSERVATIONS_PATH,
+        base_dir / OBSERVATIONS_NAME,
         chunks="auto",
     )
     # Cut out the missing days first, since they are in time, not prediction_time
@@ -77,6 +82,10 @@ if __name__ == "__main__":
     flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "latitude", "longitude", "variable")
 
     # Save to disk for later use and faster loading
-    flat_obs.to_netcdf(OUTPUT_DIR / "flat_obs_preproc.nc", mode="w", format="NETCDF4")
+    flat_obs.to_netcdf(base_dir / OBSERVATIONS_FLAT_NAME, mode="w", format="NETCDF4")
 
-    flat_ens_aggr.to_netcdf(OUTPUT_DIR / "flat_ens_preproc_agg.nc", mode="w", format="NETCDF4")
+    flat_ens_aggr.to_netcdf(base_dir / FORECAST_ENS_FLAT_AGG_NAME, mode="w", format="NETCDF4")
+
+
+if __name__ == "__main__":
+    main()

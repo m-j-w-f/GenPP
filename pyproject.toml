@@ -19,8 +19,6 @@ genpp = { path = ".", editable = true }
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
 
 [tool.pixi.dependencies]
-pre-commit = ">=4.2.0,<5"
-ipykernel = ">=6.29.5,<7"
 zarr = ">=3.0.10,<4"
 gcsfs = ">=2025.5.1,<2026"
 dask = ">=2025.7.0,<2026"
@@ -32,13 +30,22 @@ einops = ">=0.8.1,<0.9"
 lightning = ">=2.5.2,<3"
 xbatcher = ">=0.4.0,<0.5"
 scipy = ">=1.7.2,<2"
+hydra-core = ">=1.3.2,<2"
+omegaconf = ">=2.3.0,<3"
+wandb = ">=0.21.0,<0.22"
 
-[tool.pixi.feature.test.dependencies]
+[tool.pixi.feature.dev.dependencies]
 pytest = ">=8.4.1,<9"
 scoringrules = ">=0.8.0,<0.9"
+pre-commit = ">=4.2.0,<5"
+ipykernel = ">=6.29.5,<7"
+rsync = ">=3.4.1,<4"
 
-[tool.pixi.feature.test.tasks]
+
+[tool.pixi.feature.dev.tasks]
 test = "pytest"
+sync = "rsync -avzr --progress --human-readable --exclude='.pixi/' --exclude='__pycache__/' --exclude='.DS_Store' . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/"
+
 
 [tool.pixi.environments]
-test = ["test"]
+dev = ["default","dev"]

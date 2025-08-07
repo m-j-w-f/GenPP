@@ -1,0 +1,17 @@
+defaults:
+  - model: cnn_chen
+  - data: weatherbench2
+  - _self_
+
+trainer:
+  max_epochs: 100
+  accelerator: gpu
+  devices: 1
+
+data:
+  batch_size: 8
+  num_workers: 4
+
+logging:
+  project: "genpp-models"
+  tags: ["UNet", "CGM"]

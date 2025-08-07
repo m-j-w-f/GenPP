@@ -1,0 +1,36 @@
+# Fully Connected Chen Model Configuration
+_target_: genpp.models.chen.FcChenModel
+
+# Model architecture parameters
+in_features: 29
+meta_features: 5
+out_features: 2
+width: 48
+height: 32
+noise_dim: 50
+embedding_dim: 5
+n_samples_train: 50
+
+# FC-specific parameters
+hidden_dim_std: 256
+hidden_dim_decoder: 512
+
+# Training parameters
+lr: 3e-4
+
+# Activation function
+final_activation:
+  _target_: genpp.models.layers.FinalActivation
+  activations:
+    - _target_: torch.nn.Identity # Temperature
+    - _target_: torch.nn.ReLU # Wind speed
+
+# Loss function
+loss_fn:
+  _target_: genpp.models.loss.EnergyScore
+  beta: 1.0
+  clamp: true
+  mean: false
+
+# Optimizer
+optimizer: torch.optim.AdamW

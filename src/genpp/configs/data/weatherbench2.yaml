@@ -1,0 +1,79 @@
+# Advanced WeatherBench2 DataModule Configuration with Hydra composition
+defaults:
+  - splits: standard
+  - dataloader_base: standard
+  - _self_
+
+_target_: genpp.data.dataset.WeatherBench2DataModule
+
+# Shared configuration parameters
+batch_size: 8
+spatial_dims:
+  latitude: 3
+  longitude: 3
+overlap:
+  latitude: 1
+  longitude: 1
+variables:
+  input: 58  # 29 * 2 (mean and std)
+  output: 2
+
+# Template for dataset split configuration
+_split_template: &split_template
+  batch_size: ${batch_size}
+  x_kwargs:
+    input_dims:
+      prediction_time: ${batch_size}
+      variable: ${variables.input}
+      latitude: ${spatial_dims.latitude}
+      longitude: ${spatial_dims.longitude}
+    input_overlap: ${overlap}
+  y_kwargs:
+    input_dims:
+      time: ${batch_size}
+      variable: ${variables.output}
+      latitude: ${spatial_dims.latitude}
+      longitude: ${spatial_dims.longitude}
+    input_overlap: ${overlap}
+
+# Dataset configuration using templates and interpolation
+dataset_config:
+  train:
+    <<: *split_template
+    slice: ${splits.train}
+
+  val:
+    <<: *split_template
+    slice: ${splits.val}
+
+  test:
+    <<: *split_template
+    slice: ${splits.test}
+
+# DataLoader configuration using composition
+dataloader_config:
+  train:
+    <<: ${dataloader_base}
+    shuffle: true
+
+  val:
+    <<: ${dataloader_base}
+    shuffle: false
+
+  test:
+    <<: ${dataloader_base}
+    shuffle: false
+
+# Preprocessing pipeline
+preprocessing:
+  - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
+    meta_features:
+      - _target_: genpp.data.MetadataVars.LATITUDE
+      - _target_: genpp.data.MetadataVars.LONGITUDE
+  - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
+    dim: "prediction_time"
+  - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
+    meta_features:
+      - _target_: genpp.data.MetadataVars.SIN_PREDICTION_TIME
+      - _target_: genpp.data.MetadataVars.COS_PREDICTION_TIME
+      - _target_: genpp.data.MetadataVars.PIXEL_IDX

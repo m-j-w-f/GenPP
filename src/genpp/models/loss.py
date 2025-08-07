@@ -4,10 +4,11 @@ from einops import rearrange, reduce
 
 
 class EnergyScore(nn.Module):
-    def __init__(self, beta: float = 1.0, clamp: bool = True) -> None:
+    def __init__(self, beta: float = 1.0, clamp: bool = True, mean: bool = False) -> None:
         super(EnergyScore, self).__init__()
         self.beta = beta
         self.clamp = clamp
+        self.mean = mean
         if clamp:
             self.eps = 1e-8
             self.max_value = 1e10
@@ -60,5 +61,7 @@ class EnergyScore(nn.Module):
         es_22 = reduce(
             torch.sqrt(distances_22), "b d n1 n2 -> b d", reduction="mean"
         )  # [batch_size, out_features]
-
-        return es_12 - 0.5 * es_22
+        es = es_12 - 0.5 * es_22
+        if self.mean:
+            return torch.mean(es)
+        return es
