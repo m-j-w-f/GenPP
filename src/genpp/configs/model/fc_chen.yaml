@@ -1,19 +1,22 @@
 # Fully Connected Chen Model Configuration
+defaults:
+  - _self_
+
 _target_: genpp.models.chen.FcChenModel
 
 # Model architecture parameters
 in_features: 29
 meta_features: 5
 out_features: 2
-width: 48
-height: 32
+width: 37  # From spatial.original.longitude
+height: 31  # From spatial.original.latitude
 noise_dim: 50
 embedding_dim: 5
 n_samples_train: 50
 
 # FC-specific parameters
-hidden_dim_std: 256
-hidden_dim_decoder: 512
+hidden_dim_std: 128
+hidden_dim_decoder: 128
 
 # Training parameters
 lr: 3e-4

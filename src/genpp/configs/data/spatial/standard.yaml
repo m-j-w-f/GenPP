@@ -1,0 +1,23 @@
+# Standard spatial configuration for WeatherBench2
+# Original data dimensions
+original:
+  latitude: 31
+  longitude: 37
+
+# Padding applied (top, bottom, left, right)
+padding:
+  top: 0
+  bottom: 1
+  left: 5
+  right: 6
+
+padding_list:
+  - ${..padding.top}
+  - ${..padding.bottom}
+  - ${..padding.left}
+  - ${..padding.right}
+
+# Padded dimensions after padding (calculated dynamically)
+padded:
+  latitude: ${eval:'${..original.latitude} + ${..padding.top} + ${..padding.bottom}'}
+  longitude: ${eval:'${..original.longitude} + ${..padding.left} + ${..padding.right}'}

@@ -6,6 +6,7 @@ import dask  # noqa: F401
 import dask.array as da
 import torch
 import xarray as xr
+from xarray.core.types import Dims
 
 from genpp.data import MetadataVars
 
@@ -53,7 +54,7 @@ class Preprocessor(ABC):
 class StandardScalerPreprocessor(Preprocessor):
     """A preprocessor that standardizes the data by removing the mean and scaling to unit variance."""
 
-    def __init__(self, dim: str):
+    def __init__(self, dim: Dims):
         self.dim = dim
         self.is_fitted = False
 

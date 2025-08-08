@@ -1,79 +1,73 @@
-# Advanced WeatherBench2 DataModule Configuration with Hydra composition
+# WeatherBench2 DataModule Configuration with Hydra composition
 defaults:
+  - dataloader: standard
+  - spatial: standard
   - splits: standard
-  - dataloader_base: standard
+  - variables: full
+  - /preprocess: standard
   - _self_
 
-_target_: genpp.data.dataset.WeatherBench2DataModule
 
 # Shared configuration parameters
 batch_size: 8
-spatial_dims:
-  latitude: 3
-  longitude: 3
-overlap:
-  latitude: 1
-  longitude: 1
-variables:
-  input: 58  # 29 * 2 (mean and std)
-  output: 2
 
 # Template for dataset split configuration
 _split_template: &split_template
-  batch_size: ${batch_size}
   x_kwargs:
     input_dims:
-      prediction_time: ${batch_size}
-      variable: ${variables.input}
-      latitude: ${spatial_dims.latitude}
-      longitude: ${spatial_dims.longitude}
-    input_overlap: ${overlap}
+      variable: ${data.variables.input_concat}
+      latitude: ${data.spatial.original.latitude}
+      longitude: ${data.spatial.original.longitude}
+    batch_dims:
+      prediction_time: ${data.batch_size}
+    x_transform:
+      _target_: genpp.preproc.transforms.Pad
+      padding: ${data.spatial.padding_list}
+      mode: "constant"
   y_kwargs:
     input_dims:
-      time: ${batch_size}
-      variable: ${variables.output}
-      latitude: ${spatial_dims.latitude}
-      longitude: ${spatial_dims.longitude}
-    input_overlap: ${overlap}
+      variable: ${data.variables.output}
+      latitude: ${data.spatial.original.latitude}
+      longitude: ${data.spatial.original.longitude}
+    batch_dims:
+      time: ${data.batch_size}
+    y_transform: null
 
-# Dataset configuration using templates and interpolation
-dataset_config:
-  train:
-    <<: *split_template
-    slice: ${splits.train}
+_dataloader_template: &dataloader_template
+  batch_size: ${data.dataloader.batch_size}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  num_workers: ${data.dataloader.num_workers}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
 
-  val:
-    <<: *split_template
-    slice: ${splits.val}
+module:
+  _target_: genpp.data.dataset.WeatherBench2DataModule
+  # Dataset configuration using templates and interpolation
+  dataset_config:
+    train:
+      <<: *split_template
+      slice: ${data.splits.train}
 
-  test:
-    <<: *split_template
-    slice: ${splits.test}
+    val:
+      <<: *split_template
+      slice: ${data.splits.val}
 
-# DataLoader configuration using composition
-dataloader_config:
-  train:
-    <<: ${dataloader_base}
-    shuffle: true
+    test:
+      <<: *split_template
+      slice: ${data.splits.test}
 
-  val:
-    <<: ${dataloader_base}
-    shuffle: false
+  # DataLoader configuration using composition
+  dataloader_config:
+    train:
+      <<: *dataloader_template
+      shuffle: true
 
-  test:
-    <<: ${dataloader_base}
-    shuffle: false
+    val:
+      <<: *dataloader_template
+      shuffle: false
 
-# Preprocessing pipeline
-preprocessing:
-  - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
-    meta_features:
-      - _target_: genpp.data.MetadataVars.LATITUDE
-      - _target_: genpp.data.MetadataVars.LONGITUDE
-  - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
-    dim: "prediction_time"
-  - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
-    meta_features:
-      - _target_: genpp.data.MetadataVars.SIN_PREDICTION_TIME
-      - _target_: genpp.data.MetadataVars.COS_PREDICTION_TIME
-      - _target_: genpp.data.MetadataVars.PIXEL_IDX
+    test:
+      <<: *dataloader_template
+      shuffle: false
+  x_preprocessing: ${data.preprocess.x_preprocessing}
+  y_preprocessing: ${data.preprocess.y_preprocessing}

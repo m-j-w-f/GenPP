@@ -1,19 +1,19 @@
 # CNN-based Chen Model Configuration
+defaults:
+  - _self_
+
 _target_: genpp.models.chen.CNNChenModel
 
 # Model architecture parameters
-in_features: 29
-meta_features: 5
-out_features: 2
-width: 48
-height: 32
+in_features: 63  # From variables.input_concat
+meta_features: 5  # From variables.meta_features
+out_features: 2  # From variables.output
+width: 43   # From spatial.padded.longitude
+height: 32   # From spatial.padded.latitude
 noise_dim: 1 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
 n_samples_train: 50
-
-# CNN-specific parameters
-# TODO: put acutal padding here
-padding: [2, 2, 3, 3]  # [top, bottom, left, right] padding applied to input
+padding: ${data.spatial.padding_list}
 
 # Training parameters
 lr: 3e-4

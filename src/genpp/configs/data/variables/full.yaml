@@ -1,0 +1,6 @@
+# Variable configuration for full WeatherBench2 dataset
+input_variables: 29
+aggregation_levels: 2
+meta_features: 5
+output: 2
+input_concat: ${eval:'${.input_variables} * ${.aggregation_levels} + ${.meta_features}'}

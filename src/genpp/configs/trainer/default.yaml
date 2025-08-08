@@ -1,0 +1,12 @@
+# Default trainer configuration for PyTorch Lightning
+max_epochs: 100
+accelerator: gpu
+devices: 1
+precision: 16
+gradient_clip_val: 1.0
+accumulate_grad_batches: 1
+check_val_every_n_epoch: 1
+log_every_n_steps: 50
+enable_checkpointing: true
+enable_model_summary: true
+enable_progress_bar: true

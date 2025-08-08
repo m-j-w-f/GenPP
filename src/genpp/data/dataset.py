@@ -15,6 +15,7 @@ from genpp.data import (
     FORECAST_ENS_FLAT_AGG_PREPROC_NAME,
     FORECAST_ENS_NAME,
     OBSERVATIONS_FLAT_NAME,
+    OBSERVATIONS_FLAT_PREPROC_NAME,
     OBSERVATIONS_NAME,
     OUTPUT_DIR,
 )
@@ -26,7 +27,6 @@ def get_MapDataset(
     y_ds: xr.DataArray,
     x_kwargs: dict,
     y_kwargs: dict,
-    batch_size: int = 8,
     x_transform: Callable = to_tensor,
     y_transform: Callable = to_tensor,
 ) -> MapDataset:
@@ -37,7 +37,6 @@ def get_MapDataset(
         y_ds (xr.Dataset): dataset containing the target data.
         x_kwargs (dict): keyword arguments for the xbatcher.BatchGenerator for input data.
         y_kwargs (dict): keyword arguments for the xbatcher.BatchGenerator for target data.
-        batch_size (int, optional): number of samples per batch. Defaults to 8.
         x_transform (Callable, optional): transform function for input data. Defaults to to_tensor.
         y_transform (Callable, optional): transform function for target data. Defaults to to_tensor.
 
@@ -45,8 +44,6 @@ def get_MapDataset(
         MapDataset: A PyTorch-compatible MapDataset that generates batches from the input datasets
                using xbatcher BatchGenerators with the specified transforms applied.
     """
-    x_kwargs["input_dims"]["prediction_time"] = batch_size
-    y_kwargs["input_dims"]["time"] = batch_size
 
     x_gen = xbatcher.BatchGenerator(
         x_ds,
@@ -60,8 +57,8 @@ def get_MapDataset(
     map_ds = MapDataset(
         X_generator=x_gen,
         y_generator=y_gen,
-        transform=x_transform,
-        target_transform=y_transform,
+        transform=x_transform if x_transform is not None else to_tensor,
+        target_transform=y_transform if y_transform is not None else to_tensor,
     )
     return map_ds
 
@@ -74,11 +71,13 @@ class WeatherBench2DataModule(L.LightningDataModule):
         dataset_config: DictConfig,
         dataloader_config: DictConfig,
         save_dir: Path = OUTPUT_DIR,
-        preprocssing: List[Preprocessor] | None = None,
+        x_preprocessing: List[Preprocessor] | None = None,
+        y_preprocessing: List[Preprocessor] | None = None,
     ) -> None:
         super().__init__()
         self.path = save_dir
-        self.preprocssing = preprocssing
+        self.x_preprocessing = x_preprocessing
+        self.y_preprocessing = y_preprocessing
         self.dataset_config = dataset_config
         self.dataloader_config = dataloader_config
 
@@ -115,7 +114,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
 
         # Preprocess the forecasts and save it to disk if necessary
         # TODO: if we often change the preprocessing, we might want to use a tempfile here and delete it in teardown after training
-        if self.preprocssing:
+        if self.x_preprocessing:
             if not (self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME).exists():
                 warn(
                     f"Preprocessing not done yet for {self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME}. "
@@ -123,7 +122,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 )
                 # Load the data, fit the preprocessors, and save the preprocessed data
                 da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
-                for preprocessor in self.preprocssing:
+                for preprocessor in self.x_preprocessing:
                     preprocessor.fit(da)
                     da = preprocessor.preprocess(da)
                 da.to_netcdf(
@@ -131,10 +130,26 @@ class WeatherBench2DataModule(L.LightningDataModule):
                     mode="w",
                     format="NETCDF4",
                 )
+        if self.y_preprocessing:
+            if not (self.path / OBSERVATIONS_FLAT_PREPROC_NAME).exists():
+                warn(
+                    f"Preprocessing not done yet for {self.path / OBSERVATIONS_FLAT_PREPROC_NAME}. "
+                    "This will take some time..."
+                )
+                # Load the data, fit the preprocessors, and save the preprocessed data
+                da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+                for preprocessor in self.y_preprocessing:
+                    preprocessor.fit(da)
+                    da = preprocessor.preprocess(da)
+                da.to_netcdf(
+                    self.path / OBSERVATIONS_FLAT_PREPROC_NAME,
+                    mode="w",
+                    format="NETCDF4",
+                )
 
     def setup(self, stage: str):
         x = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME)
-        y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+        y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_PREPROC_NAME)
 
         if stage == "fit":
             self.train_dataset = get_MapDataset(
@@ -142,14 +157,16 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 y.sel(time=self.dataset_config.train.slice),
                 x_kwargs=self.dataset_config.train.x_kwargs,
                 y_kwargs=self.dataset_config.train.y_kwargs,
-                batch_size=self.dataset_config.train.batch_size,
+                x_transform=self.dataset_config.train.x_transform,
+                y_transform=self.dataset_config.train.y_transform,
             )
             self.val_dataset = get_MapDataset(
                 x.sel(time=self.dataset_config.val.slice),
                 y.sel(time=self.dataset_config.val.slice),
                 x_kwargs=self.dataset_config.val.x_kwargs,
                 y_kwargs=self.dataset_config.val.y_kwargs,
-                batch_size=self.dataset_config.val.batch_size,
+                x_transform=self.dataset_config.val.x_transform,
+                y_transform=self.dataset_config.val.y_transform,
             )
         if stage == "test":
             self.test_dataset = get_MapDataset(
@@ -157,7 +174,8 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 y.sel(time=self.dataset_config.test.slice),
                 x_kwargs=self.dataset_config.test.x_kwargs,
                 y_kwargs=self.dataset_config.test.y_kwargs,
-                batch_size=self.dataset_config.test.batch_size,
+                x_transform=self.dataset_config.test.x_transform,
+                y_transform=self.dataset_config.test.y_transform,
             )
 
     def train_dataloader(self):

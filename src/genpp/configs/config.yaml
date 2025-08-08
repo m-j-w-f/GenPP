@@ -1,17 +1,16 @@
+# Main configuration file for GenPP training
 defaults:
-  - model: cnn_chen
   - data: weatherbench2
+  - model: cnn_chen
+  - trainer: default
+  - logger: default
   - _self_
 
-trainer:
-  max_epochs: 100
-  accelerator: gpu
-  devices: 1
+seed: 42
 
-data:
-  batch_size: 8
-  num_workers: 4
-
-logging:
-  project: "genpp-models"
-  tags: ["UNet", "CGM"]
+# Hydra configuration
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}

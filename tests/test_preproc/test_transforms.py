@@ -11,121 +11,131 @@ class TestPad:
     """Test suite for Pad transform class."""
 
     @pytest.fixture
-    def sample_tensor_5d(self):
-        """Create a sample 5D tensor for testing."""
-        # Shape: (batch=2, height=3, width=4, channels1=2, channels2=3)
-        return torch.randn(2, 3, 4, 2, 3)
+    def sample_tensor_4d(self):
+        """Create a sample 4D tensor for testing."""
+        # Shape: (batch=2, height=3, width=4, channels=2)
+        return torch.randn(2, 3, 4, 2)
 
     @pytest.fixture
     def sample_tensor_small(self):
         """Create a small tensor that needs padding."""
-        # Shape: (batch=1, height=2, width=2, channels1=1, channels2=1)
-        return torch.randn(1, 2, 2, 1, 1)
+        # Shape: (batch=1, height=2, width=2, channels=1)
+        return torch.randn(1, 2, 2, 1)
 
     def test_pad_initialization_default(self):
         """Test Pad initialization with default parameters."""
-        pad = Pad()
-        assert pad.target_shape == (32, 48)
+        pad = Pad(padding=(1, 1, 1, 1))
+        assert pad.padding == (1, 1, 1, 1)
         assert pad.mode == "reflect"
 
     def test_pad_initialization_custom(self):
         """Test Pad initialization with custom parameters."""
-        pad = Pad(target_shape=(16, 24), mode="constant")
-        assert pad.target_shape == (16, 24)
+        pad = Pad(padding=(2, 3, 1, 4), mode="constant")
+        assert pad.padding == (2, 3, 1, 4)
         assert pad.mode == "constant"
 
-    def test_pad_initialization_invalid_shape(self):
-        """Test that invalid target shape raises assertion error."""
-        with pytest.raises(AssertionError):
-            Pad(target_shape=(32,))  # type: ignore  # Only one dimension
+    def test_pad_initialization_valid_padding(self):
+        """Test that valid padding tuples work correctly."""
+        # Test with zero padding
+        pad1 = Pad(padding=(0, 0, 0, 0))
+        assert pad1.padding == (0, 0, 0, 0)
 
-        with pytest.raises(AssertionError):
-            Pad(target_shape=(32, 48, 16))  # type: ignore  # Three dimensions
+        # Test with asymmetric padding
+        pad2 = Pad(padding=(1, 2, 3, 4))
+        assert pad2.padding == (1, 2, 3, 4)
 
     def test_pad_transform_basic(self, sample_tensor_small):
         """Test basic padding functionality."""
-        pad = Pad(target_shape=(4, 4))
+        # Add 1 pixel padding on all sides: (left=1, right=1, top=1, bottom=1)
+        pad = Pad(padding=(1, 1, 1, 1))
         result = pad.transform(sample_tensor_small)
 
-        # Check output shape
-        assert result.shape == (1, 4, 4, 1, 1)
+        # Check output shape: 2x2 -> 4x4 with 1 pixel padding on all sides
+        assert result.shape == (1, 4, 4, 1)
 
         # Check that original data is preserved somewhere in the padded tensor
         assert result.sum() != 0  # Basic sanity check
 
     def test_pad_call_method(self, sample_tensor_small):
         """Test that __call__ method works correctly."""
-        pad = Pad(target_shape=(4, 4))
+        pad = Pad(padding=(1, 1, 1, 1))
         result = pad(sample_tensor_small)
 
         # Should be same as transform method
         expected = pad.transform(sample_tensor_small)
         torch.testing.assert_close(result, expected)
 
-    def test_pad_larger_input_raises_error(self):
-        """Test that input larger than target raises ValueError."""
-        # Create tensor larger than target
-        large_tensor = torch.randn(1, 10, 10, 1, 1)
-        pad = Pad(target_shape=(5, 5))
+    def test_pad_various_sizes(self):
+        """Test that different padding sizes can be applied within constraints."""
+        # Create small tensor
+        small_tensor = torch.randn(1, 3, 3, 1)
 
-        with pytest.raises(
-            ValueError, match="Input tensor dimensions .* are larger than target shape"
-        ):
-            pad.transform(large_tensor)
+        # Apply small padding amounts (within reflect mode constraints)
+        pad_small = Pad(padding=(1, 1, 1, 1))
+        result_small = pad_small.transform(small_tensor)
+        assert result_small.shape == (1, 5, 5, 1)
+
+        # Apply larger padding with constant mode (no size constraints)
+        pad_large = Pad(padding=(5, 10, 2, 8), mode="constant")
+        result_large = pad_large.transform(small_tensor)
+        assert result_large.shape == (1, 13, 18, 1)  # height: 3+2+8=13, width: 3+5+10=18
 
     def test_pad_different_modes(self, sample_tensor_small):
         """Test different padding modes."""
         modes = ["reflect", "constant", "replicate", "circular"]
 
         for mode in modes:
-            pad = Pad(target_shape=(4, 4), mode=mode)
+            pad = Pad(padding=(1, 1, 1, 1), mode=mode)
             result = pad.transform(sample_tensor_small)
 
             # All should produce same output shape
-            assert result.shape == (1, 4, 4, 1, 1)
+            assert result.shape == (1, 4, 4, 1)
 
-    def test_pad_preserves_batch_and_channel_dims(self, sample_tensor_5d):
+    def test_pad_preserves_batch_and_channel_dims(self, sample_tensor_4d):
         """Test that batch and channel dimensions are preserved."""
-        original_shape = sample_tensor_5d.shape
-        pad = Pad(target_shape=(5, 10))
-        result = pad.transform(sample_tensor_5d)
+        original_shape = sample_tensor_4d.shape
+        # Use smaller padding that respects reflect mode constraints
+        # For a tensor with height=3, width=4, max padding should be < dimension size
+        pad = Pad(padding=(1, 1, 1, 1))  # left=1, right=1, top=1, bottom=1
+        result = pad.transform(sample_tensor_4d)
 
-        # Batch, channels1, channels2 should be unchanged
+        # Batch and channels should be unchanged
         assert result.shape[0] == original_shape[0]  # batch
-        assert result.shape[3] == original_shape[3]  # channels1
-        assert result.shape[4] == original_shape[4]  # channels2
+        assert result.shape[3] == original_shape[3]  # channels
 
-        # Height and width should match target
-        assert result.shape[1] == 5  # height
-        assert result.shape[2] == 10  # width
+        # Height and width should reflect padding
+        expected_height = original_shape[1] + 1 + 1  # top + bottom padding
+        expected_width = original_shape[2] + 1 + 1  # left + right padding
+        assert result.shape[1] == expected_height
+        assert result.shape[2] == expected_width
 
     def test_pad_symmetric_padding(self):
         """Test that padding is applied symmetrically."""
         # Create small known tensor
-        tensor = torch.ones(1, 2, 2, 1, 1)
-        pad = Pad(target_shape=(4, 4), mode="constant")
+        tensor = torch.ones(1, 2, 2, 1)
+        pad = Pad(padding=(1, 1, 1, 1), mode="constant")
         result = pad.transform(tensor)
 
         # For a 2x2 -> 4x4 padding with constant mode (default value 0),
         # the original 2x2 should be in the center
-        assert result.shape == (1, 4, 4, 1, 1)
+        assert result.shape == (1, 4, 4, 1)
 
         # The center 2x2 should contain the original data
-        center = result[0, 1:3, 1:3, 0, 0]
+        center = result[0, 1:3, 1:3, 0]
         torch.testing.assert_close(center, torch.ones(2, 2))
 
     def test_pad_with_xarray_input(self):
         """Test that Pad works with xarray input through __call__."""
         # Create xarray DataArray
-        data = np.random.randn(1, 2, 2, 1, 1)
-        da = xr.DataArray(data, dims=["batch", "height", "width", "c1", "c2"])
+        data = np.random.randn(1, 2, 2, 1)
+        da = xr.DataArray(data, dims=["batch", "height", "width", "c1"])
 
-        pad = Pad(target_shape=(4, 4))
+        pad = Pad(padding=(1, 1, 1, 1))
         result = pad(da)
 
         # Should return torch tensor
         assert isinstance(result, torch.Tensor)
-        assert result.shape == (1, 4, 4, 1, 1)
+        assert result.shape == (1, 4, 4, 1)
 
 
 class TestPipe:
@@ -159,8 +169,8 @@ class TestPipe:
 
     def test_pipe_initialization(self):
         """Test Pipe initialization."""
-        pad1 = Pad(target_shape=(4, 6))
-        pad2 = Pad(target_shape=(8, 10))
+        pad1 = Pad(padding=(1, 1, 1, 1))
+        pad2 = Pad(padding=(2, 2, 2, 2))
 
         pipe = Pipe([pad1, pad2])
         assert len(pipe.transforms) == 2
@@ -173,7 +183,7 @@ class TestPipe:
         assert len(pipe.transforms) == 0
 
         # Should still work with tensor input (no transforms applied)
-        tensor = torch.randn(2, 3, 4, 1, 1)
+        tensor = torch.randn(2, 3, 4, 1)
         result = pipe.transform(tensor)
         torch.testing.assert_close(result, tensor)
 
@@ -221,15 +231,13 @@ class TestPipe:
 
     def test_pipe_call_method_with_xarray(self, sample_xarray_data, mock_transform):
         """Test Pipe __call__ method with xarray input."""
-        pad = Pad(target_shape=(4, 6))
+        pad = Pad(padding=(1, 1, 1, 1))
         pipe = Pipe([mock_transform, pad])
 
         # Create tensor that can work with both transforms
         # Note: This is a conceptual test since mock_transform doubles values
-        # and pad expects 5D tensors
-        tensor_data = (
-            torch.tensor(sample_xarray_data.values).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-        )
+        # and pad expects 4D tensors
+        tensor_data = torch.tensor(sample_xarray_data.values).unsqueeze(0).unsqueeze(-1)
 
         try:
             result = pipe.transform(tensor_data)
@@ -241,11 +249,11 @@ class TestPipe:
 
     def test_pipe_call_method_with_tensor(self, mock_transform):
         """Test Pipe __call__ method with tensor input."""
-        pad = Pad(target_shape=(4, 6))
+        pad = Pad(padding=(1, 1, 1, 1))
         pipe = Pipe([mock_transform, pad])
 
         # Create tensor that matches the expected input shape for both transforms
-        tensor = torch.randn(1, 3, 4, 1, 1)  # For pad: (batch, height, width, c1, c2)
+        tensor = torch.randn(1, 3, 4, 1)  # For pad: (batch, height, width, channels)
 
         # This test demonstrates pipe mechanism with compatible transforms
         try:
