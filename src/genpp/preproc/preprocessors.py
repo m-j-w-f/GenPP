@@ -110,7 +110,7 @@ class AddMetadataPreprocessor(Preprocessor):
         times_doy = times.dt.dayofyear
 
         if MetadataVars.SIN_PREDICTION_TIME in self.meta_features:  # type: ignore
-            transformed_times = da.sin(times_doy * 2 * da.pi / 365)
+            transformed_times = da.sin(times_doy * 2 * da.pi / 365).astype(da.float32)
             # Use dask's broadcast_to instead of einops
             time_grid = transformed_times.expand_dims(
                 {
@@ -122,7 +122,7 @@ class AddMetadataPreprocessor(Preprocessor):
             meta_vars.append(time_grid)
 
         if MetadataVars.COS_PREDICTION_TIME in self.meta_features:  # type: ignore
-            transformed_times = da.cos(times_doy * 2 * da.pi / 365)
+            transformed_times = da.cos(times_doy * 2 * da.pi / 365).astype(da.float32)
             time_grid = transformed_times.expand_dims(
                 {
                     "latitude": data.latitude,
@@ -153,7 +153,9 @@ class AddMetadataPreprocessor(Preprocessor):
             meta_vars.append(lon_grid)
 
         if MetadataVars.PIXEL_IDX in self.meta_features:  # type: ignore
-            pixel_idx = da.arange(data.latitude.size * data.longitude.size, chunks="auto")
+            pixel_idx = da.arange(
+                data.latitude.size * data.longitude.size, chunks="auto", dtype=da.float32
+            )
             pixel_idx_reshaped = pixel_idx.reshape(data.latitude.size, data.longitude.size)
             pixel_idx_xr = xr.DataArray(
                 pixel_idx_reshaped,
