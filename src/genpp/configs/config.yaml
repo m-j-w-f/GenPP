@@ -14,3 +14,9 @@ hydra:
     chdir: true
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+# Custom Test stuff
+trainer:
+  overfit_batches: 1
+  precision: 16-mixed  # Use mixed precision training
+  accelerator: cpu

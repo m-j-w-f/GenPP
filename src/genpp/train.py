@@ -1,29 +1,27 @@
 import hydra
-import pytorch_lightning as L
+import lightning as L
 from omegaconf import DictConfig
+
+from genpp.configs import register_resolvers
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def train(cfg: DictConfig) -> None:
+    register_resolvers()
+
     # Set seed for reproducibility
     if hasattr(cfg, "seed"):
         L.seed_everything(cfg.seed)
 
-    # Instantiate model using Hydra
     model = hydra.utils.instantiate(cfg.model)
-
-    # Instantiate datamodule using Hydra
     datamodule = hydra.utils.instantiate(cfg.data.module)
 
-    # TODO Instantiate logger using Hydra (if specified)
     logger = None
-    if hasattr(cfg, "logger") and cfg.logger:
-        logger = hydra.utils.instantiate(cfg.logger)
+    # if hasattr(cfg, "logger") and cfg.logger:
+    #    logger = hydra.utils.instantiate(cfg.logger)
 
-    # Instantiate trainer using Hydra
-    trainer = L.Trainer(logger=logger, **cfg.trainer)
+    trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
 
-    # Train the model
     trainer.fit(model, datamodule)
 
 

@@ -5,6 +5,10 @@
 # Data
 *.nc
 
+#Log files
+outputs/
+logs/
+
 # MacOS
 .DS_Store
 

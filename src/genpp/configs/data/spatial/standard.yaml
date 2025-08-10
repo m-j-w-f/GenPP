@@ -11,11 +11,7 @@ padding:
   left: 5
   right: 6
 
-padding_list:
-  - ${..padding.top}
-  - ${..padding.bottom}
-  - ${..padding.left}
-  - ${..padding.right}
+padding_list: ${tuple:${.padding.top},${.padding.bottom},${.padding.left},${.padding.right}}
 
 # Padded dimensions after padding (calculated dynamically)
 padded:

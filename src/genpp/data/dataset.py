@@ -147,13 +147,21 @@ class WeatherBench2DataModule(L.LightningDataModule):
                     format="NETCDF4",
                 )
 
-    def setup(self, stage: str):
-        x = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME)
-        y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_PREPROC_NAME)
+    def setup(self, stage: str) -> None:
+        # Load preprocessed data if preprocessing was configured, otherwise load original flat data
+        if self.x_preprocessing:
+            x = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME)
+        else:
+            x = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
+
+        if self.y_preprocessing:
+            y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_PREPROC_NAME)
+        else:
+            y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
 
         if stage == "fit":
             self.train_dataset = get_MapDataset(
-                x.sel(time=self.dataset_config.train.slice),
+                x.sel(prediction_time=self.dataset_config.train.slice),
                 y.sel(time=self.dataset_config.train.slice),
                 x_kwargs=self.dataset_config.train.x_kwargs,
                 y_kwargs=self.dataset_config.train.y_kwargs,
@@ -161,7 +169,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 y_transform=self.dataset_config.train.y_transform,
             )
             self.val_dataset = get_MapDataset(
-                x.sel(time=self.dataset_config.val.slice),
+                x.sel(prediction_time=self.dataset_config.val.slice),
                 y.sel(time=self.dataset_config.val.slice),
                 x_kwargs=self.dataset_config.val.x_kwargs,
                 y_kwargs=self.dataset_config.val.y_kwargs,
@@ -170,7 +178,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
             )
         if stage == "test":
             self.test_dataset = get_MapDataset(
-                x.sel(time=self.dataset_config.test.slice),
+                x.sel(prediction_time=self.dataset_config.test.slice),
                 y.sel(time=self.dataset_config.test.slice),
                 x_kwargs=self.dataset_config.test.x_kwargs,
                 y_kwargs=self.dataset_config.test.y_kwargs,

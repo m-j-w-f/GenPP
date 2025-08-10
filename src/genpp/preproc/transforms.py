@@ -66,17 +66,20 @@ class Pad(Transform):
                 (batch, target_height, target_width, channels).
         """
         b, h, w, c = data.shape
+        # BUG: The dimensions of the padding seem to be messed up.
+        # For now the last 2 dimenions are switched so that the padding works again.
+        # TODO find a clean solution for this. And make sure the model understnds this padding as well
 
         if self.mode == "constant":  # constant padding works for any dimension
-            data_reshaped = rearrange(data, "b h w ... -> b ... h w")
+            data_reshaped = rearrange(data, "b h w ... -> b ... w h")
             data_padded = F.pad(data_reshaped, self.padding, mode=self.mode)
-            output = rearrange(data_padded, "b ... h w -> b h w ...")
+            output = rearrange(data_padded, "b ... w h -> b h w ...")
             return output
         else:
             # torch.nn.functional.pad works on the last dimensions of a tensor.
-            data_reshaped = rearrange(data, "b h w c -> (b c) h w")
+            data_reshaped = rearrange(data, "b h w c -> (b c) w h")
             data_padded = F.pad(data_reshaped, self.padding, mode=self.mode)
-            output = rearrange(data_padded, "(b c) h w -> b h w c", b=b, c=c)
+            output = rearrange(data_padded, "(b c) w h -> b h w c", b=b, c=c)
 
             return output
 

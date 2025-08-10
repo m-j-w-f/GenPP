@@ -4,7 +4,7 @@ defaults:
   - spatial: standard
   - splits: standard
   - variables: full
-  - /preprocess: standard
+  - preprocess: standard
   - _self_
 
 
@@ -20,10 +20,10 @@ _split_template: &split_template
       longitude: ${data.spatial.original.longitude}
     batch_dims:
       prediction_time: ${data.batch_size}
-    x_transform:
-      _target_: genpp.preproc.transforms.Pad
-      padding: ${data.spatial.padding_list}
-      mode: "constant"
+  x_transform:
+    _target_: genpp.preproc.transforms.Pad
+    padding: ${data.spatial.padding_list}
+    mode: "constant"
   y_kwargs:
     input_dims:
       variable: ${data.variables.output}
@@ -31,7 +31,7 @@ _split_template: &split_template
       longitude: ${data.spatial.original.longitude}
     batch_dims:
       time: ${data.batch_size}
-    y_transform: null
+  y_transform: null
 
 _dataloader_template: &dataloader_template
   batch_size: ${data.dataloader.batch_size}

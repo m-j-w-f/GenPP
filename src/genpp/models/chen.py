@@ -159,6 +159,20 @@ class BaseChenModel(ABC, L.LightningModule):
         loss = self.loss_fn(res, y)
         return loss
 
+    def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+        x, y = batch
+        res = self.forward(x)
+        loss = self.loss_fn(res, y)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        return loss
+
+    def test_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+        x, y = batch
+        res = self.forward(x)
+        loss = self.loss_fn(res, y)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        return loss
+
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return self.optimizer(self.parameters(), lr=self.lr)  # type: ignore
 
