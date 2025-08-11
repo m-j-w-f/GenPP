@@ -1,5 +1,10 @@
 # Main configuration file for GenPP training
 defaults:
+  - data/dataloader: standard
+  - data/spatial: standard
+  - data/splits: standard
+  - data/variables: full
+  - data/preprocess: standard
   - data: weatherbench2
   - model: cnn_chen
   - trainer: default

@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Sequence
 
 import torch
 import torch.nn.functional as F
 import xarray as xr
-from einops import rearrange
 
 
 class Transform(ABC):
@@ -40,16 +39,15 @@ class Transform(ABC):
 
 class Pad(Transform):
     """
-    A callable class to pad a n-D tensor of shape (B, H, W, ...)
-    on the H and W dimensions to a target size. It is assume that H and W stay constant.
+    Wrapper around torch.nn.functional.pad to pad the spatial dimensions of a tensor.
 
     Args:
-        padding (Tuple[int, int, int, int]): the sizes to pad on the left, right, top, and bottom.
+        padding (Tuple[int, int, int, int]): padding size (pad_lat_left, pad_lat_right, pad_lon_top, pad_lon_bottom).
         mode (str): The padding mode to use. Accepts "constant", "reflect",
             "replicate", or "circular". Defaults to "reflect".
     """
 
-    def __init__(self, padding: Tuple[int, int, int, int], mode: str = "reflect"):
+    def __init__(self, padding: Sequence[int], mode: str = "reflect"):
         self.padding = padding
         self.mode = mode
 
@@ -59,29 +57,13 @@ class Pad(Transform):
 
         Args:
             data (torch.Tensor): The input tensor with shape
-                (batch, height, width, channels).
+                (batch, channels, lon, lat).
 
         Returns:
             torch.Tensor: The padded tensor with shape
                 (batch, target_height, target_width, channels).
         """
-        b, h, w, c = data.shape
-        # BUG: The dimensions of the padding seem to be messed up.
-        # For now the last 2 dimenions are switched so that the padding works again.
-        # TODO find a clean solution for this. And make sure the model understnds this padding as well
-
-        if self.mode == "constant":  # constant padding works for any dimension
-            data_reshaped = rearrange(data, "b h w ... -> b ... w h")
-            data_padded = F.pad(data_reshaped, self.padding, mode=self.mode)
-            output = rearrange(data_padded, "b ... w h -> b h w ...")
-            return output
-        else:
-            # torch.nn.functional.pad works on the last dimensions of a tensor.
-            data_reshaped = rearrange(data, "b h w c -> (b c) w h")
-            data_padded = F.pad(data_reshaped, self.padding, mode=self.mode)
-            output = rearrange(data_padded, "(b c) w h -> b h w c", b=b, c=c)
-
-            return output
+        return F.pad(data, self.padding)
 
 
 class Pipe(Transform):

@@ -1,15 +1,12 @@
 # CNN-based Chen Model Configuration
-defaults:
-  - _self_
-
 _target_: genpp.models.chen.CNNChenModel
 
 # Model architecture parameters
-in_features: 29  # From variables.input_concat
-meta_features: 4  # From variables.meta_features
-out_features: 2  # From variables.output
-width: 48   # From spatial.padded.longitude
-height: 32   # From spatial.padded.latitude
+in_features: ${data.variables.input_variables}
+meta_features: ${data.variables.meta_features}
+out_features: ${data.variables.output}
+height: ${data.spatial.padded.longitude}
+width: ${data.spatial.padded.latitude}
 noise_dim: 1 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
 n_samples_train: 50
@@ -22,15 +19,16 @@ lr: 3e-4
 final_activation:
   _target_: genpp.models.layers.FinalActivation
   activations:
-    - _target_: torch.nn.Identity # Temperature
-    - _target_: torch.nn.ReLU # Wind speed
+    # TODO we might want to force this to be positive
+    - _target_: torch.nn.Identity # Temperature (normalized)
+    - _target_: torch.nn.Identity # Wind speed (normalized)
 
 # Loss function
 loss_fn:
   _target_: genpp.models.loss.EnergyScore
   beta: 1.0
   clamp: true
-  mean: false
+  mean: true
 
 # Optimizer
 optimizer: ${class:torch.optim.AdamW}

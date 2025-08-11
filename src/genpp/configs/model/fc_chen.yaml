@@ -1,7 +1,4 @@
 # Fully Connected Chen Model Configuration
-defaults:
-  - _self_
-
 _target_: genpp.models.chen.FcChenModel
 
 # Model architecture parameters

@@ -1,10 +1,5 @@
 # WeatherBench2 DataModule Configuration with Hydra composition
 defaults:
-  - dataloader: standard
-  - spatial: standard
-  - splits: standard
-  - variables: full
-  - preprocess: standard
   - _self_
 
 
@@ -16,8 +11,8 @@ _split_template: &split_template
   x_kwargs:
     input_dims:
       variable: ${data.variables.input_concat}
-      latitude: ${data.spatial.original.latitude}
       longitude: ${data.spatial.original.longitude}
+      latitude: ${data.spatial.original.latitude}
     batch_dims:
       prediction_time: ${data.batch_size}
   x_transform:
@@ -27,8 +22,8 @@ _split_template: &split_template
   y_kwargs:
     input_dims:
       variable: ${data.variables.output}
-      latitude: ${data.spatial.original.latitude}
       longitude: ${data.spatial.original.longitude}
+      latitude: ${data.spatial.original.latitude}
     batch_dims:
       time: ${data.batch_size}
   y_transform: null

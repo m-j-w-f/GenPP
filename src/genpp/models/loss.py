@@ -25,8 +25,8 @@ class EnergyScore(nn.Module):
         """Computes the energy score between the predicted and true values.
 
         Args:
-            x (torch.Tensor): The predicted values with shape [batch_size, n_samples, lat, lon, out_features].
-            y (torch.Tensor): The true values with shape [batch_size, lat, lon, out_features].
+            x (torch.Tensor): The predicted values with shape [batch_size, n_samples, out_features, lon, lat].
+            y (torch.Tensor): The true values with shape [batch_size, out_features, lon, lat].
 
         Returns:
             torch.Tensor: The computed energy score with shape [out_features].
@@ -37,8 +37,8 @@ class EnergyScore(nn.Module):
         # Reshape tensors for easier computation
         # x: [batch_size, out_features, n_samples, lat * lon]
         # y: [batch_size, out_features, 1, lat * lon]
-        x_reshaped = rearrange(x, "b n lat lon d -> b d n (lat lon)")
-        y_reshaped = rearrange(y, "b lat lon d -> b d 1 (lat lon)")
+        x_reshaped = rearrange(x, "b n d lon lat -> b d n (lon lat)")
+        y_reshaped = rearrange(y, "b d lon lat -> b d 1 (lon lat)")
 
         # Calculate first term: E[||y_pred - y_true||]
         es_12 = self.l2_beta_norm(x_reshaped - y_reshaped)

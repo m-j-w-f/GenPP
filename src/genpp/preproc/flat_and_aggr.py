@@ -63,7 +63,7 @@ def main(base_dir: Path = OUTPUT_DIR) -> None:
     obs = obs[FC_VARS]
 
     flat_obs = flatten_levels(obs)
-    flat_obs = flat_obs.transpose("time", "latitude", "longitude", "variable")
+    flat_obs = flat_obs.transpose("time", "variable", "longitude", "latitude")
 
     # Compute mean and std across the 'number' dimension (ensemble members) and save to file
     mean_ens = flat_ens.mean(dim="number")
@@ -79,8 +79,7 @@ def main(base_dir: Path = OUTPUT_DIR) -> None:
 
     # Concatenate along variable dimension
     flat_ens_aggr = xr.concat([mean_ens, std_ens], dim="variable")
-    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "latitude", "longitude", "variable")
-
+    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "variable", "longitude", "latitude")
     # Save to disk for later use and faster loading
     flat_obs.to_netcdf(base_dir / OBSERVATIONS_FLAT_NAME, mode="w", format="NETCDF4")
 

@@ -15,8 +15,8 @@ class TestEnergyScore:
 
         # Create deterministic test data for reproducibility
         torch.manual_seed(42)
-        x = torch.randn(batch_size, n_samples, lat, lon, out_features)
-        y = torch.randn(batch_size, lat, lon, out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lon, lat)
+        y = torch.randn(batch_size, out_features, lon, lat)
 
         # Compute energy score using our implementation
         energy_score_model = EnergyScore(beta=1.0, clamp=False)
@@ -39,16 +39,16 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 1, 5, 3, 3, 2
 
         torch.manual_seed(123)
-        x = torch.randn(batch_size, n_samples, lat, lon, out_features)
-        y = torch.randn(batch_size, lat, lon, out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lon, lat)
+        y = torch.randn(batch_size, out_features, lon, lat)
 
         energy_score_model = EnergyScore(beta=1.0, clamp=False)
         es_custom = energy_score_model(x, y)
 
         # Test each feature separately since scoringrules handles them independently
         for feature_idx in range(out_features):
-            x_feat = x[..., feature_idx : feature_idx + 1]  # Keep dimension
-            y_feat = y[..., feature_idx : feature_idx + 1]
+            x_feat = x[:, :, feature_idx : feature_idx + 1, ...]  # Keep dimension
+            y_feat = y[:, feature_idx : feature_idx + 1, ...]
 
             x_flat = x_feat.view(batch_size, n_samples, -1)
             y_flat = y_feat.view(batch_size, -1)
@@ -68,8 +68,8 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 1, 4, 2, 2, 1
 
         torch.manual_seed(456)
-        x = torch.randn(batch_size, n_samples, lat, lon, out_features)
-        y = torch.randn(batch_size, lat, lon, out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lon, lat)
+        y = torch.randn(batch_size, out_features, lon, lat)
 
         # Test with beta=1.0 (should match scoringrules)
         energy_score_beta1 = EnergyScore(beta=1.0, clamp=False)
@@ -94,7 +94,7 @@ class TestEnergyScore:
 
         # Case 1: All ensemble members are identical
         torch.manual_seed(789)
-        y = torch.randn(batch_size, lat, lon, out_features)
+        y = torch.randn(batch_size, out_features, lon, lat)
         x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)  # All ensemble members = truth
 
         energy_score_model = EnergyScore(beta=1.0, clamp=False)
@@ -114,10 +114,10 @@ class TestEnergyScore:
         n_samples, lat, lon, out_features = 4, 3, 3, 1
 
         torch.manual_seed(101)
-        x1 = torch.randn(1, n_samples, lat, lon, out_features)
-        y1 = torch.randn(1, lat, lon, out_features)
-        x2 = torch.randn(1, n_samples, lat, lon, out_features)
-        y2 = torch.randn(1, lat, lon, out_features)
+        x1 = torch.randn(1, n_samples, out_features, lon, lat)
+        y1 = torch.randn(1, out_features, lon, lat)
+        x2 = torch.randn(1, n_samples, out_features, lon, lat)
+        y2 = torch.randn(1, out_features, lon, lat)
 
         energy_score_model = EnergyScore(beta=1.0, clamp=False)
 
@@ -140,8 +140,8 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
 
         torch.manual_seed(303)
-        x = torch.randn(batch_size, n_samples, lat, lon, out_features)
-        y = torch.randn(batch_size, lat, lon, out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lon, lat)
+        y = torch.randn(batch_size, out_features, lon, lat)
 
         energy_score_model = EnergyScore(beta=beta, clamp=False)
         es_custom = energy_score_model(x, y)

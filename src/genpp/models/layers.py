@@ -1,6 +1,7 @@
 """Custom neural network layers for the GenPP project."""
 
-from typing import List, Tuple
+from itertools import batched
+from typing import List, Sequence
 
 import torch
 import torch.nn as nn
@@ -27,7 +28,7 @@ class LocallyConnected2D(nn.Module):
 
         # Create a weight tensor for all spatial locations
         self.weight = nn.Parameter(torch.randn(height, width, in_features, out_features))
-        self.bias = nn.Parameter(torch.zeros(height, width, out_features))
+        self.bias = nn.Parameter(torch.zeros(out_features, height, width))
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -40,7 +41,7 @@ class LocallyConnected2D(nn.Module):
             Tensor: Output tensor of shape [batch_size, out_features, height, width].
         """
         # Perform the linear transformation for all spatial locations in parallel
-        out = torch.einsum("bhwc,hwco->bhwo", x, self.weight) + self.bias
+        out = torch.einsum("bchw,hwco->bohw", x, self.weight) + self.bias
         return out
 
 
@@ -98,17 +99,24 @@ class UNet(nn.Module):
         return x
 
 
-class Crop2D(nn.Module):
+class CropND(nn.Module):
     """A simple cropping layer that crops the input tensor to a specified size.
 
     Args:
-        target_size (Tuple[int, int, int, int]): The padding which was added to the input tensor.
-        The padding is specified as (top, bottom, left, right).
+        padding (Sequence[int]): The padding to remove from the input tensor. The first two values correspond to the last dimension an so on.
+        The padding is specified as (pad_lat_left, pad_lat_right, pad_lon_top, pad_lon_bottom).
     """
 
-    def __init__(self, padding: Tuple[int, int, int, int]) -> None:
-        super(Crop2D, self).__init__()
+    def __init__(self, padding: Sequence[int]) -> None:
+        super(CropND, self).__init__()
+        if len(padding) % 2 != 0:
+            raise ValueError("Padding sequence must have even length (pairs of left/right padding)")
+
         self.padding = padding
+
+        self.spatial_slices = []
+        for stop, start in batched(reversed(self.padding), 2):
+            self.spatial_slices.append(slice(start, -stop))
 
     def forward(self, x: Tensor) -> Tensor:
         """Crops the input tensor to the target size.
@@ -119,7 +127,7 @@ class Crop2D(nn.Module):
         Returns:
             Tensor: Cropped tensor of shape [..., target_height, target_width, channels].
         """
-        cropped = x[..., self.padding[0] : -self.padding[1], self.padding[2] : -self.padding[3], :]
+        cropped = x[..., *self.spatial_slices]
         return cropped
 
 
@@ -141,5 +149,5 @@ class FinalActivation(nn.Module):
         return f"FinalActivation(activations={self.activations})"
 
     def forward(self, x: Tensor) -> Tensor:
-        x = torch.stack([act(x[..., i]) for i, act in enumerate(self.activations)], dim=-1)
+        x = torch.stack([act(x[:, :, i, ...]) for i, act in enumerate(self.activations)], dim=2)
         return x
