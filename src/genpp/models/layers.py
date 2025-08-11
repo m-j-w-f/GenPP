@@ -1,7 +1,7 @@
 """Custom neural network layers for the GenPP project."""
 
 from itertools import batched
-from typing import List, Sequence
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -20,7 +20,7 @@ class LocallyConnected2D(nn.Module):
     """
 
     def __init__(self, height: int, width: int, in_features: int, out_features: int) -> None:
-        super(LocallyConnected2D, self).__init__()
+        super().__init__()
         self.height = height
         self.width = width
         self.in_features = in_features
@@ -49,7 +49,7 @@ class UNet(nn.Module):
     """A simple UNet model."""
 
     def __init__(self, in_features: int, out_features: int) -> None:
-        super(UNet, self).__init__()
+        super().__init__()
         self.in_features = in_features
         self.out_features = out_features
         kwargs = dict(kernel_size=3, padding=1, padding_mode="replicate")
@@ -108,7 +108,7 @@ class CropND(nn.Module):
     """
 
     def __init__(self, padding: Sequence[int]) -> None:
-        super(CropND, self).__init__()
+        super().__init__()
         if len(padding) % 2 != 0:
             raise ValueError("Padding sequence must have even length (pairs of left/right padding)")
 
@@ -140,8 +140,8 @@ class FinalActivation(nn.Module):
         activation (str): The activation function to use. Options are 'relu', 'sigmoid', 'tanh', 'softmax'.
     """
 
-    def __init__(self, activations: List[torch.nn.Module]) -> None:
-        super(FinalActivation, self).__init__()
+    def __init__(self, activations: list[torch.nn.Module]) -> None:
+        super().__init__()
         self.activations = activations
         self.len = len(activations)
 

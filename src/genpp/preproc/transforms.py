@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Sequence
+from collections.abc import Sequence
 
 import torch
 import torch.nn.functional as F
@@ -73,7 +73,7 @@ class Pipe(Transform):
         transforms (List[Transform]): A list of transforms to apply in sequence.
     """
 
-    def __init__(self, transforms: List[Transform]) -> None:
+    def __init__(self, transforms: list[Transform]) -> None:
         self.transforms = transforms
 
     def transform(self, data: torch.Tensor) -> torch.Tensor:

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any, Mapping, Tuple, Type
+from typing import Any
+from collections.abc import Mapping
 
 import lightning as L
 import torch
@@ -41,13 +42,13 @@ class BaseChenModel(ABC, L.LightningModule):
         n_samples_train: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
-        lr_scheduler: Type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+        lr_scheduler: type[torch.optim.lr_scheduler._LRScheduler] | None = None,
         lr_scheduler_kwargs: Mapping[str, Any] | None = None,
         lr_scheduler_update_kwargs: Mapping[str, Any] | None = None,
         lr: float = 3e-4,
-        optimizer: Type[torch.optim.Optimizer] = torch.optim.AdamW,
+        optimizer: type[torch.optim.Optimizer] = torch.optim.AdamW,
     ) -> None:
-        super(BaseChenModel, self).__init__()
+        super().__init__()
         self.in_features = in_features
         self.meta_dim = meta_features
         self.out_features = out_features
@@ -207,7 +208,7 @@ class FcChenModel(BaseChenModel):
         hidden_dim_decoder: int,
         **kwargs,
     ) -> None:
-        super(FcChenModel, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.hidden_dim_std = hidden_dim_std
         self.hidden_dim_decoder = hidden_dim_decoder
@@ -328,8 +329,8 @@ class CNNChenModel(BaseChenModel):
 
     """
 
-    def __init__(self, *args, padding: Tuple[int, int, int, int], **kwargs) -> None:
-        super(CNNChenModel, self).__init__(*args, **kwargs)
+    def __init__(self, *args, padding: tuple[int, int, int, int], **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
         self.width_no_pad = self.width - self.padding[0] - self.padding[1]  # latitude
@@ -422,4 +423,4 @@ class PatchwiseChenModel(BaseChenModel):
     """Patchwise Chen model. This is a placeholder for a patchwise implementation."""
 
     def __init__(self, *args, **kwargs) -> None:
-        super(PatchwiseChenModel, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)

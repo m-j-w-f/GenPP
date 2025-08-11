@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Callable, List
+from collections.abc import Callable
 from warnings import warn
 
 import lightning as L
@@ -71,8 +71,8 @@ class WeatherBench2DataModule(L.LightningDataModule):
         dataset_config: DictConfig,
         dataloader_config: DictConfig,
         save_dir: Path = OUTPUT_DIR,
-        x_preprocessing: List[Preprocessor] | None = None,
-        y_preprocessing: List[Preprocessor] | None = None,
+        x_preprocessing: list[Preprocessor] | None = None,
+        y_preprocessing: list[Preprocessor] | None = None,
     ) -> None:
         super().__init__()
         self.path = save_dir

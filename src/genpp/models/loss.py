@@ -5,7 +5,7 @@ from einops import rearrange, reduce
 
 class EnergyScore(nn.Module):
     def __init__(self, beta: float = 1.0, clamp: bool = True, mean: bool = False) -> None:
-        super(EnergyScore, self).__init__()
+        super().__init__()
         self.beta = beta
         self.clamp = clamp
         self.mean = mean

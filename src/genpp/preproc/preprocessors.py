@@ -1,6 +1,5 @@
 import warnings
 from abc import ABC, abstractmethod
-from typing import List, Type
 
 import dask  # noqa: F401
 import dask.array as da
@@ -82,7 +81,7 @@ class StandardScalerPreprocessor(Preprocessor):
 class AddMetadataPreprocessor(Preprocessor):
     """A preprocessor that adds metadata to the data."""
 
-    def __init__(self, meta_features: List[MetadataVars] | Type[MetadataVars]) -> None:
+    def __init__(self, meta_features: list[MetadataVars] | type[MetadataVars]) -> None:
         self.meta_features = meta_features
         self.num_meta_features = len(meta_features)  # type: ignore
 
