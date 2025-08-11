@@ -12,6 +12,9 @@ requires = ["hatchling"]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
+[tool.pixi.system-requirements]
+cuda = "12.2"
+
 [tool.pixi.pypi-dependencies]
 genpp = { path = ".", editable = true }
 
