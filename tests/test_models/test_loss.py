@@ -1,6 +1,7 @@
 import pytest
 import scoringrules as sr
 import torch
+from einops import rearrange
 
 from genpp.models.loss import EnergyScore
 
@@ -36,7 +37,7 @@ class TestEnergyScore:
 
     def test_energy_score_multiple_features(self):
         """Test energy score with multiple output features"""
-        batch_size, n_samples, lat, lon, out_features = 1, 5, 3, 3, 2
+        batch_size, n_samples, lat, lon, out_features = 4, 5, 3, 3, 2
 
         torch.manual_seed(123)
         x = torch.randn(batch_size, n_samples, out_features, lon, lat)
@@ -46,22 +47,11 @@ class TestEnergyScore:
         es_custom = energy_score_model(x, y)
 
         # Test each feature separately since scoringrules handles them independently
-        for feature_idx in range(out_features):
-            x_feat = x[:, :, feature_idx : feature_idx + 1, ...]  # Keep dimension
-            y_feat = y[:, feature_idx : feature_idx + 1, ...]
+        x_reshaped = rearrange(x, "b n f x y -> b n f (x y)")
+        y_reshaped = rearrange(y, "b f x y -> b f (x y)")
 
-            x_flat = x_feat.view(batch_size, n_samples, -1)
-            y_flat = y_feat.view(batch_size, -1)
-
-            es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
-
-            torch.testing.assert_close(
-                es_custom[0, feature_idx],
-                es_reference[0],
-                rtol=1e-5,
-                atol=1e-6,
-                msg=f"Mismatch for feature {feature_idx}",
-            )
+        es_reference = sr.es_ensemble(y_reshaped, x_reshaped, m_axis=1, v_axis=-1, backend="torch")
+        torch.testing.assert_close(es_custom, es_reference, rtol=1e-5, atol=1e-6)
 
     def test_energy_score_different_beta_values(self):
         """Test energy score with different beta values (note: scoringrules uses beta=1)"""

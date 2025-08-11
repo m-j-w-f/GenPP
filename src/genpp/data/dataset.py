@@ -123,7 +123,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 # Load the data, fit the preprocessors, and save the preprocessed data
                 da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
                 for preprocessor in self.x_preprocessing:
-                    preprocessor.fit(da)
+                    preprocessor.fit(da)  # TODO the fit should be called only on the training data
                     da = preprocessor.preprocess(da)
                 da.to_netcdf(
                     self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME,
@@ -158,6 +158,8 @@ class WeatherBench2DataModule(L.LightningDataModule):
             y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_PREPROC_NAME)
         else:
             y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+
+        self.x_varnames = x.coords["variable"].values
 
         if stage == "fit":
             self.train_dataset = get_MapDataset(

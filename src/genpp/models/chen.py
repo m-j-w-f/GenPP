@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
+from lightning.pytorch.utilities.types import OptimizerLRScheduler
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
 
@@ -40,6 +41,9 @@ class BaseChenModel(ABC, L.LightningModule):
         n_samples_train: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
+        lr_scheduler: Type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+        lr_scheduler_kwargs: Mapping[str, Any] | None = None,
+        lr_scheduler_update_kwargs: Mapping[str, Any] | None = None,
         lr: float = 3e-4,
         optimizer: Type[torch.optim.Optimizer] = torch.optim.AdamW,
     ) -> None:
@@ -58,6 +62,9 @@ class BaseChenModel(ABC, L.LightningModule):
         self.loss_fn = loss_fn
         self.lr = lr
         self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.lr_scheduler_kwargs = lr_scheduler_kwargs or {}
+        self.lr_scheduler_update_kwargs = lr_scheduler_update_kwargs or {}
 
         if self.use_embedding:
             self.embedding = nn.Embedding(
@@ -137,8 +144,7 @@ class BaseChenModel(ABC, L.LightningModule):
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
         pred_mean = self.mean_model(mean)  # Shape [batch_size, out_features, lon, lat]
         delta = self.std_model(std)
-        # NOTE: which device should this be on? (PyTorch lighning should handle this)
-        z = self.get_noise(batch_size)  # Must have same shape as delta
+        z = self.get_noise(batch_size).to(delta)  # Must have same shape as delta
 
         noise = z * delta
 
@@ -155,24 +161,32 @@ class BaseChenModel(ABC, L.LightningModule):
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
+        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
-        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        return self.optimizer(self.parameters(), lr=self.lr)  # type: ignore
+    def configure_optimizers(self) -> OptimizerLRScheduler:
+        opt = self.optimizer(self.parameters(), lr=self.lr)  # type: ignore
+        res = {"optimizer": opt}
+
+        if self.lr_scheduler is not None:
+            lr_scheduler = self.lr_scheduler(opt, **self.lr_scheduler_kwargs)
+            res["lr_scheduler"] = {"scheduler": lr_scheduler, **self.lr_scheduler_update_kwargs}  # type: ignore
+
+        return res  # type: ignore
 
 
 class FcChenModel(BaseChenModel):
@@ -306,7 +320,8 @@ class FcChenModel(BaseChenModel):
 
 
 class CNNChenModel(BaseChenModel):
-    """CNN-based Chen model. This is a placeholder for a CNN-based implementation.
+    """CNN-based Chen model.
+    In this model, both the std_model and the noise_decoder are separate UNets.
     Args:
         padding (Tuple[int, int, int, int]): Padding already applied to the input tensor.
         This is used as a final step to crop the output tensor to the original size so it can be compared with y to calculate the loss.

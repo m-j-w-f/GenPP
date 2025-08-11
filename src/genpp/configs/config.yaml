@@ -8,7 +8,7 @@ defaults:
   - data: weatherbench2
   - model: cnn_chen
   - trainer: default
-  - logger: default
+  - logger: wandb
   - _self_
 
 seed: 42
@@ -22,6 +22,11 @@ hydra:
 
 # Custom Test stuff
 trainer:
-  overfit_batches: 1
-  precision: 16-mixed  # Use mixed precision training
-  accelerator: cpu
+  accelerator: gpu
+  devices: 1
+  max_epochs: 100
+
+
+logger:
+  tags:
+    - "test"
