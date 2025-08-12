@@ -1,8 +1,9 @@
 # 🚧 TODOS
+
 - 🕵️‍♂️ investigate why the CNN Chen Model performs poorly
-    - 📈 Try warmup phase in LRScheduler
-    - 🐛 Fix fitting of the scaler in the datamodule
-    - ✨ Add residual connection for mean
-    - 📑 Log the loss for each variable individually
+  - 🐛 Fix fitting of the scaler in the datamodule
+  - 📑 Log the loss for each variable individually -> ✅ Done!
+  - 📈 Try warmup phase in LRScheduler -> ✅ Does nto change anything
+  - ✨ Add residual connection for mean -> ✅ Does not change anything (slightly worse in first tests)
 - 🤓 Implement EMOS and DRN (check code for paper and adapt)
 - 🌊 Implement a flow matching model (in a notebook for first tests)

@@ -1,0 +1,7 @@
+scheduler:
+  _target_: torch.optim.lr_scheduler.ConstantLR
+  _partial_: true
+  factor: 1.0
+
+interval: "epoch" # This is only here for compatibility with the other schedulers
+frequency: 1

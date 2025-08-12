@@ -6,6 +6,8 @@ defaults:
   - data/variables: full
   - data/preprocess: standard
   - data: weatherbench2
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
   - model: cnn_chen
   - trainer: default
   - logger: wandb

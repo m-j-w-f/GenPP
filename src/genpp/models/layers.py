@@ -1,7 +1,7 @@
 """Custom neural network layers for the GenPP project."""
 
-from itertools import batched
 from collections.abc import Sequence
+from itertools import batched
 
 import torch
 import torch.nn as nn
@@ -151,3 +151,15 @@ class FinalActivation(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = torch.stack([act(x[:, :, i, ...]) for i, act in enumerate(self.activations)], dim=2)
         return x
+
+
+class ResidualBlock(nn.Module):
+    """Only for prototyping"""
+
+    def __init__(self, layer: nn.Module, slice_channels: list[int]) -> None:
+        super().__init__()
+        self.layer = layer
+        self.slice_channels = slice_channels
+
+    def forward(self, x: Tensor) -> Tensor:
+        return x[:, self.slice_channels, ...] + self.layer(x)

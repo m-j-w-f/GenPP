@@ -1,7 +1,7 @@
 import hydra
 import lightning as L
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from genpp.configs import register_resolvers
 
@@ -22,6 +22,7 @@ def train(cfg: DictConfig) -> None:
     logger = None
     if hasattr(cfg, "logger") and cfg.logger:
         logger = hydra.utils.instantiate(cfg.logger)
+        logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
 
     trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
 

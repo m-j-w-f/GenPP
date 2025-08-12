@@ -1,0 +1,10 @@
+scheduler:
+  _target_: torch.optim.lr_scheduler.OneCycleLR
+  _partial_: true
+  max_lr: 5e-2
+  epochs: 100
+  steps_per_epoch: 273
+  pct_start: 0.2
+
+interval: "step"
+frequency: 1

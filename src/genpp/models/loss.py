@@ -4,11 +4,17 @@ from einops import rearrange, reduce
 
 
 class EnergyScore(nn.Module):
-    def __init__(self, beta: float = 1.0, clamp: bool = True, mean: bool = False) -> None:
+    """Computes the energy score between predicted and true values.
+
+    Args:
+        beta (float): The beta parameter for the energy score.
+        clamp (bool): Whether to clamp the values to avoid numerical issues.
+    """
+
+    def __init__(self, beta: float = 1.0, clamp: bool = True) -> None:
         super().__init__()
         self.beta = beta
         self.clamp = clamp
-        self.mean = mean
         if clamp:
             self.eps = 1e-8
             self.max_value = 1e10
@@ -21,7 +27,7 @@ class EnergyScore(nn.Module):
         reduced = reduce(torch.sqrt(sq_diff_sum) ** self.beta, "b d ... -> b d", reduction="mean")
         return reduced
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor, avg: str | None = "mean") -> torch.Tensor:
         """Computes the energy score between the predicted and true values.
 
         Args:
@@ -62,6 +68,8 @@ class EnergyScore(nn.Module):
             torch.sqrt(distances_22), "b d n1 n2 -> b d", reduction="mean"
         )  # [batch_size, out_features]
         es = es_12 - 0.5 * es_22
-        if self.mean:
+        if avg == "mean":
             return torch.mean(es)
+        if avg == "variable":
+            return torch.mean(es, dim=0)
         return es

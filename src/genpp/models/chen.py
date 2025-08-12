@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
 from typing import Any
-from collections.abc import Mapping
 
 import lightning as L
 import torch
@@ -8,8 +8,10 @@ import torch.nn as nn
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
+from genpp.models.utils import instantiate_partial_scheduler
 
 
 class BaseChenModel(ABC, L.LightningModule):
@@ -42,11 +44,8 @@ class BaseChenModel(ABC, L.LightningModule):
         n_samples_train: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
-        lr_scheduler: type[torch.optim.lr_scheduler._LRScheduler] | None = None,
-        lr_scheduler_kwargs: Mapping[str, Any] | None = None,
-        lr_scheduler_update_kwargs: Mapping[str, Any] | None = None,
-        lr: float = 3e-4,
-        optimizer: type[torch.optim.Optimizer] = torch.optim.AdamW,
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
     ) -> None:
         super().__init__()
         self.in_features = in_features
@@ -61,11 +60,8 @@ class BaseChenModel(ABC, L.LightningModule):
         self.final_activation = final_activation
         self.use_embedding = embedding_dim > 0
         self.loss_fn = loss_fn
-        self.lr = lr
-        self.optimizer = optimizer
-        self.lr_scheduler = lr_scheduler
-        self.lr_scheduler_kwargs = lr_scheduler_kwargs or {}
-        self.lr_scheduler_update_kwargs = lr_scheduler_update_kwargs or {}
+        self.optimizer_partial = optimizer
+        self.lr_scheduler_partial = lr_scheduler
 
         if self.use_embedding:
             self.embedding = nn.Embedding(
@@ -168,7 +164,19 @@ class BaseChenModel(ABC, L.LightningModule):
     def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y)
+        loss = self.loss_fn(res, y, avg="variable")
+        # Log the loss for each variable separately
+        for i in range(self.out_features):
+            self.log(
+                f"val_loss_var_{i}",
+                loss[i],
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
+        # Log the overall loss
+        loss = torch.mean(loss)
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
@@ -180,14 +188,17 @@ class BaseChenModel(ABC, L.LightningModule):
         return loss
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
-        opt = self.optimizer(self.parameters(), lr=self.lr)  # type: ignore
-        res = {"optimizer": opt}
+        # TODO wrap this in a func and move it to a utils module
+        # Instantiate the optimizer and scheduler from the config
+        self.optimizer = self.optimizer_partial(self.parameters())
+        self.lr_scheduler_partial = instantiate_partial_scheduler(
+            self.lr_scheduler_partial, self.optimizer
+        )
 
-        if self.lr_scheduler is not None:
-            lr_scheduler = self.lr_scheduler(opt, **self.lr_scheduler_kwargs)
-            res["lr_scheduler"] = {"scheduler": lr_scheduler, **self.lr_scheduler_update_kwargs}  # type: ignore
-
-        return res  # type: ignore
+        return {  # type: ignore
+            "optimizer": self.optimizer,
+            "lr_scheduler": {**self.lr_scheduler_partial},
+        }
 
 
 class FcChenModel(BaseChenModel):
