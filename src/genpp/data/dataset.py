@@ -1,6 +1,6 @@
 import os
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from warnings import warn
 
 import lightning as L
@@ -123,7 +123,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 # Load the data, fit the preprocessors, and save the preprocessed data
                 da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
                 for preprocessor in self.x_preprocessing:
-                    preprocessor.fit(da)  # TODO the fit should be called only on the training data
+                    preprocessor.fit(da.sel(prediction_time=self.dataset_config.train.slice))
                     da = preprocessor.preprocess(da)
                 da.to_netcdf(
                     self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME,
@@ -139,7 +139,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 # Load the data, fit the preprocessors, and save the preprocessed data
                 da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
                 for preprocessor in self.y_preprocessing:
-                    preprocessor.fit(da)
+                    preprocessor.fit(da.sel(time=self.dataset_config.train.slice))
                     da = preprocessor.preprocess(da)
                 da.to_netcdf(
                     self.path / OBSERVATIONS_FLAT_PREPROC_NAME,
