@@ -161,6 +161,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
 
         self.x_varnames = x.coords["variable"].values
 
+        # TODO it might make sense to iterate once over the map dataset and store it in a more tensor friendly format
         if stage == "fit":
             self.train_dataset = get_MapDataset(
                 x.sel(prediction_time=self.dataset_config.train.slice),

@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from einops import rearrange, reduce
@@ -73,3 +74,80 @@ class EnergyScore(nn.Module):
         if avg == "variable":
             return torch.mean(es, dim=0)
         return es
+
+
+class CRPS_Normal(nn.Module):
+    """Source: Höhlein et. al (2024) Postprocessing of Ensemble Weather Forecasts Using
+    Permutation-Invariant Neural Networks
+    https://github.com/khoehlein/Permutation-invariant-Postprocessing/blob/main/model/loss/losses.py
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
+        self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
+
+    def forward(self, mu_sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Calculates the Continuous Ranked Probability Score (CRPS) assuming normally distributed data.
+
+        Args:
+            mu_sigma (torch.Tensor): Tensor of mean and standard deviation. Shape [b, 2, h, w]
+            y (torch.Tensor): Observed data. Shape [b, 1, h, w]
+
+        Returns:
+            torch.Tensor: CRPS value.
+        """
+        mu, sigma = mu_sigma[:, 0], mu_sigma[:, 1]
+
+        z_red = (y - mu) / sigma
+
+        cdf = self.dist.cdf(z_red)
+        pdf = torch.exp(self.dist.log_prob(z_red))
+        crps = sigma * (z_red * (2.0 * cdf - 1.0) + 2.0 * pdf - self._inv_sqrt_pi)
+        return torch.mean(crps)
+
+
+class CRPS_TruncatedNormal(nn.Module):
+    """CRPS for Truncated Normal Distribution.
+    Source: Thorarinsdottir, Gneiting (2010) Probabilistic Forecasts of Wind Speed: Ensemble Model Output Statistics by using Heteroscedastic Censored Regression
+    https://academic.oup.com/jrsssa/article/173/2/371/7077664
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Might need to convert to primitive types if not moved to correct device
+        self.sqrt_2 = torch.sqrt(torch.tensor(2.0))
+        self.inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
+        self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Calculates the CRPS for Truncated Normal Distribution.
+
+        Args:
+            x (torch.Tensor): Input tensor containing mean and standard deviation. Both must be positive (sigma strictly positive).
+            y (torch.Tensor): Target tensor.
+
+        Returns:
+            torch.Tensor: CRPS value.
+        """
+        mu = x[:, 0]
+        sigma = x[:, 1]
+
+        loc = (y - mu) / sigma
+
+        phi = torch.exp(self.dist.log_prob(loc))
+
+        Phi_ms = self.dist.cdf(mu / sigma)
+        Phi = self.dist.cdf(loc)
+        Phi_2ms = self.dist.cdf(self.sqrt_2 * mu / sigma)
+
+        crps = (
+            sigma
+            / torch.square(Phi_ms)
+            * (
+                loc * Phi_ms * (2.0 * Phi + Phi_ms - 2.0)
+                + 2.0 * phi * Phi_ms
+                - self.inv_sqrt_pi * Phi_2ms
+            )
+        )
+        return torch.mean(crps)

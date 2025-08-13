@@ -9,8 +9,6 @@ Outputs:
 - flat_obs_preproc.nc: Preprocessed observation data.
 - flat_ens_preproc_agg.nc: Preprocessed ensemble data with aggregated statistics.
 """
-# TODO fatten the aggregations and append _mean and _std to the variable names, this way we can add Metadata to the variables and still use the same code for the MapDataset
-# We only need to keep track of the length of the variables to slice them correctly later
 
 from pathlib import Path
 

@@ -59,7 +59,6 @@ class StandardScalerPreprocessor(Preprocessor):
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the mean and standard deviation."""
-        # TODO change mean computation as discussed
         self.mean = data.mean(dim=self.dim).compute()
         self.std = data.std(dim=self.dim, ddof=1).compute()
         self.is_fitted = True
@@ -91,7 +90,6 @@ class AddMetadataPreprocessor(Preprocessor):
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Add metadata to the input data."""
-        # TODO this function could need some optimization, dask is complaining about the graph size.
         if not isinstance(data, xr.DataArray):
             raise TypeError("Input data must be an xarray DataArray.")
 

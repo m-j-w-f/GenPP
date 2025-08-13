@@ -16,9 +16,10 @@ padding: ${data.spatial.padding_list}
 final_activation:
   _target_: genpp.models.layers.FinalActivation
   activations:
-    # TODO we might want to force this to be positive
-    - _target_: torch.nn.Identity # Temperature (normalized)
-    - _target_: torch.nn.Identity # Wind speed (normalized)
+    # TODO we might want to force this to be positive -> Or not since the values are standardized
+    # Fix use min max normalization for Wind speed -> Use softplus/relu then
+    - _target_: torch.nn.Identity # Temperature (standardized)
+    - _target_: torch.nn.Identity # Wind speed (standardized)
 
 # Loss function
 loss_fn:

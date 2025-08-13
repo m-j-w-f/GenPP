@@ -188,7 +188,6 @@ class BaseChenModel(ABC, L.LightningModule):
         return loss
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
-        # TODO wrap this in a func and move it to a utils module
         # Instantiate the optimizer and scheduler from the config
         self.optimizer = self.optimizer_partial(self.parameters())
         self.lr_scheduler_partial = instantiate_partial_scheduler(
