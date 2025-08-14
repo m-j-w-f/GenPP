@@ -61,23 +61,23 @@ def main(base_dir: Path = OUTPUT_DIR) -> None:
     obs = obs[FC_VARS]
 
     flat_obs = flatten_levels(obs)
-    flat_obs = flat_obs.transpose("time", "variable", "longitude", "latitude")
+    flat_obs = flat_obs.transpose("time", "feature", "longitude", "latitude")
 
     # Compute mean and std across the 'number' dimension (ensemble members) and save to file
     mean_ens = flat_ens.mean(dim="number")
     std_ens = flat_ens.std(dim="number", ddof=1)
 
-    # Create new variable coordinates with _mean and _std suffixes
-    mean_vars = [f"{var}_mean" for var in mean_ens.coords["variable"].values]
-    std_vars = [f"{var}_std" for var in std_ens.coords["variable"].values]
+    # Create new feature coordinates with _mean and _std suffixes
+    mean_vars = [f"{var}_mean" for var in mean_ens.coords["feature"].values]
+    std_vars = [f"{var}_std" for var in std_ens.coords["feature"].values]
 
-    # Assign new variable coordinates
-    mean_ens = mean_ens.assign_coords(variable=mean_vars)
-    std_ens = std_ens.assign_coords(variable=std_vars)
+    # Assign new feature coordinates
+    mean_ens = mean_ens.assign_coords(feature=mean_vars)
+    std_ens = std_ens.assign_coords(feature=std_vars)
 
-    # Concatenate along variable dimension
-    flat_ens_aggr = xr.concat([mean_ens, std_ens], dim="variable")
-    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "variable", "longitude", "latitude")
+    # Concatenate along feature dimension
+    flat_ens_aggr = xr.concat([mean_ens, std_ens], dim="feature")
+    flat_ens_aggr = flat_ens_aggr.transpose("prediction_time", "feature", "longitude", "latitude")
     # Save to disk for later use and faster loading
     flat_obs.to_netcdf(base_dir / OBSERVATIONS_FLAT_NAME, mode="w", format="NETCDF4")
 

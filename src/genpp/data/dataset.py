@@ -159,7 +159,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
         else:
             y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
 
-        self.x_varnames = x.coords["variable"].values
+        self.x_feature_names = x.feature.values
 
         # TODO it might make sense to iterate once over the map dataset and store it in a more tensor friendly format
         if stage == "fit":

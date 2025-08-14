@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 
 import dask  # noqa: F401
 import dask.array as da
+import numpy as np
 import torch
 import xarray as xr
 from xarray.core.types import Dims
@@ -53,22 +54,47 @@ class Preprocessor(ABC):
 class StandardScalerPreprocessor(Preprocessor):
     """A preprocessor that standardizes the data by removing the mean and scaling to unit variance."""
 
-    def __init__(self, dim: Dims):
+    def __init__(self, dim: Dims, features: list[str] | None = None):
+        """Initialize the StandardScalerPreprocessor.
+
+        Args:
+            dim: Dimension(s) along which to compute statistics for scaling.
+            features: List of feature names to scale. If None, scale all features.
+                      features not in this list will be kept unchanged.
+        """
         self.dim = dim
+        self.features = features
         self.is_fitted = False
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the mean and standard deviation."""
-        self.mean = data.mean(dim=self.dim).compute()
-        self.std = data.std(dim=self.dim, ddof=1).compute()
+        if self.features is not None:
+            # Only fit on specified features
+            if "feature" not in data.dims:
+                raise ValueError("DataArray must have 'feature' dimension for fitting.")
+            self.mean = data.sel(feature=self.features).mean(dim=self.dim).compute()
+            self.std = data.sel(feature=self.features).std(dim=self.dim, ddof=1).compute()
+            # Store this for the reverse transform
+            self._changed_var_idx = np.where(np.isin(data.feature, self.features))[0]
+        else:
+            # Fit on all data
+            self.mean = data.mean(dim=self.dim).compute()
+            self.std = data.std(dim=self.dim, ddof=1).compute()
         self.is_fitted = True
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Standardize the input data."""
-        result = (data - self.mean) / self.std
         # Preserve attributes from the original data
-        result.attrs = data.attrs
-        return result
+        if not self.is_fitted:
+            raise RuntimeError("Preprocessor must be fitted before preprocessing data.")
+
+        if self.features is not None:
+            # Only scale specified features, keep others unchanged
+            res_scaled = (data - self.mean) / self.std
+            data.loc[dict(feature=self.features)] = res_scaled
+        else:
+            data = (data - self.mean) / self.std
+        return data
 
     def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
         """Inverse standardization of the preprocessed data."""
@@ -80,30 +106,59 @@ class StandardScalerPreprocessor(Preprocessor):
 class MinMaxScalerPreprocessor(Preprocessor):
     """A preprocessor that scales the data to a given range."""
 
-    def __init__(self, dim: Dims, feature_range=(0, 1)):
+    def __init__(self, dim: Dims, feature_range=(0, 1), features: list[str] | None = None):
+        """Initialize the MinMaxScalerPreprocessor.
+
+        Args:
+            dim: Dimension(s) along which to compute statistics for scaling.
+            feature_range: Target range for scaling, default (0, 1).
+            features: List of feature names to scale. If None, scale all features.
+                      features not in this list will be kept unchanged.
+        """
         self.dim = dim
         self.feature_range = feature_range
+        self.features = features
+        self.is_fitted = False
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the min and max values."""
-        self.data_min = data.min(dim=self.dim).compute()
-        self.data_max = data.max(dim=self.dim).compute()
+        if self.features is not None:
+            # Only fit on specified features
+            if "feature" not in data.dims:
+                raise ValueError("DataArray must have 'feature' dimension for fitting.")
+            # Select only the specified features
+            self.data_min = data.sel(feature=self.features).min(dim=self.dim).compute()
+            self.data_max = data.sel(feature=self.features).max(dim=self.dim).compute()
+            # Store this for the reverse transform
+            self._changed_var_idx = np.where(np.isin(data.feature, self.features))[0]
+        else:
+            self.data_min = data.min(dim=self.dim).compute()
+            self.data_max = data.max(dim=self.dim).compute()
+        self.is_fitted = True
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Scale the input data to the specified feature range."""
-        # Preserve original attributes
-        original_attrs = data.attrs.copy()
+        if not self.is_fitted:
+            raise RuntimeError("Preprocessor must be fitted before preprocessing data.")
 
-        # Scale the data
-        scaled_data = (data - self.data_min) / (self.data_max - self.data_min)
-        scaled_data = (
-            scaled_data * (self.feature_range[1] - self.feature_range[0]) + self.feature_range[0]
-        )
-
-        # Restore attributes
-        scaled_data.attrs = original_attrs
-
-        return scaled_data
+        if self.features is not None:
+            scaled_res = (data - self.data_min) / (self.data_max - self.data_min)
+            if self.feature_range != (0, 1):
+                scaled_res = (
+                    scaled_res * (self.feature_range[1] - self.feature_range[0])
+                    + self.feature_range[0]
+                )
+            data.loc[dict(feature=self.features)] = scaled_res
+        else:
+            # Scale all data (original behavior)
+            scaled_data = (data - self.data_min) / (self.data_max - self.data_min)
+            if self.feature_range != (0, 1):
+                scaled_data = (
+                    scaled_data * (self.feature_range[1] - self.feature_range[0])
+                    + self.feature_range[0]
+                )
+            data = scaled_data
+        return data
 
     def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
         """Inverse scaling of the preprocessed data."""
@@ -135,7 +190,7 @@ class AddMetadataPreprocessor(Preprocessor):
         except KeyError:
             warnings.warn(
                 "The input data does not have a 'prediction_time' dimension. "
-                "Metadata variables that depend on 'prediction_time' will now depend on 'time'."
+                "Metadata features that depend on 'prediction_time' will now depend on 'time'."
             )
             times = data.time
 
@@ -148,7 +203,7 @@ class AddMetadataPreprocessor(Preprocessor):
                 {
                     "latitude": data.latitude,
                     "longitude": data.longitude,
-                    "variable": [MetadataVars.SIN_PREDICTION_TIME.value],
+                    "feature": [MetadataVars.SIN_PREDICTION_TIME.value],
                 }
             )
             meta_vars.append(time_grid)
@@ -159,7 +214,7 @@ class AddMetadataPreprocessor(Preprocessor):
                 {
                     "latitude": data.latitude,
                     "longitude": data.longitude,
-                    "variable": [MetadataVars.COS_PREDICTION_TIME.value],
+                    "feature": [MetadataVars.COS_PREDICTION_TIME.value],
                 }
             )
             meta_vars.append(time_grid)
@@ -169,7 +224,7 @@ class AddMetadataPreprocessor(Preprocessor):
                 {
                     "prediction_time": data.prediction_time,
                     "longitude": data.longitude,
-                    "variable": [MetadataVars.LATITUDE.value],
+                    "feature": [MetadataVars.LATITUDE.value],
                 }
             )
             meta_vars.append(lat_grid)
@@ -179,7 +234,7 @@ class AddMetadataPreprocessor(Preprocessor):
                 {
                     "prediction_time": data.prediction_time,
                     "latitude": data.latitude,
-                    "variable": [MetadataVars.LONGITUDE.value],
+                    "feature": [MetadataVars.LONGITUDE.value],
                 }
             )
             meta_vars.append(lon_grid)
@@ -199,17 +254,17 @@ class AddMetadataPreprocessor(Preprocessor):
             pixel_idx_grid = pixel_idx_xr.expand_dims(
                 {
                     "prediction_time": data.prediction_time,
-                    "variable": [MetadataVars.PIXEL_IDX.value],
+                    "feature": [MetadataVars.PIXEL_IDX.value],
                 }
             )
             meta_vars.append(pixel_idx_grid)
 
-        # Concatenate all metadata variables along the last dimension using dask
+        # Concatenate all metadata features along the last dimension using dask
         if meta_vars:
-            meta_xr = xr.concat(meta_vars, dim="variable", coords="minimal").transpose(
-                "prediction_time", "latitude", "longitude", "variable"
+            meta_xr = xr.concat(meta_vars, dim="feature", coords="minimal").transpose(
+                "prediction_time", "latitude", "longitude", "feature"
             )
-            return xr.concat([data, meta_xr], dim="variable")
+            return xr.concat([data, meta_xr], dim="feature")
         else:
             return data
 

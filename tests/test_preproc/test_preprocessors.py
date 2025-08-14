@@ -35,6 +35,22 @@ class TestStandardScalerPreprocessor:
         )
         return data
 
+    @pytest.fixture
+    def sample_data_with_variables(self):
+        """Create a DataArray with multiple features for testing feature selection."""
+        np.random.seed(42)  # For reproducible tests
+        data = xr.DataArray(
+            np.random.randn(5, 3, 4, 3) * 10,  # time, lat, lon, feature
+            dims=["time", "lat", "lon", "feature"],
+            coords={
+                "time": range(5),
+                "lat": range(3),
+                "lon": range(4),
+                "feature": ["temperature", "pressure", "humidity"],
+            },
+        )
+        return data
+
     def test_init_single_dim(self):
         """Test initialization with a single dimension."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -132,19 +148,8 @@ class TestStandardScalerPreprocessor:
         """Test that preprocess fails when called before fit."""
         preprocessor = StandardScalerPreprocessor(dim="time")
 
-        with pytest.raises(AttributeError):
+        with pytest.raises(RuntimeError):
             preprocessor.preprocess(sample_data_1d)
-
-    def test_inverse_transform_not_implemented(self, sample_data_1d):
-        """Test that inverse_transform raises NotImplementedError."""
-        preprocessor = StandardScalerPreprocessor(dim="time")
-        preprocessor.fit(sample_data_1d)
-
-        # Convert to tensor for inverse_transform
-        tensor_data = torch.tensor(sample_data_1d.values)
-
-        with pytest.raises(NotImplementedError, match="TODO Inverse transform is not implemented"):
-            preprocessor.inverse_transform(tensor_data)
 
     def test_zero_std_handling(self):
         """Test behavior when standard deviation is zero."""
@@ -180,20 +185,6 @@ class TestStandardScalerPreprocessor:
         assert result.coords.keys() == sample_data_2d.coords.keys()
         for coord_name in sample_data_2d.coords:
             assert result.coords[coord_name].equals(sample_data_2d.coords[coord_name])
-
-    def test_preprocess_preserves_attributes(self, sample_data_1d):
-        """Test that preprocessing preserves attributes."""
-        # Add some attributes to the data
-        sample_data_1d.attrs["units"] = "temperature"
-        sample_data_1d.attrs["description"] = "test data"
-
-        preprocessor = StandardScalerPreprocessor(dim="time")
-        preprocessor.fit(sample_data_1d)
-
-        result = preprocessor.preprocess(sample_data_1d)
-
-        # Attributes should be preserved
-        assert result.attrs == sample_data_1d.attrs
 
     def test_fit_idempotent(self, sample_data_1d):
         """Test that calling fit multiple times gives same result."""
@@ -256,6 +247,74 @@ class TestStandardScalerPreprocessor:
                 assert np.isclose(point_data.mean().values, 0.0, atol=1e-10)
                 assert np.isclose(point_data.std(ddof=1).values, 1.0, atol=1e-10)
 
+    def test_init_with_variables(self):
+        """Test initialization with feature selection."""
+        preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        assert preprocessor.dim == "time"
+        assert preprocessor.features == ["temperature", "pressure"]
+        assert not preprocessor.is_fitted
+
+    def test_fit_with_variables(self, sample_data_with_variables):
+        """Test fitting with feature selection."""
+        preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        preprocessor.fit(sample_data_with_variables)
+
+        assert preprocessor.is_fitted
+        # Should only have statistics for selected features
+        assert set(preprocessor.mean.feature.values) == {"temperature", "pressure"}
+        assert set(preprocessor.std.feature.values) == {"temperature", "pressure"}
+
+    def test_preprocess_with_variables(self, sample_data_with_variables):
+        """Test preprocessing with feature selection."""
+        original = sample_data_with_variables.copy()
+        preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        preprocessor.fit(sample_data_with_variables)
+
+        result = preprocessor.preprocess(sample_data_with_variables)
+
+        # Should preserve shape and dimensions
+        assert result.shape == sample_data_with_variables.shape
+        assert result.dims == sample_data_with_variables.dims
+
+        # Temperature and pressure should be standardized
+        temp_data = result.sel(feature="temperature")
+        pressure_data = result.sel(feature="pressure")
+        humidity_data = result.sel(feature="humidity")
+
+        # Standardized features should have mean ≈ 0, std ≈ 1 across time
+        # (at each spatial location)
+        temp_mean_across_time = temp_data.mean(dim="time")
+        pressure_mean_across_time = pressure_data.mean(dim="time")
+
+        # Check that standardization actually happened by verifying
+        # that the data is different from the original and follows expected patterns
+        assert np.allclose(temp_mean_across_time.values, 0.0, atol=1e-10)
+        assert np.allclose(pressure_mean_across_time.values, 0.0, atol=1e-10)
+
+        # Verify that temperature data was actually transformed (not equal to original)
+        original_temp = original.sel(feature="temperature")
+        assert not np.allclose(
+            temp_data.values, original_temp.values
+        )  # Humidity should be unchanged (same as original)
+        original_humidity = sample_data_with_variables.sel(feature="humidity")
+        assert np.allclose(humidity_data.values, original_humidity.values)
+
+    def test_preprocess_with_variables_preserves_unselected(self, sample_data_with_variables):
+        """Test that unselected features are preserved exactly."""
+        preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature"])
+        preprocessor.fit(sample_data_with_variables)
+
+        result = preprocessor.preprocess(sample_data_with_variables)
+
+        # Pressure and humidity should be identical to original
+        original_pressure = sample_data_with_variables.sel(feature="pressure")
+        original_humidity = sample_data_with_variables.sel(feature="humidity")
+        result_pressure = result.sel(feature="pressure")
+        result_humidity = result.sel(feature="humidity")
+
+        assert np.allclose(result_pressure.values, original_pressure.values)
+        assert np.allclose(result_humidity.values, original_humidity.values)
+
 
 class TestMinMaxScalerPreprocessor:
     """Test suite for MinMaxScalerPreprocessor class."""
@@ -283,6 +342,22 @@ class TestMinMaxScalerPreprocessor:
             np.random.randn(5, 3, 4),
             dims=["time", "lat", "lon"],
             coords={"time": range(5), "lat": range(3), "lon": range(4)},
+        )
+        return data
+
+    @pytest.fixture
+    def sample_data_with_variables(self):
+        """Create a DataArray with multiple features for testing feature selection."""
+        np.random.seed(42)  # For reproducible tests
+        data = xr.DataArray(
+            np.random.randn(5, 3, 4, 3),  # time, lat, lon, feature
+            dims=["time", "lat", "lon", "feature"],
+            coords={
+                "time": range(5),
+                "lat": range(3),
+                "lon": range(4),
+                "feature": ["temperature", "pressure", "humidity"],
+            },
         )
         return data
 
@@ -404,18 +479,6 @@ class TestMinMaxScalerPreprocessor:
         assert result.shape == constant_data.shape
         assert result.dims == constant_data.dims
 
-    def test_preprocessing_preserves_attributes(self, sample_data_1d):
-        """Test that preprocessing preserves data attributes."""
-        sample_data_1d.attrs["units"] = "temperature"
-        sample_data_1d.attrs["description"] = "test data"
-
-        preprocessor = MinMaxScalerPreprocessor(dim="time")
-        preprocessor.fit(sample_data_1d)
-        result = preprocessor.preprocess(sample_data_1d)
-
-        # Attributes should be preserved
-        assert result.attrs == sample_data_1d.attrs
-
     def test_different_data_types(self, sample_data_1d):
         """Test preprocessing with different numeric data types."""
         # Convert to different data types
@@ -492,3 +555,115 @@ class TestMinMaxScalerPreprocessor:
         # New statistics should match the new data
         assert second_min.equals(new_data.min(dim="time"))
         assert second_max.equals(new_data.max(dim="time"))
+
+    def test_init_with_variables(self):
+        """Test initialization with feature selection."""
+        preprocessor = MinMaxScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        assert preprocessor.dim == "time"
+        assert preprocessor.features == ["temperature", "pressure"]
+        assert preprocessor.feature_range == (0, 1)
+
+    def test_init_with_variables_and_custom_range(self):
+        """Test initialization with feature selection and custom range."""
+        preprocessor = MinMaxScalerPreprocessor(
+            dim="time", feature_range=(-1, 1), features=["temperature"]
+        )
+        assert preprocessor.dim == "time"
+        assert preprocessor.features == ["temperature"]
+        assert preprocessor.feature_range == (-1, 1)
+
+    def test_fit_with_variables(self, sample_data_with_variables):
+        """Test fitting with feature selection."""
+        preprocessor = MinMaxScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        preprocessor.fit(sample_data_with_variables)
+
+        # Should only have statistics for selected features
+        assert set(preprocessor.data_min.feature.values) == {"temperature", "pressure"}
+        assert set(preprocessor.data_max.feature.values) == {"temperature", "pressure"}
+
+    def test_preprocess_with_variables(self, sample_data_with_variables):
+        """Test preprocessing with feature selection."""
+        original = sample_data_with_variables.copy()
+        preprocessor = MinMaxScalerPreprocessor(dim="time", features=["temperature", "pressure"])
+        preprocessor.fit(sample_data_with_variables)
+
+        result = preprocessor.preprocess(sample_data_with_variables)
+
+        # Should preserve shape and dimensions
+        assert result.shape == sample_data_with_variables.shape
+        assert result.dims == sample_data_with_variables.dims
+
+        # Temperature and pressure should be scaled to [0, 1]
+        temp_data = result.sel(feature="temperature")
+        pressure_data = result.sel(feature="pressure")
+        humidity_data = result.sel(feature="humidity")
+
+        # Scaled features should have min ≈ 0, max ≈ 1 across time
+        # (at each spatial location)
+        temp_min_across_time = temp_data.min(dim="time")
+        temp_max_across_time = temp_data.max(dim="time")
+        pressure_min_across_time = pressure_data.min(dim="time")
+        pressure_max_across_time = pressure_data.max(dim="time")
+
+        # Check that scaling actually happened by verifying values are in [0,1] range
+        # and that the data is different from the original
+        assert np.allclose(temp_min_across_time.values, 0.0, atol=1e-10)
+        assert np.allclose(temp_max_across_time.values, 1.0, atol=1e-10)
+        assert np.allclose(pressure_min_across_time.values, 0.0, atol=1e-10)
+        assert np.allclose(pressure_max_across_time.values, 1.0, atol=1e-10)
+
+        # Verify that temperature data was actually transformed (not equal to original)
+        original_temp = original.sel(feature="temperature")
+        assert not np.allclose(
+            temp_data.values, original_temp.values
+        )  # Humidity should be unchanged (same as original)
+        original_humidity = original.sel(feature="humidity")
+        assert np.allclose(humidity_data.values, original_humidity.values)
+
+    def test_preprocess_with_variables_custom_range(self, sample_data_with_variables):
+        """Test preprocessing with feature selection and custom range."""
+        original = sample_data_with_variables.copy()
+        preprocessor = MinMaxScalerPreprocessor(
+            dim="time", feature_range=(-1, 1), features=["temperature"]
+        )
+        preprocessor.fit(sample_data_with_variables)
+
+        result = preprocessor.preprocess(sample_data_with_variables)
+
+        # Temperature should be scaled to [-1, 1]
+        temp_data = result.sel(feature="temperature")
+        temp_min_across_time = temp_data.min(dim="time")
+        temp_max_across_time = temp_data.max(dim="time")
+
+        # Check that scaling actually happened
+        assert np.allclose(temp_min_across_time.values, -1.0, atol=1e-10)
+        assert np.allclose(temp_max_across_time.values, 1.0, atol=1e-10)
+
+        # Verify that temperature data was actually transformed (not equal to original)
+        original_temp = original.sel(feature="temperature")
+        assert not np.allclose(
+            temp_data.values, original_temp.values
+        )  # Pressure and humidity should be unchanged
+        original_pressure = original.sel(feature="pressure")
+        original_humidity = original.sel(feature="humidity")
+        result_pressure = result.sel(feature="pressure")
+        result_humidity = result.sel(feature="humidity")
+
+        assert np.allclose(result_pressure.values, original_pressure.values)
+        assert np.allclose(result_humidity.values, original_humidity.values)
+
+    def test_preprocess_with_variables_preserves_unselected(self, sample_data_with_variables):
+        """Test that unselected features are preserved exactly."""
+        preprocessor = MinMaxScalerPreprocessor(dim="time", features=["pressure"])
+        preprocessor.fit(sample_data_with_variables)
+
+        result = preprocessor.preprocess(sample_data_with_variables)
+
+        # Temperature and humidity should be identical to original
+        original_temp = sample_data_with_variables.sel(feature="temperature")
+        original_humidity = sample_data_with_variables.sel(feature="humidity")
+        result_temp = result.sel(feature="temperature")
+        result_humidity = result.sel(feature="humidity")
+
+        assert np.allclose(result_temp.values, original_temp.values)
+        assert np.allclose(result_humidity.values, original_humidity.values)

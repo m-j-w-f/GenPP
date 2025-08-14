@@ -12,7 +12,7 @@ class TestFlattenLevels:
     @pytest.fixture
     def sample_dataset_with_levels(self):
         """Create a sample dataset with level dimension."""
-        # Create data with multiple variables and levels
+        # Create data with multiple features and levels
         data_3d = np.random.randn(3, 4, 5)  # time, lat, lon
         data_4d = np.random.randn(3, 2, 4, 5)  # time, level, lat, lon
 
@@ -74,10 +74,10 @@ class TestFlattenLevels:
         # Should return a DataArray
         assert isinstance(result, xr.DataArray)
 
-        # Should have a 'variable' dimension
-        assert "variable" in result.dims
+        # Should have a 'feature' dimension
+        assert "feature" in result.dims
 
-        # Should have flattened variables for each level
+        # Should have flattened features for each level
         expected_vars = [
             "temperature_lev850",
             "temperature_lev500",
@@ -85,10 +85,10 @@ class TestFlattenLevels:
             "pressure_lev500",
             "surface_var",
         ]
-        assert len(result.coords["variable"]) == len(expected_vars)
+        assert len(result.coords["feature"]) == len(expected_vars)
 
-        # Check that variable names are correct
-        var_names = result.coords["variable"].values.tolist()
+        # Check that feature names are correct
+        var_names = result.coords["feature"].values.tolist()
         for expected_var in expected_vars:
             assert expected_var in var_names
 
@@ -97,7 +97,7 @@ class TestFlattenLevels:
         result = flatten_levels(sample_dataset_with_levels)
 
         # Should preserve all coordinates except level
-        expected_coords = ["time", "lat", "lon", "variable"]
+        expected_coords = ["time", "lat", "lon", "feature"]
         assert set(result.coords.keys()) == set(expected_coords)
 
         # Check coordinate values are preserved
@@ -109,9 +109,9 @@ class TestFlattenLevels:
         """Test flatten_levels with custom level dimension name."""
         result = flatten_levels(sample_dataset_custom_level_dim, level_dim="height")
 
-        # Should have flattened variables for each height level
+        # Should have flattened features for each height level
         expected_vars = ["temperature_lev100", "temperature_lev200", "temperature_lev300"]
-        var_names = result.coords["variable"].values.tolist()
+        var_names = result.coords["feature"].values.tolist()
 
         assert len(var_names) == 3
         for expected_var in expected_vars:
@@ -121,8 +121,8 @@ class TestFlattenLevels:
         """Test flatten_levels with dataset that has no level dimension."""
         result = flatten_levels(sample_dataset_no_levels)
 
-        # Should still work and return all variables unchanged
-        var_names = result.coords["variable"].values.tolist()
+        # Should still work and return all features unchanged
+        var_names = result.coords["feature"].values.tolist()
         expected_vars = ["temperature", "pressure"]
 
         assert len(var_names) == 2
@@ -135,27 +135,27 @@ class TestFlattenLevels:
         result = flatten_levels(original_ds)
 
         # Check that flattened temperature data matches original
-        temp_850 = result.sel(variable="temperature_lev850")
+        temp_850 = result.sel(feature="temperature_lev850")
         original_temp_850 = original_ds.temperature.sel(level=850)
 
         np.testing.assert_array_equal(temp_850.values, original_temp_850.values)
 
-        # Check surface variable is unchanged
-        surface_var = result.sel(variable="surface_var")
+        # Check surface feature is unchanged
+        surface_var = result.sel(feature="surface_var")
         original_surface = original_ds.surface_var
 
         np.testing.assert_array_equal(surface_var.values, original_surface.values)
 
     def test_flatten_levels_mixed_variables(self, sample_dataset_with_levels):
-        """Test that variables with and without levels are handled correctly."""
+        """Test that features with and without levels are handled correctly."""
         result = flatten_levels(sample_dataset_with_levels)
 
-        # Variables with levels should be split
-        temp_vars = [var for var in result.coords["variable"].values if "temperature_lev" in var]
+        # features with levels should be split
+        temp_vars = [var for var in result.coords["feature"].values if "temperature_lev" in var]
         assert len(temp_vars) == 2  # Two levels
 
-        # Variables without levels should remain single
-        surface_vars = [var for var in result.coords["variable"].values if var == "surface_var"]
+        # features without levels should remain single
+        surface_vars = [var for var in result.coords["feature"].values if var == "surface_var"]
         assert len(surface_vars) == 1
 
     def test_flatten_levels_empty_dataset(self):
@@ -165,7 +165,7 @@ class TestFlattenLevels:
 
         # Should return empty DataArray
         assert isinstance(result, xr.DataArray)
-        assert len(result.coords["variable"]) == 0
+        assert len(result.coords["feature"]) == 0
 
     def test_flatten_levels_single_level(self):
         """Test with dataset having only one level."""
@@ -184,7 +184,7 @@ class TestFlattenLevels:
         )
 
         result = flatten_levels(ds)
-        var_names = result.coords["variable"].values.tolist()
+        var_names = result.coords["feature"].values.tolist()
 
         assert "temperature_lev850" in var_names
         assert len(var_names) == 1

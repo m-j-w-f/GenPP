@@ -63,6 +63,8 @@ def main():
         # Remove existing local output if present
         if os.path.exists(local_nc):
             os.remove(local_nc)
+        # Rename variable since this is a keyword in xarray and causes some issues
+        ds_sliced = ds_sliced.rename({"variable": "feature"})
 
         # Write to local NetCDF in parallel
         print("Writing local NetCDF with Dask...")

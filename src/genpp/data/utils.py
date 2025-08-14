@@ -3,7 +3,7 @@ import xarray as xr
 
 
 def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
-    """Flattens the level dimension of an xarray Dataset by creating separate variables for each level.
+    """Flattens the level dimension of an xarray Dataset by creating separate features for each level.
     Do not call .compute() on large datasets, as this will likely lead to memory issues.
 
     Args:
@@ -11,7 +11,7 @@ def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
         level_dim (str, optional): The name of the level dimension. Defaults to "level".
 
     Returns:
-        xr.DataArray: The flattened dataset with separate variables for each level.
+        xr.DataArray: The flattened dataset with separate features for each level.
     """
     # Create new dataset
     ds_flat = xr.Dataset()
@@ -21,24 +21,23 @@ def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
         if coord != level_dim:
             ds_flat.coords[coord] = ds.coords[coord]
 
-    # Process each variable
-    for var_name, var_data in ds.data_vars.items():
-        if level_dim in var_data.dims:
-            # Create separate variables for each level
-            for level in var_data[level_dim].values:
-                new_name = f"{var_name}_lev{level}"
-                ds_flat[new_name] = var_data.sel({level_dim: level}).reset_coords(
+    # Process each feature
+    for feat_name, feat_data in ds.data_vars.items():
+        if level_dim in feat_data.dims:
+            # Create separate features for each level
+            for level in feat_data[level_dim].values:
+                new_name = f"{feat_name}_lev{level}"
+                ds_flat[new_name] = feat_data.sel({level_dim: level}).reset_coords(
                     level_dim, drop=True
                 )
         else:
-            # Keep variables without level as-is
-            ds_flat[var_name] = var_data
+            # Keep features without level as-is
+            ds_flat[feat_name] = feat_data
 
     # Handle empty dataset case
     if len(ds_flat.data_vars) == 0:
-        return xr.DataArray(data=[], coords={"variable": []}, dims=["variable"])
-
-    return ds_flat.to_array()
+        return xr.DataArray(data=[], coords={"feature": []}, dims=["feature"])
+    return ds_flat.to_array().rename({"variable": "feature"})
 
 
 def get_time_intersection(
