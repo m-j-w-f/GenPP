@@ -77,6 +77,41 @@ class StandardScalerPreprocessor(Preprocessor):
         )
 
 
+class MinMaxScalerPreprocessor(Preprocessor):
+    """A preprocessor that scales the data to a given range."""
+
+    def __init__(self, dim: Dims, feature_range=(0, 1)):
+        self.dim = dim
+        self.feature_range = feature_range
+
+    def fit(self, data: xr.DataArray) -> None:
+        """Fit the preprocessor to the data by calculating the min and max values."""
+        self.data_min = data.min(dim=self.dim).compute()
+        self.data_max = data.max(dim=self.dim).compute()
+
+    def preprocess(self, data: xr.DataArray) -> xr.DataArray:
+        """Scale the input data to the specified feature range."""
+        # Preserve original attributes
+        original_attrs = data.attrs.copy()
+
+        # Scale the data
+        scaled_data = (data - self.data_min) / (self.data_max - self.data_min)
+        scaled_data = (
+            scaled_data * (self.feature_range[1] - self.feature_range[0]) + self.feature_range[0]
+        )
+
+        # Restore attributes
+        scaled_data.attrs = original_attrs
+
+        return scaled_data
+
+    def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
+        """Inverse scaling of the preprocessed data."""
+        raise NotImplementedError(
+            "TODO Inverse transform is not implemented for MinMaxScalerPreprocessor."
+        )
+
+
 class AddMetadataPreprocessor(Preprocessor):
     """A preprocessor that adds metadata to the data."""
 
