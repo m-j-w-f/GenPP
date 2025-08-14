@@ -28,7 +28,7 @@ class EnergyScore(nn.Module):
         reduced = reduce(torch.sqrt(sq_diff_sum) ** self.beta, "b d ... -> b d", reduction="mean")
         return reduced
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor, avg: str | None = "mean") -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes the energy score between the predicted and true values.
 
         Args:
@@ -69,10 +69,6 @@ class EnergyScore(nn.Module):
             torch.sqrt(distances_22), "b d n1 n2 -> b d", reduction="mean"
         )  # [batch_size, out_features]
         es = es_12 - 0.5 * es_22
-        if avg == "mean":
-            return torch.mean(es)
-        if avg == "variable":
-            return torch.mean(es, dim=0)
         return es
 
 
@@ -87,24 +83,23 @@ class CRPS_Normal(nn.Module):
         self._inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
         self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
 
-    def forward(self, mu_sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, mu: torch.Tensor, sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Calculates the Continuous Ranked Probability Score (CRPS) assuming normally distributed data.
 
         Args:
-            mu_sigma (torch.Tensor): Tensor of mean and standard deviation. Shape [b, 2, h, w]
+            mu (torch.Tensor): Tensor of mean. Shape [b, 1, h, w]
+            sigma (torch.Tensor): Tensor of standard deviation. Shape [b, 1, h, w]
             y (torch.Tensor): Observed data. Shape [b, 1, h, w]
 
         Returns:
-            torch.Tensor: CRPS value.
+            torch.Tensor: CRPS value of shape [b, 1, h, w]
         """
-        mu, sigma = mu_sigma[:, 0], mu_sigma[:, 1]
-
         z_red = (y - mu) / sigma
 
         cdf = self.dist.cdf(z_red)
         pdf = torch.exp(self.dist.log_prob(z_red))
         crps = sigma * (z_red * (2.0 * cdf - 1.0) + 2.0 * pdf - self._inv_sqrt_pi)
-        return torch.mean(crps)
+        return crps
 
 
 class CRPS_TruncatedNormal(nn.Module):
@@ -120,19 +115,17 @@ class CRPS_TruncatedNormal(nn.Module):
         self.inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
         self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, mu: torch.Tensor, sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Calculates the CRPS for Truncated Normal Distribution.
 
         Args:
-            x (torch.Tensor): Input tensor containing mean and standard deviation. Both must be positive (sigma strictly positive).
+            mu (torch.Tensor): Mean tensor, must be positive.
+            sigma (torch.Tensor): Standard deviation tensor, must be strictly positive.
             y (torch.Tensor): Target tensor.
 
         Returns:
             torch.Tensor: CRPS value.
         """
-        mu = x[:, 0]
-        sigma = x[:, 1]
-
         loc = (y - mu) / sigma
 
         phi = torch.exp(self.dist.log_prob(loc))
@@ -150,4 +143,4 @@ class CRPS_TruncatedNormal(nn.Module):
                 - self.inv_sqrt_pi * Phi_2ms
             )
         )
-        return torch.mean(crps)
+        return crps

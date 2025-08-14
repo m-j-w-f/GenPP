@@ -158,13 +158,15 @@ class BaseChenModel(ABC, L.LightningModule):
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
+        loss = torch.mean(loss)
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y, avg="variable")
+        loss = self.loss_fn(res, y)
+        loss = torch.mean(loss, dim=0)
         # Log the loss for each variable separately
         for i in range(self.out_features):
             self.log(
@@ -184,7 +186,17 @@ class BaseChenModel(ABC, L.LightningModule):
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
-        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        loss = torch.mean(loss, dim=0)
+        for i in range(self.out_features):
+            self.log(
+                f"test_loss_var_{i}",
+                loss[i],
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
+        loss = torch.mean(loss)
         return loss
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
