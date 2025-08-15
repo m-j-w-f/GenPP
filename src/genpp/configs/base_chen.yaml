@@ -1,0 +1,36 @@
+# Main configuration file for GenPP training
+defaults:
+  - data/dataloader: standard
+  - data/spatial: padded
+  - data/splits: standard
+  - data/features: full
+  - data/preprocess: standard
+  - data: weatherbench2
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
+  - model: cnn_chen
+  - trainer: default
+  - logger: wandb
+  - _self_
+
+seed: 42
+
+# Hydra configuration
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+# Custom Test stuff
+trainer:
+  accelerator: gpu
+  devices: 1
+  max_epochs: 100
+
+
+logger:
+  tags:
+    - "test"
+    - "cnn"
+    - "chen"

@@ -4,16 +4,5 @@ original:
   latitude: 31
   longitude: 37
 
-# Padding applied (top, bottom, left, right)
-padding:
-  lat_left: 0
-  lat_right: 1
-  lon_top: 5
-  lon_bottom: 6
-
-padding_list: ${tuple:${.padding.lat_left},${.padding.lat_right},${.padding.lon_top},${.padding.lon_bottom}}
-
-# Padded dimensions after padding (calculated dynamically)
-padded:
-  latitude: ${eval:'${..original.latitude} + ${..padding.lat_left} + ${..padding.lat_right}'}
-  longitude: ${eval:'${..original.longitude} + ${..padding.lon_top} + ${..padding.lon_bottom}'}
+x_transform: null
+y_transform: null

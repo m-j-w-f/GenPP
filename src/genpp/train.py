@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from genpp.configs import register_resolvers
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
+@hydra.main(version_base=None, config_path="configs", config_name="base_drn")
 def train(cfg: DictConfig) -> None:
     register_resolvers()
     torch.set_float32_matmul_precision("medium")

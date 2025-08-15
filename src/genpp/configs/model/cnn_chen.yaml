@@ -2,9 +2,9 @@
 _target_: genpp.models.chen.CNNChenModel
 
 # Model architecture parameters
-in_features: ${data.variables.input_variables}
-meta_features: ${data.variables.meta_features}
-out_features: ${data.variables.output}
+in_features: ${data.features.input_features}
+meta_features: ${data.features.meta_features}
+out_features: ${data.features.output}
 height: ${data.spatial.padded.longitude}
 width: ${data.spatial.padded.latitude}
 noise_dim: 5 # Every gridpoint has noise added of noise_dim

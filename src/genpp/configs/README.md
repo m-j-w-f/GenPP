@@ -12,7 +12,7 @@ configs/
 │   ├── dataloader/         # DataLoader configurations
 │   ├── spatial/            # Spatial dimension configurations
 │   ├── splits/             # Train/val/test split configurations
-│   └── variables/          # Variable definitions
+│   └── features/           # Feature definitions
 ├── model/                  # Model configurations
 │   ├── cnn_chen.yaml       # CNN-based Chen model
 │   └── fc_chen.yaml        # Fully connected Chen model

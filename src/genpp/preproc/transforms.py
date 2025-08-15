@@ -4,6 +4,7 @@ from collections.abc import Sequence
 import torch
 import torch.nn.functional as F
 import xarray as xr
+from omegaconf import ListConfig, OmegaConf
 
 
 class Transform(ABC):
@@ -48,7 +49,10 @@ class Pad(Transform):
     """
 
     def __init__(self, padding: Sequence[int], mode: str = "reflect"):
-        self.padding = padding
+        if isinstance(padding, ListConfig):
+            self.padding: Sequence[int] = OmegaConf.to_object(padding)  # type: ignore
+        else:
+            self.padding = padding
         self.mode = mode
 
     def transform(self, data: torch.Tensor) -> torch.Tensor:

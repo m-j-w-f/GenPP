@@ -5,7 +5,7 @@ from typing import Any
 import lightning as L
 import torch
 import torch.nn as nn
-from einops import rearrange, repeat
+from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
@@ -128,7 +128,7 @@ class BaseChenModel(ABC, L.LightningModule):
             (self.in_features, self.in_features, self.meta_dim + self.use_embedding), dim=1
         )  # Mean, Std, Meta have now shape [batch_size, var, lon, lat]
         if self.use_embedding:
-            pixel_idx = meta[:, -1, ...].long()  # Shape [batch_size, lon, lat]
+            pixel_idx = meta[:, -1, ...].int()  # Shape [batch_size, lon, lat]
             meta = meta[
                 :, :-1, ...
             ]  # Remove the pixel index from the meta tensor. Shape [batch_size, meta_dim, lon, lat]
@@ -141,7 +141,7 @@ class BaseChenModel(ABC, L.LightningModule):
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
         pred_mean = self.mean_model(mean)  # Shape [batch_size, out_features, lon, lat]
         delta = self.std_model(std)
-        z = self.get_noise(batch_size).to(delta)  # Must have same shape as delta
+        z = self.get_noise(batch_size).to(delta)  # Must be on the same device as delta
 
         noise = z * delta
 
@@ -166,7 +166,7 @@ class BaseChenModel(ABC, L.LightningModule):
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
-        loss = torch.mean(loss, dim=0)
+        loss = reduce(loss, "b c -> c", "mean")
         # Log the loss for each variable separately
         for i in range(self.out_features):
             self.log(
@@ -186,7 +186,7 @@ class BaseChenModel(ABC, L.LightningModule):
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
-        loss = torch.mean(loss, dim=0)
+        loss = reduce(loss, "b c -> c", "mean")
         for i in range(self.out_features):
             self.log(
                 f"test_loss_var_{i}",

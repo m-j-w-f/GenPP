@@ -1,0 +1,15 @@
+# DRN model config
+_target_: genpp.models.drn.DRNModel
+
+in_features: ${data.features.input_concat}
+out_distribution:
+  _target_: genpp.models.distributions.CombinedPredictiveDistribution
+hidden_channels:
+  _target_: builtins.list
+  _args_: [[256, 128, 64]]
+height: ${data.spatial.original.longitude}
+width: ${data.spatial.original.latitude}
+embedding_dim: 5
+normalize: true
+
+# Optimizer and learning rate scheduler are imported automatically due to the folder structure

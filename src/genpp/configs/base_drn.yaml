@@ -3,12 +3,12 @@ defaults:
   - data/dataloader: standard
   - data/spatial: standard
   - data/splits: standard
-  - data/variables: full
-  - data/preprocess: standard
+  - data/features: full
+  - data/preprocess: minMaxWind
   - data: weatherbench2
   - model/optimizer: adamW
   - model/lr_scheduler: constant
-  - model: cnn_chen
+  - model: drn
   - trainer: default
   - logger: wandb
   - _self_
@@ -32,3 +32,4 @@ trainer:
 logger:
   tags:
     - "test"
+    - "drn"

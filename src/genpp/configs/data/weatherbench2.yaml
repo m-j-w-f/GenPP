@@ -10,23 +10,20 @@ batch_size: 8
 _split_template: &split_template
   x_kwargs:
     input_dims:
-      variable: ${data.variables.input_concat}
+      feature: ${data.features.input_concat}
       longitude: ${data.spatial.original.longitude}
       latitude: ${data.spatial.original.latitude}
     batch_dims:
       prediction_time: ${data.batch_size}
-  x_transform:
-    _target_: genpp.preproc.transforms.Pad
-    padding: ${data.spatial.padding_list}
-    mode: "constant"
+  x_transform: ${data.spatial.x_transform}
   y_kwargs:
     input_dims:
-      variable: ${data.variables.output}
+      feature: ${data.features.output}
       longitude: ${data.spatial.original.longitude}
       latitude: ${data.spatial.original.latitude}
     batch_dims:
       time: ${data.batch_size}
-  y_transform: null
+  y_transform: ${data.spatial.y_transform}
 
 _dataloader_template: &dataloader_template
   batch_size: ${data.dataloader.batch_size}

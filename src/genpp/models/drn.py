@@ -4,10 +4,12 @@ from typing import Any
 import lightning as L
 import torch
 import torch.nn as nn
+from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
 
+from genpp.models.distributions import PredictiveDistribution
 from genpp.models.utils import instantiate_partial_scheduler
 
 
@@ -22,37 +24,34 @@ class DRNModel(L.LightningModule):
     def __init__(
         self,
         in_features: int,
-        out_features: int,
+        out_distribution: PredictiveDistribution,
         hidden_channels: list[int],
         height: int,
         width: int,
-        loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         embedding_dim: int = 5,
         normalize: bool = False,
-        final_activation: Callable[[torch.Tensor], torch.Tensor] = nn.Identity(),
     ) -> None:
         super().__init__()
-
-        self.in_features = in_features
-        self.out_features = out_features
+        # Pixel index is removed if favor for embedding
+        self.in_features = in_features + embedding_dim - 1
+        self.out_distribution = out_distribution
+        self.out_features = out_distribution.n_params
         self.hidden_channels = hidden_channels
         self.height = height
         self.width = width
-        self.loss_fn = loss_fn
         self.optimizer_partial = optimizer
         self.lr_scheduler_partial = lr_scheduler
         self.embedding_dim = embedding_dim
         self.normalize = normalize
-        self.final_activation = final_activation
 
         self.embedding = nn.Embedding(
             num_embeddings=self.height * self.width, embedding_dim=embedding_dim
         )
 
         layers = []
-        prev_dim = in_features
+        prev_dim = self.in_features
 
         # Hidden layers
         for hidden_dim in hidden_channels:
@@ -63,7 +62,7 @@ class DRNModel(L.LightningModule):
                 ]
             )
             if normalize:
-                layers.append(
+                layers.extend(
                     [
                         Rearrange("b c h w -> b h w c"),
                         nn.LayerNorm(hidden_dim),
@@ -73,39 +72,44 @@ class DRNModel(L.LightningModule):
             prev_dim = hidden_dim
 
         # Output layer
-        layers.append(nn.Conv2d(prev_dim, out_features, kernel_size=1))
-        layers.append(self.final_activation)
-
+        layers.append(nn.Conv2d(prev_dim, self.out_features, kernel_size=1))
+        layers.append(self.out_distribution.final_activation)
         self.network = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the network.
 
         Args:
-            x (torch.Tensor): Input tensor of shape [batch_size, lat, lon, var].
+            x (torch.Tensor): Input tensor of shape [batch_size, var, lon, lat].
 
         Returns:
             torch.Tensor: Output tensor.
         """
+        x, pixel_idx = x[:, :-1], x[:, -1]  # Last variable is the pixel index
+        embedding = self.embedding(pixel_idx.int())
+        embedding = rearrange(embedding, "b h w e -> b e h w")
+        x = torch.cat([x, embedding], dim=1)
         x = self.network(x)
         return x
 
     def training_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y)
+        loss = self.out_distribution.compute_loss(res, y)
+        loss = torch.mean(loss)
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y, avg="variable")
+        loss = self.out_distribution.compute_loss(res, y)
+        loss = reduce(loss, "b c h w -> c", "mean")
         # Log the loss for each variable separately
-        for i in range(self.out_features):
+        for i, l_value in enumerate(loss):
             self.log(
                 f"val_loss_var_{i}",
-                loss[i],
+                l_value,
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
@@ -119,7 +123,7 @@ class DRNModel(L.LightningModule):
     def test_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y)
+        loss = self.out_distribution.compute_loss(res, y)
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
