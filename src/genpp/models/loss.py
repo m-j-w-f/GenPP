@@ -38,9 +38,6 @@ class EnergyScore(nn.Module):
         Returns:
             torch.Tensor: The computed energy score with shape [out_features].
         """
-
-        batch_size, n_samples, lat, lon, out_features = x.shape
-
         # Reshape tensors for easier computation
         # x: [batch_size, out_features, n_samples, lat * lon]
         # y: [batch_size, out_features, 1, lat * lon]

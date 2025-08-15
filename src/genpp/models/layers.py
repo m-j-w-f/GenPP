@@ -140,16 +140,18 @@ class FinalActivation(nn.Module):
         activation (str): The activation function to use. Options are 'relu', 'sigmoid', 'tanh', 'softmax'.
     """
 
-    def __init__(self, activations: list[torch.nn.Module]) -> None:
+    def __init__(self, activations: list[torch.nn.Module], split_dim: int = 2) -> None:
         super().__init__()
         self.activations = activations
-        self.len = len(activations)
+        self.split_dim = split_dim
 
     def __repr__(self) -> str:
         return f"FinalActivation(activations={self.activations})"
 
     def forward(self, x: Tensor) -> Tensor:
-        x = torch.stack([act(x[:, :, i, ...]) for i, act in enumerate(self.activations)], dim=2)
+        # shape of the input tensor is [b, n, c, ...]
+        x_list = torch.split(x, 1, dim=self.split_dim)
+        x = torch.cat([act(x) for act, x in zip(self.activations, x_list)], dim=self.split_dim)
         return x
 
 
