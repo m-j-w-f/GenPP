@@ -54,17 +54,51 @@ class Preprocessor(ABC, Hashable):
         pass
 
     def __hash__(self):
-        """Hash based on class name and internal state."""
+        """Hash based on class name and configuration parameters only.
+
+        Excludes fitted state to ensure hash consistency before and after fitting.
+        """
         state = getattr(self, "__dict__", {})
-        state_str = json.dumps(state, sort_keys=True, default=str)
+        # Exclude fitted state attributes that change after fitting
+        excluded_attrs = {
+            "is_fitted",
+            "mean",
+            "std",
+            "data_min",
+            "data_max",
+            "_changed_var_idx",
+            "fitted_features",
+        }
+        config_state = {k: v for k, v in state.items() if k not in excluded_attrs}
+        state_str = json.dumps(config_state, sort_keys=True, default=str)
         combined = f"{self.__class__.__module__}.{self.__class__.__name__}:{state_str}"
         return int(hashlib.md5(combined.encode()).hexdigest(), 16)
 
     def __eq__(self, other):
-        """Equality based on class and state."""
-        return isinstance(other, self.__class__) and getattr(self, "__dict__", {}) == getattr(
-            other, "__dict__", {}
-        )
+        """Equality based on class and configuration parameters only.
+
+        Excludes fitted state to ensure consistency before and after fitting.
+        """
+        if not isinstance(other, self.__class__):
+            return False
+
+        state_self = getattr(self, "__dict__", {})
+        state_other = getattr(other, "__dict__", {})
+
+        # Exclude fitted state attributes that change after fitting
+        excluded_attrs = {
+            "is_fitted",
+            "mean",
+            "std",
+            "data_min",
+            "data_max",
+            "_changed_var_idx",
+            "fitted_features",
+        }
+        config_state_self = {k: v for k, v in state_self.items() if k not in excluded_attrs}
+        config_state_other = {k: v for k, v in state_other.items() if k not in excluded_attrs}
+
+        return config_state_self == config_state_other
 
 
 class StandardScalerPreprocessor(Preprocessor):
