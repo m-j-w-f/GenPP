@@ -1,3 +1,4 @@
+import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -22,7 +23,7 @@ from genpp.data import (
 from genpp.preproc.preprocessors import Preprocessor
 
 
-def get_MapDataset(
+def _get_MapDataset(
     x_ds: xr.DataArray,
     y_ds: xr.DataArray,
     x_kwargs: dict,
@@ -63,6 +64,18 @@ def get_MapDataset(
     return map_ds
 
 
+def _already_processed(xr_path, current_hash) -> bool:
+    if not os.path.exists(xr_path):
+        return False
+    ds = xr.open_dataset(xr_path)
+    saved_hash = ds.attrs.get("preproc_hash", None)
+    if not saved_hash == current_hash:
+        warn(f"Dataset at {xr_path} requires different preprocessing. Deleting...")
+        os.remove(xr_path)
+        return False
+    return True
+
+
 class WeatherBench2DataModule(L.LightningDataModule):
     """DataModule for WeatherBench2 dataset."""
 
@@ -80,6 +93,20 @@ class WeatherBench2DataModule(L.LightningDataModule):
         self.y_preprocessing = y_preprocessing
         self.dataset_config = dataset_config
         self.dataloader_config = dataloader_config
+
+    @property
+    def x_hash(self):
+        if self.x_preprocessing:
+            return hashlib.md5(
+                ",".join(str(hash(p)) for p in self.x_preprocessing).encode()
+            ).hexdigest()
+
+    @property
+    def y_hash(self):
+        if self.y_preprocessing:
+            return hashlib.md5(
+                ",".join(str(hash(p)) for p in self.y_preprocessing).encode()
+            ).hexdigest()
 
     def prepare_data(self):
         # This method is called only on 1 GPU/TPU in distributed training
@@ -113,39 +140,36 @@ class WeatherBench2DataModule(L.LightningDataModule):
             preprocess_main(base_dir=self.path)
 
         # Preprocess the forecasts and save it to disk if necessary
-        # TODO: if we often change the preprocessing, we might want to use a tempfile here and delete it in teardown after training
-        if self.x_preprocessing:
-            if not (self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME).exists():
-                warn(
-                    f"Preprocessing not done yet for {self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME}. "
-                    "This will take some time..."
-                )
-                # Load the data, fit the preprocessors, and save the preprocessed data
-                da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
-                for preprocessor in self.x_preprocessing:
-                    preprocessor.fit(da.sel(prediction_time=self.dataset_config.train.slice))
-                    da = preprocessor.preprocess(da)
-                da.to_netcdf(
-                    self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME,
-                    mode="w",
-                    format="NETCDF4",
-                )
-        if self.y_preprocessing:
-            if not (self.path / OBSERVATIONS_FLAT_PREPROC_NAME).exists():
-                warn(
-                    f"Preprocessing not done yet for {self.path / OBSERVATIONS_FLAT_PREPROC_NAME}. "
-                    "This will take some time..."
-                )
-                # Load the data, fit the preprocessors, and save the preprocessed data
-                da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
-                for preprocessor in self.y_preprocessing:
-                    preprocessor.fit(da.sel(time=self.dataset_config.train.slice))
-                    da = preprocessor.preprocess(da)
-                da.to_netcdf(
-                    self.path / OBSERVATIONS_FLAT_PREPROC_NAME,
-                    mode="w",
-                    format="NETCDF4",
-                )
+        if self.x_preprocessing and not _already_processed(
+            self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME, self.x_hash
+        ):
+            # Load the data, fit the preprocessors, and save the preprocessed data
+            da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
+            for preprocessor in self.x_preprocessing:
+                preprocessor.fit(da.sel(prediction_time=self.dataset_config.train.slice))
+                da = preprocessor.preprocess(da)
+
+            da.attrs["preproc_hash"] = self.x_hash
+            da.to_netcdf(
+                self.path / FORECAST_ENS_FLAT_AGG_PREPROC_NAME,
+                mode="w",
+                format="NETCDF4",
+            )
+        if self.y_preprocessing and not _already_processed(
+            self.path / OBSERVATIONS_FLAT_PREPROC_NAME, self.y_hash
+        ):
+            # Load the data, fit the preprocessors, and save the preprocessed data
+            da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+            for preprocessor in self.y_preprocessing:
+                preprocessor.fit(da.sel(time=self.dataset_config.train.slice))
+                da = preprocessor.preprocess(da)
+
+            da.attrs["preproc_hash"] = self.y_hash
+            da.to_netcdf(
+                self.path / OBSERVATIONS_FLAT_PREPROC_NAME,
+                mode="w",
+                format="NETCDF4",
+            )
 
     def setup(self, stage: str) -> None:
         # Load preprocessed data if preprocessing was configured, otherwise load original flat data
@@ -163,7 +187,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
 
         # TODO it might make sense to iterate once over the map dataset and store it in a more tensor friendly format
         if stage == "fit":
-            self.train_dataset = get_MapDataset(
+            self.train_dataset = _get_MapDataset(
                 x.sel(prediction_time=self.dataset_config.train.slice),
                 y.sel(time=self.dataset_config.train.slice),
                 x_kwargs=self.dataset_config.train.x_kwargs,
@@ -171,7 +195,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 x_transform=self.dataset_config.train.x_transform,
                 y_transform=self.dataset_config.train.y_transform,
             )
-            self.val_dataset = get_MapDataset(
+            self.val_dataset = _get_MapDataset(
                 x.sel(prediction_time=self.dataset_config.val.slice),
                 y.sel(time=self.dataset_config.val.slice),
                 x_kwargs=self.dataset_config.val.x_kwargs,
@@ -180,7 +204,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 y_transform=self.dataset_config.val.y_transform,
             )
         if stage == "test":
-            self.test_dataset = get_MapDataset(
+            self.test_dataset = _get_MapDataset(
                 x.sel(prediction_time=self.dataset_config.test.slice),
                 y.sel(time=self.dataset_config.test.slice),
                 x_kwargs=self.dataset_config.test.x_kwargs,

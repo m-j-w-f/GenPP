@@ -1,5 +1,8 @@
+import hashlib
+import json
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Hashable
 
 import dask  # noqa: F401
 import dask.array as da
@@ -11,7 +14,7 @@ from xarray.core.types import Dims
 from genpp.data import MetadataVars
 
 
-class Preprocessor(ABC):
+class Preprocessor(ABC, Hashable):
     """Abstract base class for preprocessing data.
     Preprocessors should be able to preprocess the xarray DataArray to return a xarray DataArray.
     The Inverse transform should be applied to a torch.Tensor to return a xarray DataArray or a torch.Tensor.
@@ -49,6 +52,19 @@ class Preprocessor(ABC):
             xr.DataArray | torch.Tensor: The data in its original form.
         """
         pass
+
+    def __hash__(self):
+        """Hash based on class name and internal state."""
+        state = getattr(self, "__dict__", {})
+        state_str = json.dumps(state, sort_keys=True, default=str)
+        combined = f"{self.__class__.__module__}.{self.__class__.__name__}:{state_str}"
+        return int(hashlib.md5(combined.encode()).hexdigest(), 16)
+
+    def __eq__(self, other):
+        """Equality based on class and state."""
+        return isinstance(other, self.__class__) and getattr(self, "__dict__", {}) == getattr(
+            other, "__dict__", {}
+        )
 
 
 class StandardScalerPreprocessor(Preprocessor):
