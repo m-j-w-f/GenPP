@@ -32,6 +32,7 @@ class DRNModel(L.LightningModule):
         lr_scheduler: DictConfig,
         embedding_dim: int = 5,
         normalize: bool = False,
+        rescalers: list[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__()
         # Pixel index is removed if favor for embedding
@@ -45,6 +46,9 @@ class DRNModel(L.LightningModule):
         self.lr_scheduler_partial = lr_scheduler
         self.embedding_dim = embedding_dim
         self.normalize = normalize
+
+        # Set rescalers
+        self.out_distribution.rescaler = rescalers
 
         self.embedding = nn.Embedding(
             num_embeddings=self.height * self.width, embedding_dim=embedding_dim

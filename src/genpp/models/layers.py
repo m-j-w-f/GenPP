@@ -155,13 +155,62 @@ class FinalActivation(nn.Module):
         return x
 
 
-class ResidualBlock(nn.Module):
-    """Only for prototyping"""
+class ReverseStandardization(nn.Module):  # TODO test this
+    """A layer that reverses the standardization of the input tensor.
+    This should be applied to the output of the model, so that we can compare the crps in the original space.
 
-    def __init__(self, layer: nn.Module, slice_channels: list[int]) -> None:
+    Args:
+        mean (torch.Tensor): The mean tensor used for standardization.
+        std (torch.Tensor): The standard deviation tensor used for standardization.
+    """
+
+    def __init__(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         super().__init__()
-        self.layer = layer
-        self.slice_channels = slice_channels
+        self.mean = mean
+        self.std = std
 
-    def forward(self, x: Tensor) -> Tensor:
-        return x[:, self.slice_channels, ...] + self.layer(x)
+    def forward(self, mu: Tensor, sigma: Tensor) -> tuple[Tensor, Tensor]:
+        """Reverses the standardization of the input tensor.
+
+        Args:
+            x (Tensor): Input tensor of shape [b, c, ...].
+
+
+        Returns:
+            Tensor: Tensor with the same shape as the input, but with standardization reversed.
+        """
+        mu = mu * self.std + self.mean
+        sigma = sigma * self.std
+        return mu, sigma
+
+
+class ReverseMinMaxScaling(nn.Module):  # TODO test this
+    """A layer that reverses the min-max scaling of the input tensor.
+    This should be applied to the output of the model, so that we can compare the crps in the original space.
+
+    Args:
+        mean (torch.Tensor): The mean tensor used for standardization.
+        std (torch.Tensor): The standard deviation tensor used for standardization.
+    """
+
+    def __init__(self, min: torch.Tensor, max: torch.Tensor) -> None:
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.scale = max - min
+
+    def forward(self, mu: Tensor, sigma: Tensor) -> tuple[Tensor, Tensor]:
+        """Reverses the min-max scaling of the input tensor.
+
+        Args:
+            x (Tensor): Input tensor of shape [b, 2, ...]. Where the second dimension contains the predicted mean and standard deviation.
+
+        Returns:
+            Tensor: Tensor with the same shape as the input, but with min-max scaling reversed.
+        """
+        self.min = self.min.to(mu)
+        self.scale = self.scale.to(mu)
+
+        mu = mu * self.scale + self.min
+        sigma = sigma * self.scale
+        return mu, sigma

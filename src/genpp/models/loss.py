@@ -103,14 +103,34 @@ class CRPS_TruncatedNormal(nn.Module):
     """CRPS for Truncated Normal Distribution.
     Source: Thorarinsdottir, Gneiting (2010) Probabilistic Forecasts of Wind Speed: Ensemble Model Output Statistics by using Heteroscedastic Censored Regression
     https://academic.oup.com/jrsssa/article/173/2/371/7077664
+    Implementation based on
+    A. Jordan, F. Krüger, S. Lerch (2019) Evaluating Probabilistic Forecasts with scoringRules
+    https://www.jstatsoft.org/article/view/v090i12
+    and
+    https://github.com/frazane/scoringrules/blob/e3739338e42393ff4487c4c760e194378a32546e/scoringrules/core/crps/_closed.py#L329
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, lower: torch.Tensor | float = 0.0, upper: torch.Tensor | float = float("inf")
+    ) -> None:
         super().__init__()
+        self.lower = lower
+        self.upper = upper
         # Might need to convert to primitive types if not moved to correct device
         self.sqrt_2 = torch.sqrt(torch.tensor(2.0))
         self.inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
         self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
+
+    def _norm_pdf(self, x: torch.Tensor) -> torch.Tensor:
+        """Calculates the probability density function (PDF) of the standard normal distribution.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: PDF values.
+        """
+        return torch.exp(self.dist.log_prob(x))
 
     def forward(self, mu: torch.Tensor, sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Calculates the CRPS for Truncated Normal Distribution.
@@ -124,20 +144,21 @@ class CRPS_TruncatedNormal(nn.Module):
             torch.Tensor: CRPS value.
         """
         loc = (y - mu) / sigma
+        l = (self.lower - mu) / sigma  # noqa: E741
+        u = (self.upper - mu) / sigma
+        z = torch.min(torch.max(loc, l), u)
 
-        phi = torch.exp(self.dist.log_prob(loc))
+        F_u = self.dist.cdf(u)
+        F_l = self.dist.cdf(l)
+        F_z = self.dist.cdf(z)
+        F_u2 = self.dist.cdf(u * self.sqrt_2)
+        F_l2 = self.dist.cdf(l * self.sqrt_2)
+        f_z = self._norm_pdf(z)
 
-        Phi_ms = self.dist.cdf(mu / sigma)
-        Phi = self.dist.cdf(loc)
-        Phi_2ms = self.dist.cdf(self.sqrt_2 * mu / sigma)
+        c = 1 / (F_u - F_l)
 
-        crps = (
-            sigma
-            / torch.square(Phi_ms)
-            * (
-                loc * Phi_ms * (2.0 * Phi + Phi_ms - 2.0)
-                + 2.0 * phi * Phi_ms
-                - self.inv_sqrt_pi * Phi_2ms
-            )
-        )
-        return crps
+        s1 = torch.abs(loc - z)
+        s2 = c * z * (2 * F_z - (F_u + F_l))
+        s3 = c * 2 * f_z
+        s4 = c**2 * (F_u2 - F_l2) * self.inv_sqrt_pi
+        return sigma * (s1 + s2 + s3 - s4)
