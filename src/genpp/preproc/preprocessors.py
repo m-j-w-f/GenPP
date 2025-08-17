@@ -1,8 +1,5 @@
-import hashlib
-import json
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Hashable
 
 import dask  # noqa: F401
 import dask.array as da
@@ -14,11 +11,13 @@ from xarray.core.types import Dims
 from genpp.data import MetadataVars
 
 
-class Preprocessor(ABC, Hashable):
+class Preprocessor(ABC):
     """Abstract base class for preprocessing data.
     Preprocessors should be able to preprocess the xarray DataArray to return a xarray DataArray.
     The Inverse transform should be applied to a torch.Tensor to return a xarray DataArray or a torch.Tensor.
     """
+
+    fit_only: bool
 
     @abstractmethod
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
@@ -42,7 +41,7 @@ class Preprocessor(ABC, Hashable):
         pass
 
     @abstractmethod
-    def inverse_transform(self, data: torch.Tensor) -> xr.DataArray | torch.Tensor:
+    def inverse_transform(self, data: torch.Tensor, *args, **kwargs) -> xr.DataArray | torch.Tensor:
         """Inverse transform the preprocessed data back to its original form.
 
         Args:
@@ -53,68 +52,23 @@ class Preprocessor(ABC, Hashable):
         """
         pass
 
-    def __hash__(self):
-        """Hash based on class name and configuration parameters only.
-
-        Excludes fitted state to ensure hash consistency before and after fitting.
-        """
-        state = getattr(self, "__dict__", {})
-        # Exclude fitted state attributes that change after fitting
-        excluded_attrs = {
-            "is_fitted",
-            "mean",
-            "std",
-            "data_min",
-            "data_max",
-            "_changed_var_idx",
-            "fitted_features",
-        }
-        config_state = {k: v for k, v in state.items() if k not in excluded_attrs}
-        state_str = json.dumps(config_state, sort_keys=True, default=str)
-        combined = f"{self.__class__.__module__}.{self.__class__.__name__}:{state_str}"
-        return int(hashlib.md5(combined.encode()).hexdigest(), 16)
-
-    def __eq__(self, other):
-        """Equality based on class and configuration parameters only.
-
-        Excludes fitted state to ensure consistency before and after fitting.
-        """
-        if not isinstance(other, self.__class__):
-            return False
-
-        state_self = getattr(self, "__dict__", {})
-        state_other = getattr(other, "__dict__", {})
-
-        # Exclude fitted state attributes that change after fitting
-        excluded_attrs = {
-            "is_fitted",
-            "mean",
-            "std",
-            "data_min",
-            "data_max",
-            "_changed_var_idx",
-            "fitted_features",
-        }
-        config_state_self = {k: v for k, v in state_self.items() if k not in excluded_attrs}
-        config_state_other = {k: v for k, v in state_other.items() if k not in excluded_attrs}
-
-        return config_state_self == config_state_other
-
 
 class StandardScalerPreprocessor(Preprocessor):
     """A preprocessor that standardizes the data by removing the mean and scaling to unit variance."""
 
-    def __init__(self, dim: Dims, features: list[str] | None = None):
+    def __init__(self, dim: Dims, features: list[str] | None = None, fit_only: bool = False):
         """Initialize the StandardScalerPreprocessor.
 
         Args:
             dim: Dimension(s) along which to compute statistics for scaling.
             features: List of feature names to scale. If None, scale all features.
                       features not in this list will be kept unchanged.
+            fit_only: If True, only fit the preprocessor without transforming the data.
         """
         self.dim = dim
         self.features = features
         self.is_fitted = False
+        self.fit_only = fit_only
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the mean and standard deviation."""
@@ -131,12 +85,17 @@ class StandardScalerPreprocessor(Preprocessor):
             self.mean = data.mean(dim=self.dim).compute()
             self.std = data.std(dim=self.dim, ddof=1).compute()
         self.is_fitted = True
+        self.mean_tensor = torch.from_numpy(self.mean.values).float()
+        self.std_tensor = torch.from_numpy(self.std.values).float()
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Standardize the input data."""
         # Preserve attributes from the original data
         if not self.is_fitted:
             raise RuntimeError("Preprocessor must be fitted before preprocessing data.")
+
+        if self.fit_only:
+            raise RuntimeError("Preprocessor is in fit-only mode.")
 
         if self.features is not None:
             # Only scale specified features, keep others unchanged
@@ -156,7 +115,13 @@ class StandardScalerPreprocessor(Preprocessor):
 class MinMaxScalerPreprocessor(Preprocessor):
     """A preprocessor that scales the data to a given range."""
 
-    def __init__(self, dim: Dims, feature_range=(0, 1), features: list[str] | None = None):
+    def __init__(
+        self,
+        dim: Dims,
+        feature_range=(0, 1),
+        features: list[str] | None = None,
+        fit_only: bool = False,
+    ):
         """Initialize the MinMaxScalerPreprocessor.
 
         Args:
@@ -164,11 +129,13 @@ class MinMaxScalerPreprocessor(Preprocessor):
             feature_range: Target range for scaling, default (0, 1).
             features: List of feature names to scale. If None, scale all features.
                       features not in this list will be kept unchanged.
+            fit_only: If True, only fit the preprocessor without transforming the data.
         """
         self.dim = dim
         self.feature_range = feature_range
         self.features = features
         self.is_fitted = False
+        self.fit_only = fit_only
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data by calculating the min and max values."""
@@ -184,12 +151,17 @@ class MinMaxScalerPreprocessor(Preprocessor):
         else:
             self.data_min = data.min(dim=self.dim).compute()
             self.data_max = data.max(dim=self.dim).compute()
+        self.min_tensor = torch.from_numpy(self.data_min.values).float()
+        self.max_tensor = torch.from_numpy(self.data_max.values).float()
         self.is_fitted = True
 
     def preprocess(self, data: xr.DataArray) -> xr.DataArray:
         """Scale the input data to the specified feature range."""
         if not self.is_fitted:
             raise RuntimeError("Preprocessor must be fitted before preprocessing data.")
+
+        if self.fit_only:
+            raise RuntimeError("Preprocessor is in fit-only mode.")
 
         if self.features is not None:
             scaled_res = (data - self.data_min) / (self.data_max - self.data_min)
@@ -223,6 +195,7 @@ class AddMetadataPreprocessor(Preprocessor):
     def __init__(self, meta_features: list[MetadataVars] | type[MetadataVars]) -> None:
         self.meta_features = meta_features
         self.num_meta_features = len(meta_features)  # type: ignore
+        self.fit_only = False  # This makes no sense to be in fit_only mode
 
     def fit(self, data: xr.DataArray) -> None:
         """Fit the preprocessor to the data. This preprocessor does not require fitting."""

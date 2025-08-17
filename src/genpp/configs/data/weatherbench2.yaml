@@ -24,6 +24,7 @@ _split_template: &split_template
     batch_dims:
       time: ${data.batch_size}
   y_transform: ${data.spatial.y_transform}
+  preload_batch: true # TODO check if this speeds anythin up
 
 _dataloader_template: &dataloader_template
   batch_size: ${data.dataloader.batch_size}

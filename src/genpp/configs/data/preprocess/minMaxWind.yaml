@@ -16,6 +16,8 @@ y_preprocessing:
   - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
     dim: ["time", "latitude", "longitude"]
     features: ["2m_temperature"]
+    fit_only: true
   - _target_: genpp.preproc.preprocessors.MinMaxScalerPreprocessor
     dim: ["time", "latitude", "longitude"]
     features: ["10m_wind_speed"]
+    fit_only: true

@@ -18,15 +18,17 @@ def train(cfg: DictConfig) -> None:
     model = hydra.utils.instantiate(cfg.model)
     model.compile()
     datamodule = hydra.utils.instantiate(cfg.data.module)
+    try:
+        logger = None
+        if hasattr(cfg, "logger") and cfg.logger:
+            logger = hydra.utils.instantiate(cfg.logger)
+            logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
 
-    logger = None
-    if hasattr(cfg, "logger") and cfg.logger:
-        logger = hydra.utils.instantiate(cfg.logger)
-        logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
+        trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
 
-    trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
-
-    trainer.fit(model, datamodule)
+        trainer.fit(model, datamodule)
+    finally:
+        datamodule.cleanup()
 
 
 if __name__ == "__main__":
