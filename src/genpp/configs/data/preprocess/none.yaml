@@ -1,0 +1,3 @@
+# Standard preprocessing pipeline for WeatherBench2
+x_preprocessing: null
+y_preprocessing: null

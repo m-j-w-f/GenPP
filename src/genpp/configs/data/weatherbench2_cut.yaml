@@ -1,7 +1,18 @@
-# WeatherBench2 DataModule Configuration with Hydra composition
-defaults:
-  - _self_
+# WeatherBench2 DataModule Configuration with Hydra composition - Full dataset
+x_select_variables:
+  - '2m_temperature'
+  - '10m_wind_speed'
+y_select_variables: # TODO check the order
+  - '2m_temperature'
+  - '10m_wind_speed'
 
+# Feature configuration for full dataset
+features:
+  input_features: ${eval:'len(${data.x_select_variables})'}
+  aggregation_levels: 2
+  meta_features: 0
+  output: ${eval:'len(${data.y_select_variables})'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features} + (${model.embedding_dim} > 0)'}
 
 # Shared configuration parameters
 batch_size: 8
@@ -64,3 +75,5 @@ module:
       shuffle: false
   x_preprocessing: ${data.preprocess.x_preprocessing}
   y_preprocessing: ${data.preprocess.y_preprocessing}
+  x_select_variables: ${data.x_select_variables}
+  y_select_variables: ${data.y_select_variables}

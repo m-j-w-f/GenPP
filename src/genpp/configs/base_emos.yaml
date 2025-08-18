@@ -1,13 +1,13 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/spatial: padded
+  - data/spatial: standard
   - data/splits: standard
-  - data/preprocess: standard
-  - data: weatherbench2_full
+  - data/preprocess: none
+  - data: weatherbench2_cut
   - model/optimizer: adamW
   - model/lr_scheduler: constant
-  - model: cnn_chen
+  - model: emos
   - trainer: default
   - logger: wandb
   - _self_
@@ -31,5 +31,4 @@ trainer:
 logger:
   tags:
     - "test"
-    - "cnn"
-    - "chen"
+    - "emos"

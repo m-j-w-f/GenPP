@@ -7,7 +7,7 @@ from warnings import warn
 import lightning as L
 import xarray as xr
 import xbatcher
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from torch.utils.data import DataLoader
 from xbatcher.loaders.torch import MapDataset, to_tensor
 
@@ -72,6 +72,8 @@ class WeatherBench2DataModule(L.LightningDataModule):
         save_dir: Path = OUTPUT_DIR,
         x_preprocessing: list[Preprocessor] | None = None,
         y_preprocessing: list[Preprocessor] | None = None,
+        x_select_variables: ListConfig | list[str] | None = None,
+        y_select_variables: ListConfig | list[str] | None = None,
     ) -> None:
         super().__init__()
         self.path = save_dir
@@ -79,11 +81,16 @@ class WeatherBench2DataModule(L.LightningDataModule):
         self.y_preprocessing = y_preprocessing
         self.dataset_config = dataset_config
         self.dataloader_config = dataloader_config
+        self.x_select_variables = x_select_variables
+        self.y_select_variables = y_select_variables
+        self.already_prepared = False
 
     def prepare_data(self):
         # This method is called only on 1 GPU/TPU in distributed training
         # Use it to download data, if necessary
         # Do not assign states here, they will nit be kept
+        if self.already_prepared:
+            return
 
         # Is data already downloaded?
         if not os.path.exists(self.path / FORECAST_ENS_NAME):
@@ -112,10 +119,13 @@ class WeatherBench2DataModule(L.LightningDataModule):
             preprocess_main(base_dir=self.path)
 
         # Preprocess the forecasts and save it to disk if necessary
-        if self.x_preprocessing is not None:
+        if self.x_preprocessing is not None or self.x_select_variables is not None:
             # Load the data, fit the preprocessors, and save the preprocessed data
             da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
-            for preprocessor in self.x_preprocessing:
+            da = self._select_variables(
+                da, self.x_select_variables, append_suffix=True
+            )  # Apply variable selection before preprocessing
+            for preprocessor in self.x_preprocessing if self.x_preprocessing else []:
                 preprocessor.fit(da.sel(prediction_time=self.dataset_config.train.slice))
                 if not preprocessor.fit_only:
                     da = preprocessor.preprocess(da)
@@ -128,36 +138,75 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 mode="w",
                 format="NETCDF4",
             )
-        if self.y_preprocessing is not None:
+        if self.y_preprocessing is not None or self.y_select_variables is not None:
             # Load the data, fit the preprocessors, and save the preprocessed data
             da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
-            for preprocessor in self.y_preprocessing:
+            da = self._select_variables(
+                da, self.y_select_variables, append_suffix=False
+            )  # Apply variable selection before preprocessing
+            for preprocessor in self.y_preprocessing if self.y_preprocessing else []:
                 preprocessor.fit(da.sel(time=self.dataset_config.train.slice))
                 if not preprocessor.fit_only:
                     da = preprocessor.preprocess(da)
 
-            self.y_tmp = tempfile.NamedTemporaryFile(suffix=".nc", delete=False)
+            self.y_tmp = tempfile.NamedTemporaryFile(
+                dir=self.path / "tmp", suffix=".nc", delete=False
+            )
             da.to_netcdf(
                 self.y_tmp.name,
                 mode="w",
                 format="NETCDF4",
             )
 
+        self.already_prepared = True
+
+    def _select_variables(
+        self,
+        da: xr.DataArray,
+        select_variables: ListConfig | list[str] | None,
+        append_suffix: bool = True,
+    ) -> xr.DataArray:
+        """Select only specified variables from the dataset."""
+        if select_variables is None:
+            return da
+
+        # Convert ListConfig to list if necessary
+        variables = (
+            list(select_variables) if isinstance(select_variables, ListConfig) else select_variables
+        )
+
+        # Create list of feature names to keep (with _mean and _std suffixes)
+        features_to_keep = []
+        if append_suffix:
+            for var in variables:
+                features_to_keep.extend([f"{var}_mean", f"{var}_std"])
+        else:
+            features_to_keep = variables
+
+        # Filter to only include the specified features
+        available_features = da.feature.values
+        selected_features = [f for f in features_to_keep if f in available_features]
+        if not selected_features:
+            raise ValueError(
+                f"None of the requested variables {variables} were found in the dataset. "
+                f"Available variables: {[f.replace('_mean', '').replace('_std', '') for f in available_features if f.endswith(('_mean', '_std'))]}"
+            )
+
+        return da.sel(feature=selected_features)
+
     def setup(self, stage: str) -> None:
         # Load preprocessed data if preprocessing was configured, otherwise load original flat data
-        if self.x_preprocessing:
+        if self.x_preprocessing or self.x_select_variables:
             self.x = xr.open_dataarray(self.x_tmp.name)
         else:
             self.x = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
-
-        if self.y_preprocessing:
+        if self.y_preprocessing or self.y_select_variables:
             self.y = xr.open_dataarray(self.y_tmp.name)
         else:
             self.y = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
-
         self.x_feature_names = self.x.feature.values
+        self.y_feature_names = self.y.feature.values
 
-        # TODO it might make sense to iterate once over the map dataset and store it in a more tensor friendly format
         if stage == "fit":
             self.train_dataset = _get_MapDataset(
                 self.x.sel(prediction_time=self.dataset_config.train.slice),

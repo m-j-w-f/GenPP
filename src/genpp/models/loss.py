@@ -108,6 +108,7 @@ class CRPS_TruncatedNormal(nn.Module):
     https://www.jstatsoft.org/article/view/v090i12
     and
     https://github.com/frazane/scoringrules/blob/e3739338e42393ff4487c4c760e194378a32546e/scoringrules/core/crps/_closed.py#L329
+    This method is reimplemented here so that the backward pass does not return nans.
     """
 
     def __init__(
@@ -145,13 +146,13 @@ class CRPS_TruncatedNormal(nn.Module):
         """
         loc = (y - mu) / sigma
         l = (self.lower - mu) / sigma  # noqa: E741
-        u = (self.upper - mu) / sigma
+        u = (self.upper - mu) / sigma if self.upper != float("inf") else torch.tensor(float("inf"))
         z = torch.min(torch.max(loc, l), u)
 
-        F_u = self.dist.cdf(u)
+        F_u = self.dist.cdf(u) if self.upper != float("inf") else torch.tensor(1.0)
         F_l = self.dist.cdf(l)
         F_z = self.dist.cdf(z)
-        F_u2 = self.dist.cdf(u * self.sqrt_2)
+        F_u2 = self.dist.cdf(u * self.sqrt_2) if self.upper != float("inf") else torch.tensor(1.0)
         F_l2 = self.dist.cdf(l * self.sqrt_2)
         f_z = self._norm_pdf(z)
 
@@ -161,4 +162,5 @@ class CRPS_TruncatedNormal(nn.Module):
         s2 = c * z * (2 * F_z - (F_u + F_l))
         s3 = c * 2 * f_z
         s4 = c**2 * (F_u2 - F_l2) * self.inv_sqrt_pi
-        return sigma * (s1 + s2 + s3 - s4)
+        res = sigma * (s1 + s2 + s3 - s4)
+        return res

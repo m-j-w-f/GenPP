@@ -1,0 +1,7 @@
+# Emos model config
+_target_: genpp.models.emos.EMOS
+out_distribution:
+  _target_: genpp.models.distributions.CombinedPredictiveDistribution
+height: ${data.spatial.original.longitude}
+width: ${data.spatial.original.latitude}
+embedding_dim: 0 # This is here for completeness and should not be modified
