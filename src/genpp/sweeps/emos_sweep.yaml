@@ -1,4 +1,4 @@
-program: src/genpp/train_drn.py
+program: src/genpp/train_emos.py
 name: testsweep
 metric:
   name: val_loss
