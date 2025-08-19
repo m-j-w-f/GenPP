@@ -35,6 +35,7 @@ class DRNModel(DistributionRegression):
             out_distribution=out_distribution,
             height=height,
             width=width,
+            embedding_dim=embedding_dim,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             rescalers=rescalers,
@@ -42,7 +43,6 @@ class DRNModel(DistributionRegression):
         # Pixel index is removed if favor for embedding
         self.in_features = in_features + embedding_dim - 1
         self.hidden_channels = hidden_channels
-        self.embedding_dim = embedding_dim
         self.normalize = normalize
 
         self.embedding = nn.Embedding(

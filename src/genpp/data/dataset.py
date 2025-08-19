@@ -69,11 +69,11 @@ class WeatherBench2DataModule(L.LightningDataModule):
         self,
         dataset_config: DictConfig,
         dataloader_config: DictConfig,
+        x_select_variables: ListConfig | list[str],
+        y_select_variables: ListConfig | list[str],
         save_dir: Path = OUTPUT_DIR,
         x_preprocessing: list[Preprocessor] | None = None,
         y_preprocessing: list[Preprocessor] | None = None,
-        x_select_variables: ListConfig | list[str] | None = None,
-        y_select_variables: ListConfig | list[str] | None = None,
     ) -> None:
         super().__init__()
         self.path = save_dir
@@ -163,12 +163,12 @@ class WeatherBench2DataModule(L.LightningDataModule):
     def _select_variables(
         self,
         da: xr.DataArray,
-        select_variables: ListConfig | list[str] | None,
+        select_variables: ListConfig | list[str],
         append_suffix: bool = True,
     ) -> xr.DataArray:
         """Select only specified variables from the dataset."""
         if select_variables is None:
-            return da
+            raise ValueError("No variables specified for selection.")
 
         # Convert ListConfig to list if necessary
         variables = (
@@ -178,8 +178,11 @@ class WeatherBench2DataModule(L.LightningDataModule):
         # Create list of feature names to keep (with _mean and _std suffixes)
         features_to_keep = []
         if append_suffix:
+            # First all means, then all stds
             for var in variables:
-                features_to_keep.extend([f"{var}_mean", f"{var}_std"])
+                features_to_keep.append(f"{var}_mean")
+            for var in variables:
+                features_to_keep.append(f"{var}_std")
         else:
             features_to_keep = variables
 

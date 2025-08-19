@@ -40,7 +40,7 @@ class NormalDistribution(PredictiveDistribution):
                 mu = x[:, 0]
                 sigma = x[:, 1]
                 # Apply final activation
-                sigma = torch.nn.functional.sigmoid(sigma) + 1e-9  # Must be strictly positive
+                sigma = torch.nn.functional.softplus(sigma) + 1e-9  # Must be strictly positive
                 if rescaler is not None:
                     mu, sigma = rescaler(mu, sigma)  # type: ignore
                 return {"mu": mu, "sigma": sigma}
@@ -71,8 +71,8 @@ class TruncatedNormalDistribution(PredictiveDistribution):
                 sigma = x[:, 1]
                 # Apply final activation
                 # TODO this assumes that wind speed will always be min max transformed
-                mu = torch.nn.functional.sigmoid(mu)  # Must be positive
-                sigma = torch.nn.functional.sigmoid(sigma) + 1e-9  # Must be strictly positive
+                mu = torch.nn.functional.softplus(mu)  # Must be positive
+                sigma = torch.nn.functional.softplus(sigma) + 1e-9  # Must be strictly positive
                 if rescaler is not None:
                     mu, sigma = rescaler(mu, sigma)  # type: ignore
                 return {

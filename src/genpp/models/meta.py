@@ -19,6 +19,7 @@ class DistributionRegression(L.LightningModule, ABC):
         out_distribution: PredictiveDistribution,
         height: int,
         width: int,
+        embedding_dim: int,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         rescalers: list[nn.Module | None] | nn.Module | None = None,
@@ -28,6 +29,7 @@ class DistributionRegression(L.LightningModule, ABC):
         self.out_features = out_distribution.n_params
         self.height = height
         self.width = width
+        self.embedding_dim = embedding_dim
         self.optimizer_partial = optimizer
         self.lr_scheduler_partial = lr_scheduler
         # Set rescalers
