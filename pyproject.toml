@@ -48,6 +48,7 @@ rsync = ">=3.4.1,<4"
 [tool.pixi.feature.dev.tasks]
 test = "pytest"
 sync = "rsync -avzr --progress --human-readable --exclude='.pixi/' --exclude='__pycache__/' --exclude='.DS_Store' . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/"
+create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
 
 
 [tool.pixi.environments]
