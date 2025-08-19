@@ -6,8 +6,8 @@ from einops import rearrange
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
-from genpp.models.distributions import PredictiveDistribution
-from genpp.models.meta import DistributionRegression
+from genpp.models.distributionalRegression.distributions import PredictiveDistribution
+from genpp.models.distributionalRegression.meta import DistributionRegression
 
 
 class DRNModel(DistributionRegression):

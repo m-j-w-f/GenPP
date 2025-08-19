@@ -1,0 +1,21 @@
+program: src/genpp/train_drn.py
+name: testsweep
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4, !!float  1e-5]
+  data.batch_size:
+    values: [8, 16, 32, 64]
+
+command:
+  - pixi
+  - run
+  - -e
+  - default
+  - python
+  - ${program}
+  - ${args_no_hyphens}

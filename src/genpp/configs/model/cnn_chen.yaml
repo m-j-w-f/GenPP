@@ -1,5 +1,5 @@
 # CNN-based Chen Model Configuration
-_target_: genpp.models.chen.CNNChenModel
+_target_: genpp.models.cgm.chen.CNNChenModel
 
 # Model architecture parameters
 in_features: ${data.features.input_features}

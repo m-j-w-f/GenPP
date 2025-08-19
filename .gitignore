@@ -8,6 +8,7 @@
 #Log files
 outputs/
 logs/
+wandb/
 
 # MacOS
 .DS_Store

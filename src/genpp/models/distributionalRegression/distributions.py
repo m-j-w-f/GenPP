@@ -25,7 +25,7 @@ class PredictiveDistribution(ABC):
         pass
 
 
-class NormalDistribution(PredictiveDistribution):
+class PredictiveNormalDistribution(PredictiveDistribution):
     def __init__(self, rescale: nn.Module | None = None) -> None:
         self.loss_fn = CRPS_Normal()
         self.n_params = 2  # mean and standard deviation
@@ -55,7 +55,7 @@ class NormalDistribution(PredictiveDistribution):
         return self.loss_fn(**mu_sigma, y=y)
 
 
-class TruncatedNormalDistribution(PredictiveDistribution):
+class PredictiveTruncatedNormalDistribution(PredictiveDistribution):
     def __init__(self, rescaler: nn.Module | None = None) -> None:
         self.loss_fn = CRPS_TruncatedNormal()
         self.n_params = 2  # mean and standard deviation
@@ -90,9 +90,9 @@ class TruncatedNormalDistribution(PredictiveDistribution):
         return self.loss_fn(**mu_sigma, y=y)
 
 
-class CombinedPredictiveDistribution(PredictiveDistribution):
+class PredictiveCombinedDistribution(PredictiveDistribution):
     def __init__(self, rescalers: list[nn.Module | None] | None = None) -> None:
-        self.dists = [NormalDistribution(), TruncatedNormalDistribution()]
+        self.dists = [PredictiveNormalDistribution(), PredictiveTruncatedNormalDistribution()]
         self.n_params = sum(dist.n_params for dist in self.dists)
         self.split = [dist.n_params for dist in self.dists]
         if rescalers is None:

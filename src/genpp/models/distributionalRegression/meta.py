@@ -9,7 +9,7 @@ from einops import reduce
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
 
-from genpp.models.distributions import PredictiveDistribution
+from genpp.models.distributionalRegression.distributions import PredictiveDistribution
 from genpp.models.utils import instantiate_partial_scheduler
 
 

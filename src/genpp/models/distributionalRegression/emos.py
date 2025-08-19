@@ -5,8 +5,11 @@ import torch.nn as nn
 from einops import rearrange
 from omegaconf import DictConfig
 
-from genpp.models.distributions import PredictiveDistribution, maybe_list_dist_param_dict
-from genpp.models.meta import DistributionRegression
+from genpp.models.distributionalRegression.distributions import (
+    PredictiveDistribution,
+    maybe_list_dist_param_dict,
+)
+from genpp.models.distributionalRegression.meta import DistributionRegression
 
 
 class EMOS(DistributionRegression):
@@ -56,10 +59,9 @@ class EMOS(DistributionRegression):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The means and standard deviations predicted by the model.
         """
-        # TODO this split is false
         means, stds = torch.chunk(x, 2, dim=1)  # Both have shape [b, n_vars, h, w]
-        means = torch.einsum("b c h w, c h w -> b c h w", means, self.weight_mean) + self.bias_mean
-        stds = torch.einsum("b c h w, c h w -> b c h w", stds, self.weight_std) + self.bias_std
+        means = means * self.weight_mean + self.bias_mean
+        stds = stds * self.weight_std + self.bias_std
 
         # Interleave the means and stds so that we have mean_var0, std_var0, mean_var1, std_var1, ...
         x = torch.stack([means, stds], dim=2)  # Shape [b, n_vars, 2, h, w]
