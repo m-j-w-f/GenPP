@@ -11,9 +11,9 @@ maybe_list_dist_param_dict = dist_param_dict | dist_param_dicts
 
 
 class PredictiveDistribution(ABC):
-    def __init__(self) -> None:
+    def __init__(self, rescaler: list[nn.Module | None] | nn.Module | None) -> None:
         self.n_params: int
-        self.rescaler: list[nn.Module | None] | nn.Module | None
+        self.rescaler = rescaler
 
     @property
     @abstractmethod
@@ -26,10 +26,10 @@ class PredictiveDistribution(ABC):
 
 
 class PredictiveNormalDistribution(PredictiveDistribution):
-    def __init__(self, rescale: nn.Module | None = None) -> None:
+    def __init__(self, rescaler: nn.Module | None = None) -> None:
         self.loss_fn = CRPS_Normal()
         self.n_params = 2  # mean and standard deviation
-        self.rescaler = rescale
+        self.rescaler = rescaler  # BUG this is none here and should not be none
         self._final_activation = self._create_final_activation_module()
 
     def _create_final_activation_module(self) -> nn.Module:
@@ -91,18 +91,22 @@ class PredictiveTruncatedNormalDistribution(PredictiveDistribution):
 
 
 class PredictiveCombinedDistribution(PredictiveDistribution):
-    def __init__(self, rescalers: list[nn.Module | None] | None = None) -> None:
-        self.dists = [PredictiveNormalDistribution(), PredictiveTruncatedNormalDistribution()]
+    def __init__(self, rescaler: list[nn.Module | None] | None = None) -> None:
+        dists = [PredictiveNormalDistribution, PredictiveTruncatedNormalDistribution]
+        if rescaler is None:
+            self.rescaler = [None] * len(dists)
+        else:
+            self.rescaler = rescaler
+            assert len(dists) == len(self.rescaler)
+        self.dists = [
+            dist(rescaler=r)
+            for dist, r in zip(
+                dists,
+                self.rescaler,
+            )
+        ]
         self.n_params = sum(dist.n_params for dist in self.dists)
         self.split = [dist.n_params for dist in self.dists]
-        if rescalers is None:
-            self.rescalers = [None] * len(self.dists)
-        else:
-            self.rescalers = rescalers
-        # Each distribution should have the correct rescaler
-        assert len(self.dists) == len(self.rescalers)
-        for dist, rescaler in zip(self.dists, self.rescalers):
-            dist.rescaler = rescaler
         self._final_activation = self._create_final_activation_module()
 
     def _create_final_activation_module(self) -> nn.Module:

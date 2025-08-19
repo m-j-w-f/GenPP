@@ -16,24 +16,22 @@ from genpp.models.utils import instantiate_partial_scheduler
 class DistributionRegression(L.LightningModule, ABC):
     def __init__(
         self,
-        out_distribution: PredictiveDistribution,
+        out_distribution: Callable[..., PredictiveDistribution],
         height: int,
         width: int,
         embedding_dim: int,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        rescalers: list[nn.Module | None] | nn.Module | None = None,
+        rescaler: list[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__()
-        self.out_distribution = out_distribution
-        self.out_features = out_distribution.n_params
+        self.out_distribution = out_distribution(rescaler=rescaler)
+        self.out_features = self.out_distribution.n_params
         self.height = height
         self.width = width
         self.embedding_dim = embedding_dim
         self.optimizer_partial = optimizer
         self.lr_scheduler_partial = lr_scheduler
-        # Set rescalers
-        self.out_distribution.rescaler = rescalers
 
     def training_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
         x, y = batch

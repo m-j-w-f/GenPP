@@ -21,7 +21,7 @@ class DRNModel(DistributionRegression):
     def __init__(
         self,
         in_features: int,
-        out_distribution: PredictiveDistribution,
+        out_distribution: Callable[..., PredictiveDistribution],
         hidden_channels: list[int],
         height: int,
         width: int,
@@ -29,7 +29,7 @@ class DRNModel(DistributionRegression):
         lr_scheduler: DictConfig,
         embedding_dim: int = 5,
         normalize: bool = False,
-        rescalers: list[nn.Module | None] | nn.Module | None = None,
+        rescaler: list[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__(
             out_distribution=out_distribution,
@@ -38,7 +38,7 @@ class DRNModel(DistributionRegression):
             embedding_dim=embedding_dim,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            rescalers=rescalers,
+            rescaler=rescaler,
         )
         # Pixel index is removed if favor for embedding
         self.in_features = in_features + embedding_dim - 1
