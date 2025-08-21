@@ -22,13 +22,13 @@ class EMOS(DistributionRegression):
 
     def __init__(
         self,
-        out_distribution: PredictiveDistribution,
+        out_distribution: Callable[..., PredictiveDistribution],
         height: int,
         width: int,
         embedding_dim: int,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        rescalers: list[nn.Module | None] | nn.Module | None = None,
+        rescaler: list[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__(
             out_distribution=out_distribution,
@@ -37,7 +37,7 @@ class EMOS(DistributionRegression):
             embedding_dim=embedding_dim,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            rescalers=rescalers,
+            rescaler=rescaler,
         )
         if self.embedding_dim != 0:
             raise ValueError("EMOS model does not support embedding_dim != 0")

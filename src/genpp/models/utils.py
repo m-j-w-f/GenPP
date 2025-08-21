@@ -1,8 +1,13 @@
+from abc import ABC
+from collections.abc import Callable
+
+import lightning as L
 import torch
+from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
 
 
-def instantiate_partial_scheduler(
+def _instantiate_partial_scheduler(
     partial_scheduler: DictConfig, optimizer: torch.optim.Optimizer
 ) -> DictConfig:
     # This is ugly but works because the lr_scheduler_partial is a DictConfig
@@ -23,3 +28,24 @@ def instantiate_partial_scheduler(
         )
 
     return partial_scheduler
+
+
+class BaseModule(L.LightningModule, ABC):
+    def __init__(
+        self, optimizer: Callable[..., torch.optim.Optimizer], lr_scheduler: DictConfig
+    ) -> None:
+        super().__init__()
+        self.optimizer_partial = optimizer
+        self.lr_scheduler_partial = lr_scheduler
+
+    def configure_optimizers(self) -> OptimizerLRScheduler:
+        # Instantiate the optimizer and scheduler from the config
+        self.optimizer = self.optimizer_partial(self.parameters())
+        self.lr_scheduler_partial = _instantiate_partial_scheduler(
+            self.lr_scheduler_partial, self.optimizer
+        )
+
+        return {  # type: ignore
+            "optimizer": self.optimizer,
+            "lr_scheduler": {**self.lr_scheduler_partial},
+        }

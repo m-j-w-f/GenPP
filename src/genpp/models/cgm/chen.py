@@ -2,19 +2,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import lightning as L
 import torch
 import torch.nn as nn
 from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
-from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
-from genpp.models.utils import instantiate_partial_scheduler
+from genpp.models.utils import BaseModule
 
 
-class BaseChenModel(ABC, L.LightningModule):
+class BaseChenModel(BaseModule, ABC):
     """Base class for generative models with mean, std, and noise decoder components.
 
     Args:
@@ -47,7 +45,7 @@ class BaseChenModel(ABC, L.LightningModule):
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
     ) -> None:
-        super().__init__()
+        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         self.in_features = in_features
         self.meta_dim = meta_features
         self.out_features = out_features
@@ -60,8 +58,6 @@ class BaseChenModel(ABC, L.LightningModule):
         self.final_activation = final_activation
         self.use_embedding = embedding_dim > 0
         self.loss_fn = loss_fn
-        self.optimizer_partial = optimizer
-        self.lr_scheduler_partial = lr_scheduler
 
         if self.use_embedding:
             self.embedding = nn.Embedding(
@@ -198,18 +194,6 @@ class BaseChenModel(ABC, L.LightningModule):
             )
         loss = torch.mean(loss)
         return loss
-
-    def configure_optimizers(self) -> OptimizerLRScheduler:
-        # Instantiate the optimizer and scheduler from the config
-        self.optimizer = self.optimizer_partial(self.parameters())
-        self.lr_scheduler_partial = instantiate_partial_scheduler(
-            self.lr_scheduler_partial, self.optimizer
-        )
-
-        return {  # type: ignore
-            "optimizer": self.optimizer,
-            "lr_scheduler": {**self.lr_scheduler_partial},
-        }
 
 
 class FcChenModel(BaseChenModel):

@@ -8,8 +8,8 @@ original:
 padding:
   lat_left: 0
   lat_right: 1
-  lon_top: 5
-  lon_bottom: 6
+  lon_top: 1
+  lon_bottom: 2
 
 padding_list:
   - ${..padding.lat_left}
@@ -27,4 +27,7 @@ x_transform:
   padding: ${data.spatial.padding_list}
   mode: "constant"
 
-y_transform: null
+y_transform:
+  _target_: genpp.preproc.transforms.Pad
+  padding: ${data.spatial.padding_list}
+  mode: "constant"

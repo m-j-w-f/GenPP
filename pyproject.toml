@@ -17,6 +17,7 @@ cuda = "12.2"
 
 [tool.pixi.pypi-dependencies]
 genpp = { path = ".", editable = true }
+flow_matching = ">=1.0.10,<2"
 
 [tool.pixi.tasks]
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"

@@ -1,0 +1,35 @@
+# UNet-based Flow Matching Model Configuration
+_target_: genpp.models.fm.fm_cnn.FMUNet
+
+# Model architecture parameters
+channels:
+  - 64
+  - 128
+  - 256
+num_residual_layers: 2
+t_embed_dim: 10
+embedding_dim: 5
+height: ${data.spatial.padded.longitude}
+width: ${data.spatial.padded.latitude}
+channels_y: ${data.features.input_concat} # y is the conditioning variable here
+channels_x: ${data.features.output}
+n_samples: 50
+solver_iter: 10
+padding: ${data.spatial.padding_list}
+
+# Activation function
+#final_activation:
+#  _target_: genpp.models.layers.FinalActivation
+#  activations:
+#    # TODO we might want to force this to be positive -> Or not since the values are standardized
+#    # Fix use min max normalization for Wind speed -> Use softplus/relu then
+#    - _target_: torch.nn.Identity # Temperature (standardized)
+#    - _target_: torch.nn.Identity # Wind speed (standardized)
+
+# Loss function
+loss_fn:
+  _target_: genpp.models.loss.EnergyScore
+  beta: 1.0
+  clamp: true
+
+# Optimizer and learning rate scheduler are imported automatically due to the folder structure

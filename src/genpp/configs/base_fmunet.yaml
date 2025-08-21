@@ -1,13 +1,13 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/spatial: padded_y
+  - data/spatial: padded_xy
   - data/splits: standard
   - data/preprocess: standard
   - data: weatherbench2_full
   - model/optimizer: adamW
   - model/lr_scheduler: constant
-  - model: cnn_chen
+  - model: fm_cnn
   - trainer: default
   - logger: wandb
   - _self_
@@ -25,11 +25,11 @@ hydra:
 trainer:
   accelerator: gpu
   devices: 1
-  max_epochs: 100
+  max_epochs: 1000
 
 
 logger:
   tags:
     - "test"
-    - "cnn"
-    - "chen"
+    - "unet"
+    - "fm"

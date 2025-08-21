@@ -6,6 +6,7 @@ from itertools import batched
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 from torch import Tensor
 
 
@@ -214,3 +215,33 @@ class ReverseMinMaxScaling(nn.Module):  # TODO test this
         mu = mu * self.scale + self.min
         sigma = sigma * self.scale
         return mu, sigma
+
+
+class PixelEmbedder(nn.Module):
+    """A layer that embeds the input tensor into a higher-dimensional space.
+
+    Args:
+        in_dim (int): The dimensionality of the input space.
+        out_dim (int): The dimensionality of the output space.
+    """
+
+    def __init__(self, num_embeddings: int, embedding_dim: int) -> None:
+        super().__init__()
+        self.emb = nn.Embedding(num_embeddings, embedding_dim)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Embeds the input tensor.
+
+        Args:
+            x (Tensor): Input tensor of shape [b, c, h, w]. Where the last channel carries the indexes to be embedded and appended.
+
+        Returns:
+            Tensor: Embedded tensor of shape [b, c + embedding_dim - 1, h, w].
+        """
+        pixel_idx = x[:, -1].long()
+        x = x[:, :-1]
+        emb = self.emb(pixel_idx)
+        emb = rearrange(emb, "b h w c -> b c h w")
+        x = torch.cat([x, emb], dim=1)
+
+        return x

@@ -2,18 +2,16 @@ from abc import ABC
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import lightning as L
 import torch
 import torch.nn as nn
 from einops import reduce
-from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from omegaconf import DictConfig
 
 from genpp.models.distributionalRegression.distributions import PredictiveDistribution
-from genpp.models.utils import instantiate_partial_scheduler
+from genpp.models.utils import BaseModule
 
 
-class DistributionRegression(L.LightningModule, ABC):
+class DistributionRegression(BaseModule, ABC):
     def __init__(
         self,
         out_distribution: Callable[..., PredictiveDistribution],
@@ -24,7 +22,7 @@ class DistributionRegression(L.LightningModule, ABC):
         lr_scheduler: DictConfig,
         rescaler: list[nn.Module | None] | nn.Module | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         self.out_distribution = out_distribution(rescaler=rescaler)
         self.out_features = self.out_distribution.n_params
         self.height = height
@@ -67,15 +65,3 @@ class DistributionRegression(L.LightningModule, ABC):
         loss = self.out_distribution.compute_loss(res, y)
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
-
-    def configure_optimizers(self) -> OptimizerLRScheduler:
-        # Instantiate the optimizer and scheduler from the config
-        self.optimizer = self.optimizer_partial(self.parameters())
-        self.lr_scheduler_partial = instantiate_partial_scheduler(
-            self.lr_scheduler_partial, self.optimizer
-        )
-
-        return {  # type: ignore
-            "optimizer": self.optimizer,
-            "lr_scheduler": {**self.lr_scheduler_partial},
-        }

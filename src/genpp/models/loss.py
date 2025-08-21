@@ -1,4 +1,5 @@
-import numpy as np
+import math
+
 import torch
 import torch.nn as nn
 from einops import rearrange, reduce
@@ -77,7 +78,7 @@ class CRPS_Normal(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self._inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
+        self._inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(math.pi))
         self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
 
     def forward(self, mu: torch.Tensor, sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -119,7 +120,7 @@ class CRPS_TruncatedNormal(nn.Module):
         self.upper = upper
         # Might need to convert to primitive types if not moved to correct device
         self.sqrt_2 = torch.sqrt(torch.tensor(2.0))
-        self.inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(np.pi))
+        self.inv_sqrt_pi = 1 / torch.sqrt(torch.tensor(math.pi))
         self.dist = torch.distributions.Normal(loc=0.0, scale=1.0)
 
     def _norm_pdf(self, x: torch.Tensor) -> torch.Tensor:
