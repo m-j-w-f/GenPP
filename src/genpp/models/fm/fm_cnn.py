@@ -1,6 +1,8 @@
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
+from typing import Any
+from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -370,8 +372,12 @@ class FMUNet(BaseModule):
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         loss_fn: nn.Module = EnergyScore(beta=1.0, clamp=True),
+        use_rescaler: bool = False,
+        **kwargs: Any,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        if use_rescaler:
+            raise NotImplementedError("Rescalers are not implemented for FMUNet yet.")
         self.model = _FMUNet(
             channels=channels,
             num_residual_layers=num_residual_layers,
@@ -382,6 +388,8 @@ class FMUNet(BaseModule):
             width=width,
             embedding_dim=embedding_dim,
         )
+        if kwargs:
+            warn(f"Ignoring additional arguments: {kwargs}")
         self.n_samples = n_samples
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
@@ -419,11 +427,12 @@ class FMUNet(BaseModule):
         u_t_theta = self.model(path_sample.x_t, path_sample.t, y)
         u_t_ref = path_sample.dx_t
 
-        loss = torch.pow(u_t_theta - u_t_ref, 2).mean()
+        loss = torch.pow(u_t_theta - u_t_ref, 2)
         return loss
 
     def training_step(self, batch) -> torch.Tensor:
         loss = self._calc_loss(batch)
+        loss = loss.mean()
         self.log(
             "train_loss",
             loss,
@@ -466,6 +475,7 @@ class FMUNet(BaseModule):
                 sync_dist=True,
             )
         loss = torch.mean(loss)
+        self.log("val_loss", loss)
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
@@ -481,4 +491,5 @@ class FMUNet(BaseModule):
                 sync_dist=True,
             )
         loss = torch.mean(loss)
+        self.log("test_loss", loss)
         return loss

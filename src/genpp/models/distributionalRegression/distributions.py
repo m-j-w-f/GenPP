@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -11,7 +12,7 @@ maybe_list_dist_param_dict = dist_param_dict | dist_param_dicts
 
 
 class PredictiveDistribution(ABC):
-    def __init__(self, rescaler: list[nn.Module | None] | nn.Module | None) -> None:
+    def __init__(self, rescaler: Sequence[nn.Module | None] | nn.Module | None) -> None:
         self.n_params: int
         self.rescaler = rescaler
 
@@ -91,7 +92,7 @@ class PredictiveTruncatedNormalDistribution(PredictiveDistribution):
 
 
 class PredictiveCombinedDistribution(PredictiveDistribution):
-    def __init__(self, rescaler: list[nn.Module | None] | None = None) -> None:
+    def __init__(self, rescaler: Sequence[nn.Module | None] | None = None) -> None:
         dists = [PredictiveNormalDistribution, PredictiveTruncatedNormalDistribution]
         if rescaler is None:
             self.rescaler = [None] * len(dists)

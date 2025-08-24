@@ -9,6 +9,7 @@ import xarray as xr
 from xarray.core.types import Dims
 
 from genpp.data import MetadataVars
+from genpp.models.layers import ReverseAffineTransform
 
 
 class Preprocessor(ABC):
@@ -51,6 +52,14 @@ class Preprocessor(ABC):
             xr.DataArray | torch.Tensor: The data in its original form.
         """
         pass
+
+    def get_reverse_module(self) -> ReverseAffineTransform | None:
+        """Get a PyTorch module that performs the inverse transformation. For each parameter of the distribution.
+
+        Returns:
+            ReverseAffineTransform | None: A PyTorch module for inverse transformation, or None if not applicable.
+        """
+        return None
 
 
 class StandardScalerPreprocessor(Preprocessor):
@@ -110,6 +119,11 @@ class StandardScalerPreprocessor(Preprocessor):
         raise NotImplementedError(
             "TODO Inverse transform is not implemented for StandardScalerPreprocessor."
         )
+
+    def get_reverse_module(self) -> ReverseAffineTransform:
+        if not self.is_fitted:
+            raise RuntimeError("Preprocessor must be fitted before getting the reverse module.")
+        return ReverseAffineTransform(mean=self.mean_tensor, scale=self.std_tensor)
 
 
 class MinMaxScalerPreprocessor(Preprocessor):
@@ -187,6 +201,11 @@ class MinMaxScalerPreprocessor(Preprocessor):
         raise NotImplementedError(
             "TODO Inverse transform is not implemented for MinMaxScalerPreprocessor."
         )
+
+    def get_reverse_module(self) -> ReverseAffineTransform:
+        if not self.is_fitted:
+            raise RuntimeError("Preprocessor must be fitted before getting the reverse module.")
+        return ReverseAffineTransform(mean=self.min_tensor, scale=self.max_tensor - self.min_tensor)
 
 
 class AddMetadataPreprocessor(Preprocessor):

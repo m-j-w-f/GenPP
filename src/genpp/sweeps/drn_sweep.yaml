@@ -1,4 +1,4 @@
-program: src/genpp/train_drn.py
+program: src/genpp/train.py
 name: testsweep
 metric:
   name: val_loss
@@ -18,4 +18,5 @@ command:
   - default
   - python
   - ${program}
+  - --config-name base_drn
   - ${args_no_hyphens}

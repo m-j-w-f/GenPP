@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
+from collections.abc import Sequence
+from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -28,6 +30,7 @@ class BaseChenModel(BaseModule, ABC):
         loss_fn (nn.Module): Loss function to use for training. Defaults to EnergyScore with beta=1.0.
         lr (float): Learning rate for the optimizer. Defaults to 3e-4.
         optimizer (Type[torch.optim.Optimizer]): Optimizer class to use. Defaults to torch.optim.AdamW.
+        **kwargs: Any additional keyword arguments. These are here for compatibility and are ignored.
     """
 
     def __init__(
@@ -44,8 +47,15 @@ class BaseChenModel(BaseModule, ABC):
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
+        use_rescaler: bool = False,
+        rescaler: Sequence[nn.Module | None] | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        if use_rescaler:
+            raise NotImplementedError("Rescaling is not implemented yet.")
+        if kwargs:
+            warn(f"Ignoring additional arguments: {kwargs}")
         self.in_features = in_features
         self.meta_dim = meta_features
         self.out_features = out_features
@@ -150,7 +160,7 @@ class BaseChenModel(BaseModule, ABC):
         res = pred_mean + std_samples  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         return self.final_activation(res)
 
-    def training_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def training_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
@@ -158,7 +168,7 @@ class BaseChenModel(BaseModule, ABC):
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def validation_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)
@@ -178,7 +188,7 @@ class BaseChenModel(BaseModule, ABC):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def test_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def test_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.loss_fn(res, y)

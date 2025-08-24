@@ -11,6 +11,7 @@ noise_dim: 5 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
 n_samples_train: 50
 padding: ${data.spatial.padding_list}
+use_rescaler: false  # Whether to use rescalers from the datamodule
 
 # Activation function
 final_activation:

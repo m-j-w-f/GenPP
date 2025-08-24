@@ -1,3 +1,5 @@
+import warnings
+
 import hydra
 import lightning as L
 import torch
@@ -6,8 +8,9 @@ from omegaconf import DictConfig, OmegaConf
 from genpp.configs import register_resolvers
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="base_emos")
+@hydra.main(version_base=None, config_path="configs", config_name="DUMMY")
 def train(cfg: DictConfig) -> None:
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
     register_resolvers()
     torch.set_float32_matmul_precision("medium")
 
@@ -18,7 +21,10 @@ def train(cfg: DictConfig) -> None:
     datamodule = hydra.utils.instantiate(cfg.data.module)
     try:
         datamodule.prepare_data()
-        model = hydra.utils.instantiate(cfg.model)
+
+        model = hydra.utils.instantiate(
+            cfg.model, rescaler=datamodule.y_reverseModules if cfg.model.use_rescaler else None
+        )
         model.compile()
         logger = None
         if hasattr(cfg, "logger") and cfg.logger:

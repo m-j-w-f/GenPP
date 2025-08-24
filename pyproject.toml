@@ -21,6 +21,7 @@ flow_matching = ">=1.0.10,<2"
 
 [tool.pixi.tasks]
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
+train = "python src/genpp/train.py" # Specify file by using --config-name ...
 
 [tool.pixi.dependencies]
 zarr = ">=3.0.10,<4"

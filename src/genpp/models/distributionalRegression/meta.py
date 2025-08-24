@@ -1,6 +1,6 @@
 from abc import ABC
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Callable
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -20,9 +20,12 @@ class DistributionRegression(BaseModule, ABC):
         embedding_dim: int,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        rescaler: list[nn.Module | None] | nn.Module | None = None,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        if isinstance(rescaler, Sequence):
+            filtered = [m for m in rescaler if m is not None]
+            self.rescaler = nn.ModuleList(filtered) if filtered else None
         self.out_distribution = out_distribution(rescaler=rescaler)
         self.out_features = self.out_distribution.n_params
         self.height = height
@@ -31,7 +34,7 @@ class DistributionRegression(BaseModule, ABC):
         self.optimizer_partial = optimizer
         self.lr_scheduler_partial = lr_scheduler
 
-    def training_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def training_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.out_distribution.compute_loss(res, y)
@@ -39,7 +42,7 @@ class DistributionRegression(BaseModule, ABC):
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def validation_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def validation_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.out_distribution.compute_loss(res, y)
@@ -59,7 +62,7 @@ class DistributionRegression(BaseModule, ABC):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def test_step(self, batch, batch_idx) -> torch.Tensor | Mapping[str, Any] | None:
+    def test_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
         loss = self.out_distribution.compute_loss(res, y)

@@ -85,6 +85,43 @@ class WeatherBench2DataModule(L.LightningDataModule):
         self.y_select_variables = y_select_variables
         self.already_prepared = False
 
+    def _select_variables(
+        self,
+        da: xr.DataArray,
+        select_variables: ListConfig | list[str],
+        append_suffix: bool = True,
+    ) -> xr.DataArray:
+        """Select only specified variables from the dataset."""
+        if select_variables is None:
+            raise ValueError("No variables specified for selection.")
+
+        # Convert ListConfig to list if necessary
+        variables = (
+            list(select_variables) if isinstance(select_variables, ListConfig) else select_variables
+        )
+
+        # Create list of feature names to keep (with _mean and _std suffixes)
+        features_to_keep = []
+        if append_suffix:
+            # First all means, then all stds
+            for var in variables:
+                features_to_keep.append(f"{var}_mean")
+            for var in variables:
+                features_to_keep.append(f"{var}_std")
+        else:
+            features_to_keep = variables
+
+        # Filter to only include the specified features
+        available_features = da.feature.values
+        selected_features = [f for f in features_to_keep if f in available_features]
+        if not selected_features:
+            raise ValueError(
+                f"None of the requested variables {variables} were found in the dataset. "
+                f"Available variables: {[f.replace('_mean', '').replace('_std', '') for f in available_features if f.endswith(('_mean', '_std'))]}"
+            )
+
+        return da.sel(feature=selected_features)
+
     def prepare_data(self):
         # This method is called only on 1 GPU/TPU in distributed training
         # Use it to download data, if necessary
@@ -138,6 +175,14 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 mode="w",
                 format="NETCDF4",
             )
+            # put the inverse transforms in a list to that they can be accessed by the model later
+            if self.x_preprocessing is not None:
+                self.x_reverseModules = [
+                    rm
+                    for preprocessor in self.x_preprocessing
+                    if (rm := preprocessor.get_reverse_module()) is not None
+                ]
+
         if self.y_preprocessing is not None or self.y_select_variables is not None:
             # Load the data, fit the preprocessors, and save the preprocessed data
             da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
@@ -157,45 +202,14 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 mode="w",
                 format="NETCDF4",
             )
+            if self.y_preprocessing is not None:
+                self.y_reverseModules = [
+                    rm
+                    for preprocessor in self.y_preprocessing
+                    if (rm := preprocessor.get_reverse_module()) is not None
+                ]
 
         self.already_prepared = True
-
-    def _select_variables(
-        self,
-        da: xr.DataArray,
-        select_variables: ListConfig | list[str],
-        append_suffix: bool = True,
-    ) -> xr.DataArray:
-        """Select only specified variables from the dataset."""
-        if select_variables is None:
-            raise ValueError("No variables specified for selection.")
-
-        # Convert ListConfig to list if necessary
-        variables = (
-            list(select_variables) if isinstance(select_variables, ListConfig) else select_variables
-        )
-
-        # Create list of feature names to keep (with _mean and _std suffixes)
-        features_to_keep = []
-        if append_suffix:
-            # First all means, then all stds
-            for var in variables:
-                features_to_keep.append(f"{var}_mean")
-            for var in variables:
-                features_to_keep.append(f"{var}_std")
-        else:
-            features_to_keep = variables
-
-        # Filter to only include the specified features
-        available_features = da.feature.values
-        selected_features = [f for f in features_to_keep if f in available_features]
-        if not selected_features:
-            raise ValueError(
-                f"None of the requested variables {variables} were found in the dataset. "
-                f"Available variables: {[f.replace('_mean', '').replace('_std', '') for f in available_features if f.endswith(('_mean', '_std'))]}"
-            )
-
-        return da.sel(feature=selected_features)
 
     def setup(self, stage: str) -> None:
         # Load preprocessed data if preprocessing was configured, otherwise load original flat data

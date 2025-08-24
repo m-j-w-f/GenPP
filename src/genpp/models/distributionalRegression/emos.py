@@ -1,4 +1,7 @@
 from collections.abc import Callable
+from typing import Any
+from collections.abc import Sequence
+from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -28,7 +31,9 @@ class EMOS(DistributionRegression):
         embedding_dim: int,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        rescaler: list[nn.Module | None] | nn.Module | None = None,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        use_rescaler: bool = False,  # NOTE difference to drn
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             out_distribution=out_distribution,
@@ -37,8 +42,10 @@ class EMOS(DistributionRegression):
             embedding_dim=embedding_dim,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            rescaler=rescaler,
+            rescaler=rescaler if use_rescaler else None,
         )
+        if kwargs:
+            warn(f"Ignoring additional arguments: {kwargs}")
         if self.embedding_dim != 0:
             raise ValueError("EMOS model does not support embedding_dim != 0")
         # Number of features that are predicted. Each distribution has 2 params (mean and std) which is double the number of features

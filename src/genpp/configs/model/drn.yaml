@@ -12,5 +12,6 @@ height: ${data.spatial.original.longitude}
 width: ${data.spatial.original.latitude}
 embedding_dim: 5
 normalize: true
+use_rescaler: true
 
 # Optimizer and learning rate scheduler are imported automatically due to the folder structure
