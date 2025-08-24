@@ -18,5 +18,6 @@ command:
   - default
   - python
   - ${program}
-  - --config-name base_emos
+  - --config-name
+  - base_emos
   - ${args_no_hyphens}

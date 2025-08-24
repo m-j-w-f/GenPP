@@ -1,6 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
-from collections.abc import Sequence
 from warnings import warn
 
 import torch
@@ -44,7 +43,7 @@ class DRNModel(DistributionRegression):
         self,
         in_features: int,
         out_distribution: Callable[..., PredictiveDistribution],
-        hidden_channels: list[int],
+        hidden_channels: Sequence[int],
         height: int,
         width: int,
         optimizer: Callable[..., torch.optim.Optimizer],

@@ -22,5 +22,6 @@ command:
   - default
   - python
   - ${program}
-  - --config-name base_fmunet
+  - --config-name
+  - base_fmunet
   - ${args_no_hyphens}

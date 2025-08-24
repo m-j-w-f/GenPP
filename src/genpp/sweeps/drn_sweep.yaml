@@ -21,5 +21,6 @@ command:
   - default
   - python
   - ${program}
-  - --config-name base_drn
+  - --config-name
+  - base_drn
   - ${args_no_hyphens}
