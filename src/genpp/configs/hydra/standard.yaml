@@ -1,0 +1,5 @@
+# Hydra configuration
+job:
+  chdir: true
+run:
+  dir: outputs/${name}/${now:%Y-%m-%d_%H-%M-%S}

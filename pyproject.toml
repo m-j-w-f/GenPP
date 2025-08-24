@@ -22,6 +22,7 @@ flow_matching = ">=1.0.10,<2"
 [tool.pixi.tasks]
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
 train = "python src/genpp/train.py" # Specify file by using --config-name ...
+create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
 
 [tool.pixi.dependencies]
 zarr = ">=3.0.10,<4"
@@ -50,7 +51,6 @@ rsync = ">=3.4.1,<4"
 [tool.pixi.feature.dev.tasks]
 test = "pytest"
 sync = "rsync -avzr --progress --human-readable --exclude='.pixi/' --exclude='__pycache__/' --exclude='.DS_Store' . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/"
-create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
 
 
 [tool.pixi.environments]

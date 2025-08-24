@@ -3,10 +3,10 @@ _target_: genpp.models.fm.fm_cnn.FMUNet
 
 # Model architecture parameters
 channels:
+  - 32
   - 64
-  - 128
 num_residual_layers: 1
-t_embed_dim: 10
+t_embed_dim: 4
 embedding_dim: 5
 height: ${data.spatial.padded.longitude}
 width: ${data.spatial.padded.latitude}
@@ -26,7 +26,7 @@ use_rescaler: false  # Whether to use rescalers from the datamodule
 #    - _target_: torch.nn.Identity # Temperature (standardized)
 #    - _target_: torch.nn.Identity # Wind speed (standardized)
 
-# Loss function
+# Eval function
 loss_fn:
   _target_: genpp.models.loss.EnergyScore
   beta: 1.0

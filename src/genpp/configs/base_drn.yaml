@@ -10,23 +10,11 @@ defaults:
   - model: drn
   - trainer: default
   - logger: wandb
+  - hydra: standard
   - _self_
 
+name: DRN
 seed: 42
-
-# Hydra configuration
-hydra:
-  job:
-    chdir: true
-  run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
-
-# Custom Test stuff
-trainer:
-  accelerator: gpu
-  devices: 1
-  max_epochs: 100
-
 
 logger:
   tags:

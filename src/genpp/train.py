@@ -31,7 +31,7 @@ def train(cfg: DictConfig) -> None:
             logger = hydra.utils.instantiate(cfg.logger)
             logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
 
-        trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, detect_anomaly=True)
+        trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, detect_anomaly=False)
 
         trainer.fit(model, datamodule)
     finally:

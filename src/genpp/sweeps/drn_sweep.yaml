@@ -1,5 +1,5 @@
 program: src/genpp/train.py
-name: testsweep
+name: testsweep_drn
 metric:
   name: val_loss
   goal: minimize
@@ -9,7 +9,10 @@ parameters:
   model.optimizer.lr:
     values: [!!float 1e-3, !!float  3e-4, !!float  1e-4]
   data.batch_size:
-    values: [8, 16, 32, 64]
+    values: [8, 16, 32]
+  model.hidden_channels:
+    values: [[256, 128, 64], [128, 64], [64]]
+
 
 command:
   - pixi
