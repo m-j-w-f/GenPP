@@ -1,4 +1,4 @@
-# WeatherBench2 DataModule Configuration with Hydra composition - Full dataset
+# FastWeatherBench2 DataModule Configuration - Optimized for fast tensor loading
 x_select_variables:
   - '10m_u_component_of_wind'
   - '10m_v_component_of_wind'
@@ -37,12 +37,12 @@ y_select_variables: # TODO check the order
 features:
   input_features: ${eval:'len(${data.x_select_variables})'}
   aggregation_levels: 2
-  meta_features: 4  # The pixel index is excluded here
+  meta_features: 4 # Number of meta features excluding pixel id
   output: ${eval:'len(${data.y_select_variables})'}
   input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features} + (${model.embedding_dim} > 0)'}
 
 # Shared configuration parameters
-batch_size: 8
+batch_size: 64
 
 # Template for dataset split configuration
 _split_template: &split_template
@@ -62,18 +62,18 @@ _split_template: &split_template
     batch_dims:
       time: ${data.batch_size}
   y_transform: ${data.spatial.y_transform}
-  preload_batch: true
 
+# Optimized dataloader template for faster loading
 _dataloader_template: &dataloader_template
-  batch_size: ${data.dataloader.batch_size}
+  batch_size: ${data.batch_size} # Use the actual batch size here
   prefetch_factor: ${data.dataloader.prefetch_factor}
   num_workers: ${data.dataloader.num_workers}
-  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  multiprocessing_context: "forkserver"
   pin_memory: ${data.dataloader.pin_memory}
   persistent_workers: true # Keep workers alive between epochs
 
 module:
-  _target_: genpp.data.dataset.WeatherBench2DataModule
+  _target_: genpp.data.fast_dataset_simple.FastWeatherBench2DataModule
   # Dataset configuration using templates and interpolation
   dataset_config:
     train:
