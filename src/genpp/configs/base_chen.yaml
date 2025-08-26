@@ -4,7 +4,7 @@ defaults:
   - data/spatial: padded_y
   - data/splits: standard
   - data/preprocess: standard
-  - data: weatherbench2_full
+  - data: weatherbench2_full_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: cnn_chen

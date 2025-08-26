@@ -254,18 +254,21 @@ class WeatherBench2DataModule(L.LightningDataModule):
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
+            batch_size=None,
             **self.dataloader_config.train,
         )
 
     def val_dataloader(self):
         return DataLoader(
             self.val_dataset,
+            batch_size=None,
             **self.dataloader_config.val,
         )
 
     def test_dataloader(self):
         return DataLoader(
             self.test_dataset,
+            batch_size=None,
             **self.dataloader_config.test,
         )
 
