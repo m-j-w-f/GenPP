@@ -376,6 +376,7 @@ class FMUNet(BaseModule):
         **kwargs: Any,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        self.save_hyperparameters()
         if use_rescaler:
             raise NotImplementedError("Rescalers are not implemented for FMUNet yet.")
         self.model = _FMUNet(

@@ -346,6 +346,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 y_transform=y_transform,
             )
 
+        if stage in ("fit", "validate"):
             # Create validation dataset
             val_indices = cache_metadata["x_split_indices"]["val"]
             self.val_dataset = TransformTensorDataset(

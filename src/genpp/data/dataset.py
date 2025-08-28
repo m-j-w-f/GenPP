@@ -233,6 +233,8 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 x_transform=self.dataset_config.train.x_transform,
                 y_transform=self.dataset_config.train.y_transform,
             )
+
+        if stage in ("fit", "validate"):
             self.val_dataset = _get_MapDataset(
                 self.x.sel(prediction_time=self.dataset_config.val.slice),
                 self.y.sel(time=self.dataset_config.val.slice),

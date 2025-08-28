@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
-from collections.abc import Sequence
 from warnings import warn
 
 import torch
@@ -52,6 +51,7 @@ class BaseChenModel(BaseModule, ABC):
         **kwargs: Any,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        self.save_hyperparameters()
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
         if kwargs:

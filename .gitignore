@@ -4,6 +4,7 @@
 
 # Data
 *.nc
+*.pt
 
 #Log files
 outputs/

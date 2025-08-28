@@ -41,8 +41,8 @@ def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
 
 
 def get_time_intersection(
-    ds1: xr.Dataset,
-    ds2: xr.Dataset,
+    ds1: xr.Dataset | xr.DataArray,
+    ds2: xr.Dataset | xr.DataArray,
     time_dim1: str = "prediction_time",
     time_dim2: str = "time",
 ) -> pd.Index:
