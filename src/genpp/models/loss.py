@@ -70,6 +70,38 @@ class EnergyScore(nn.Module):
         return es
 
 
+class VariogramScore(nn.Module):
+    def __init__(self, p: float = 0.5) -> None:
+        super().__init__()
+        self.p = p
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Computes the variogram score between predicted and true values.
+
+        Args:
+            x (torch.Tensor): Predicted values with shape [batch_size, n_samples, out_features, lon, lat].
+            y (torch.Tensor): True values with shape [batch_size, out_features, lon, lat].
+
+        Returns:
+            torch.Tensor: The computed variogram score with shape [batch_size, out_features].
+        """
+        y_diff = rearrange(y, "b d lat lon -> b d (lat lon) 1") - rearrange(
+            y, "b d lat lon -> b d 1 (lat lon)"
+        )
+        y_diff = torch.abs(y_diff) ** self.p  # [b, d, spatial, spatial]
+
+        x_diff = rearrange(x, "b n d lat lon -> b n d (lat lon) 1") - rearrange(
+            x, "b n d lat lon -> b n d 1 (lat lon)"
+        )
+        x_diff = torch.abs(x_diff) ** self.p  # [b, n_samples, d, spatial, spatial]
+        x_diff = reduce(x_diff, "b n d spatial1 spatial2 -> b d spatial1 spatial2", "mean")
+
+        total_diff = torch.pow(y_diff - x_diff, 2)  # [b, d, spatial, spatial]
+
+        res = reduce(total_diff, "b d spatial1 spatial2 -> b d", "sum")
+        return res
+
+
 class CRPS_Normal(nn.Module):
     """Source: Höhlein et. al (2024) Postprocessing of Ensemble Weather Forecasts Using
     Permutation-Invariant Neural Networks
