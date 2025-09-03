@@ -1,8 +1,6 @@
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from typing import Any
-from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -12,7 +10,6 @@ from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, PixelEmbedder
-from genpp.models.loss import EnergyScore
 from genpp.models.utils import BaseModule
 
 
@@ -371,14 +368,17 @@ class FMUNet(BaseModule):
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        loss_fn: nn.Module = EnergyScore(beta=1.0, clamp=True),
-        use_rescaler: bool = False,
-        **kwargs: Any,
+        use_rescaler: bool,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        # Loss FN is a nn.module so it does not need to be saved explicitly
         self.save_hyperparameters()
         if use_rescaler:
-            raise NotImplementedError("Rescalers are not implemented for FMUNet yet.")
+            # TODO implement rescaling
+            if isinstance(rescaler, Sequence):
+                filtered = [m for m in rescaler if m is not None]
+                self.rescaler = nn.ModuleList(filtered) if filtered else None
         self.model = _FMUNet(
             channels=channels,
             num_residual_layers=num_residual_layers,
@@ -389,12 +389,9 @@ class FMUNet(BaseModule):
             width=width,
             embedding_dim=embedding_dim,
         )
-        if kwargs:
-            warn(f"Ignoring additional arguments: {kwargs}")
         self.n_samples = n_samples
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
-        self.loss_fn = loss_fn  # This is only used in the validation and testing phases
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.model)  # TODO how to pass conditioning variable to the solver
         # Register as buffer so it is moved with the model
@@ -461,7 +458,8 @@ class FMUNet(BaseModule):
             step_size=self.step_size,
         )
         sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
-        return sol  # type: ignore
+        sol_cropped = self.crop(sol)
+        return sol_cropped
 
     def validation_step(self, batch) -> torch.Tensor:
         loss = self._calc_loss(batch)

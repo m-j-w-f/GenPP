@@ -6,10 +6,13 @@
 *.nc
 *.pt
 
-#Log files
+# Log files
 outputs/
 logs/
 wandb/
+
+# Temporary files
+tmp/
 
 # MacOS
 .DS_Store

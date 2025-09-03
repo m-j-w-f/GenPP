@@ -26,46 +26,41 @@ class EnergyScore(nn.Module):
         sq_diff_sum = reduce(sq_diff, "... spatial -> ... 1", reduction="sum")
         if self.clamp:
             sq_diff_sum = torch.clamp(sq_diff_sum, min=self.eps, max=self.max_value)
-        reduced = reduce(torch.sqrt(sq_diff_sum) ** self.beta, "b d ... -> b d", reduction="mean")
+        reduced = reduce(torch.sqrt(sq_diff_sum) ** self.beta, "... n 1 -> ...", reduction="mean")
         return reduced
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes the energy score between the predicted and true values.
 
         Args:
-            x (torch.Tensor): The predicted values with shape [batch_size, n_samples, out_features, lon, lat].
-            y (torch.Tensor): The true values with shape [batch_size, out_features, lon, lat].
+            x (torch.Tensor): The predicted values with shape [..., n_samples, variables].
+            y (torch.Tensor): The true values with shape [..., variables].
 
         Returns:
-            torch.Tensor: The computed energy score with shape [out_features].
+            torch.Tensor: The computed energy score with shape [..., ].
         """
-        # Reshape tensors for easier computation
-        # x: [batch_size, out_features, n_samples, lat * lon]
-        # y: [batch_size, out_features, 1, lat * lon]
-        x_reshaped = rearrange(x, "b n d lon lat -> b d n (lon lat)")
-        y_reshaped = rearrange(y, "b d lon lat -> b d 1 (lon lat)")
+        # For correct broadcasting
+        y = rearrange(y, "... var -> ... 1 var")
 
         # Calculate first term: E[||y_pred - y_true||]
-        es_12 = self.l2_beta_norm(x_reshaped - y_reshaped)
+        es_12 = self.l2_beta_norm(x - y)
 
         # Calculate second term: E[||y_pred_i - y_pred_j||] for i != j
         G = torch.matmul(
-            x_reshaped, rearrange(x_reshaped, "b d n spatial -> b d spatial n")
-        )  # [batch_size, out_features, n_samples, n_samples]
+            x, rearrange(x, "... n spatial -> ... spatial n")
+        )  # [..., n_samples, n_samples]
 
         # Extract diagonal elements (||y_pred_i||^2)
-        d = rearrange(torch.diagonal(G, dim1=-2, dim2=-1), "b d n -> b d n 1")
+        d = rearrange(torch.diagonal(G, dim1=-2, dim2=-1), "... n -> ... n 1")
 
         # Compute pairwise distances: ||y_pred_i||^2 + ||y_pred_j||^2 - 2 * y_pred_i^T * y_pred_j
-        distances_22 = d + rearrange(d, "b d n 1 -> b d 1 n") - 2 * G
+        distances_22 = d + rearrange(d, "... n 1 -> ... 1 n") - 2 * G
         if self.clamp:
             # Clamp distances to avoid numerical issues
             distances_22 = torch.clamp(distances_22, min=self.eps, max=self.max_value)
 
         # Sum over all pairs (including diagonal, but we'll account for that)
-        es_22 = reduce(
-            torch.sqrt(distances_22), "b d n1 n2 -> b d", reduction="mean"
-        )  # [batch_size, out_features]
+        es_22 = reduce(torch.sqrt(distances_22), "... n1 n2 -> ...", reduction="mean")  # [..., ]
         es = es_12 - 0.5 * es_22
         return es
 
@@ -79,26 +74,22 @@ class VariogramScore(nn.Module):
         """Computes the variogram score between predicted and true values.
 
         Args:
-            x (torch.Tensor): Predicted values with shape [batch_size, n_samples, out_features, lon, lat].
-            y (torch.Tensor): True values with shape [batch_size, out_features, lon, lat].
+            x (torch.Tensor): Predicted values with shape [..., n_samples, variables].
+            y (torch.Tensor): True values with shape [..., variables].
 
         Returns:
-            torch.Tensor: The computed variogram score with shape [batch_size, out_features].
+            torch.Tensor: The computed variogram score with shape [..., ].
         """
-        y_diff = rearrange(y, "b d lat lon -> b d (lat lon) 1") - rearrange(
-            y, "b d lat lon -> b d 1 (lat lon)"
-        )
-        y_diff = torch.abs(y_diff) ** self.p  # [b, d, spatial, spatial]
+        y_diff = rearrange(y, "... var -> ... var 1") - rearrange(y, "... var -> ... 1 var")
+        y_diff = torch.abs(y_diff) ** self.p  # [b, d, margin, margin]
 
-        x_diff = rearrange(x, "b n d lat lon -> b n d (lat lon) 1") - rearrange(
-            x, "b n d lat lon -> b n d 1 (lat lon)"
-        )
-        x_diff = torch.abs(x_diff) ** self.p  # [b, n_samples, d, spatial, spatial]
-        x_diff = reduce(x_diff, "b n d spatial1 spatial2 -> b d spatial1 spatial2", "mean")
+        x_diff = rearrange(x, "... n var -> ... n var 1") - rearrange(x, "... n var -> ... n 1 var")
+        x_diff = torch.abs(x_diff) ** self.p  # [b, n_samples, margin, margin]
+        x_diff = reduce(x_diff, "... n var1 var2 -> ... var1 var2", "mean")
 
-        total_diff = torch.pow(y_diff - x_diff, 2)  # [b, d, spatial, spatial]
+        total_diff = torch.pow(y_diff - x_diff, 2)  # [b, d, margin, margin]
 
-        res = reduce(total_diff, "b d spatial1 spatial2 -> b d", "sum")
+        res = reduce(total_diff, "... var1 var2 -> ...", "sum")
         return res
 
 
@@ -197,3 +188,26 @@ class CRPS_TruncatedNormal(nn.Module):
         s4 = c**2 * (F_u2 - F_l2) * self.inv_sqrt_pi
         res = sigma * (s1 + s2 + s3 - s4)
         return res
+
+
+class EnsembleCRPS(nn.Module):
+    def __init__(self, n_axis: int = -4) -> None:
+        super().__init__()
+        self.n_axis = n_axis
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Compute the CRPS based on an finite ensemble.
+
+        Args:
+            x (torch.Tensor): predictions of shape [..., n, d, h, w]
+            y (torch.Tensor): target values of shape [..., d, h, w]
+
+        Returns:
+            torch.Tensor: CRPS values of shape [..., d, h, w]
+        """
+        y = y.unsqueeze(self.n_axis)
+        dxy = torch.abs(x - y).mean(self.n_axis)
+        dxx = torch.abs(x.unsqueeze(self.n_axis) - x.unsqueeze(self.n_axis - 1)).mean(
+            dim=[self.n_axis, self.n_axis - 1]
+        )
+        return dxy - 0.5 * dxx

@@ -162,47 +162,59 @@ class BaseChenModel(BaseModule, ABC):
 
     def training_step(self, batch) -> torch.Tensor:
         x, y = batch
-        res = self.forward(x)
-        loss = self.loss_fn(res, y)
-        loss = torch.mean(loss)
+        res = self.forward(x)  # shape [b, n_samples, out_features, lon, lat]
+        res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
+        y_reshape = rearrange(y, "b c h w -> b (c h w)")
+        loss = self.loss_fn(res_reshape, y_reshape)
+        loss = torch.mean(loss)  # Take mean across batches
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y)
-        loss = reduce(loss, "b c -> c", "mean")
+        res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
+        y_reshape = rearrange(y, "b c h w -> b c (h w)")
+        loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
+        loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
         # Log the loss for each variable separately
         for i in range(self.out_features):
             self.log(
                 f"val_loss_var_{i}",
-                loss[i],
+                loss_per_var[i],
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
                 sync_dist=True,
             )
         # Log the overall loss
-        loss = torch.mean(loss)
+        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
+        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
+        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)
-        loss = self.loss_fn(res, y)
-        loss = reduce(loss, "b c -> c", "mean")
+        res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
+        y_reshape = rearrange(y, "b c h w -> b c (h w)")
+        loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
+        loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
+        # Log the loss for each variable separately
         for i in range(self.out_features):
             self.log(
                 f"test_loss_var_{i}",
-                loss[i],
+                loss_per_var[i],
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
                 sync_dist=True,
             )
-        loss = torch.mean(loss)
+        # Log the overall loss
+        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
+        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
+        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
         return loss
 
 
