@@ -22,7 +22,6 @@ class DistributionRegression(BaseModule, ABC):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
-        self.save_hyperparameters()
         if isinstance(rescaler, Sequence):
             filtered = [m for m in rescaler if m is not None]
             self.rescaler = nn.ModuleList(filtered) if filtered else None

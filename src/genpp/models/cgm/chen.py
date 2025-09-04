@@ -51,7 +51,6 @@ class BaseChenModel(BaseModule, ABC):
         **kwargs: Any,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
-        self.save_hyperparameters()
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
         if kwargs:
@@ -160,6 +159,10 @@ class BaseChenModel(BaseModule, ABC):
         res = pred_mean + std_samples  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         return self.final_activation(res)
 
+    def predict_step(self, batch) -> Any:
+        x, _ = batch
+        return self.forward(x)
+
     def training_step(self, batch) -> torch.Tensor:
         x, y = batch
         res = self.forward(x)  # shape [b, n_samples, out_features, lon, lat]
@@ -236,6 +239,7 @@ class FcChenModel(BaseChenModel):
         hidden_dim_decoder: int,
         **kwargs,
     ) -> None:
+        self.save_hyperparameters()
         super().__init__(*args, **kwargs)
 
         self.hidden_dim_std = hidden_dim_std
@@ -358,6 +362,7 @@ class CNNChenModel(BaseChenModel):
     """
 
     def __init__(self, *args, padding: tuple[int, int, int, int], **kwargs) -> None:
+        self.save_hyperparameters(ignore=["final_activation", "loss_fn"])
         super().__init__(*args, **kwargs)
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
@@ -451,4 +456,5 @@ class PatchwiseChenModel(BaseChenModel):
     """Patchwise Chen model. This is a placeholder for a patchwise implementation."""
 
     def __init__(self, *args, **kwargs) -> None:
+        self.save_hyperparameters()
         super().__init__(*args, **kwargs)

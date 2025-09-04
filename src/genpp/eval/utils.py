@@ -1,8 +1,15 @@
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import torch
+
+try:
+    import wandb
+except ImportError:
+    print("WandB not available")
+    wandb = None
 
 
 def log_scores(
@@ -37,3 +44,16 @@ def log_scores(
         combined_df.to_csv(file, index=False)
     else:
         new_df.to_csv(file, index=False)
+
+
+def update_wandb_run(run_id: str, updates: dict[str, Any]) -> None:
+    if wandb is None:
+        print("WandB not available, skipping update.")
+        return
+    api = wandb.Api()
+    # Locate the run
+    run = api.run(run_id)
+
+    for key, value in updates.items():
+        run.summary[key] = value
+    run.summary.update()

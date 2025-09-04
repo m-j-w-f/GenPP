@@ -54,6 +54,7 @@ class DRNModel(DistributionRegression):
         use_rescaler: bool = True,  # NOTE difference to emos
         **kwargs: Any,
     ) -> None:
+        self.save_hyperparameters()
         super().__init__(
             out_distribution=out_distribution,
             height=height,

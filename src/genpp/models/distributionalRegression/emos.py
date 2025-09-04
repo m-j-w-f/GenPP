@@ -1,6 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
-from collections.abc import Sequence
 from warnings import warn
 
 import torch
@@ -35,6 +34,7 @@ class EMOS(DistributionRegression):
         use_rescaler: bool = False,  # NOTE difference to drn
         **kwargs: Any,
     ) -> None:
+        self.save_hyperparameters()
         super().__init__(
             out_distribution=out_distribution,
             height=height,
