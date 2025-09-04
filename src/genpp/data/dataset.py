@@ -1,3 +1,4 @@
+import atexit
 import os
 import tempfile
 from collections.abc import Callable
@@ -84,6 +85,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
         self.x_select_variables = x_select_variables
         self.y_select_variables = y_select_variables
         self.already_prepared = False
+        atexit.register(self.cleanup)
 
     def _select_variables(
         self,
@@ -281,3 +283,6 @@ class WeatherBench2DataModule(L.LightningDataModule):
         if self.y_tmp and os.path.exists(self.y_tmp.name):
             self.y_tmp.close()
             os.remove(self.y_tmp.name)
+
+    def __del__(self):
+        self.cleanup()
