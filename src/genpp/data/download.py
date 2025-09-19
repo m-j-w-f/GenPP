@@ -38,20 +38,20 @@ def main():
         (
             FORECAST_URL,
             FORECAST_SLICE,
-            "hres_slice.nc",
-            "gs://slice-data-output/hres_slice.nc",
+            "hres_slice_l.nc",
+            "gs://slice-data-output/hres_slice_l.nc",
         ),
         (
             FORECAST_ENS_URL,
             FORECAST_ENS_SLICE,
-            "ifs_ens_slice.nc",
-            "gs://slice-data-output/ifs_ens_slice.nc",
+            "ifs_ens_slice_l.nc",
+            "gs://slice-data-output/ifs_ens_slice_l.nc",
         ),
         (
             OBSERVATIONS_URL,
             OBSERVATIONS_SLICE,
-            "hres_t0_slice.nc",
-            "gs://slice-data-output/hres_t0_slice.nc",
+            "hres_t0_slice_l.nc",
+            "gs://slice-data-output/hres_t0_slice_l.nc",
         ),
     ]:
         # Open the Zarr store lazily
@@ -60,11 +60,14 @@ def main():
         # Select the region and forecast lead time
         ds_sliced = ds.sel(slice_dict)
 
+        if slice_dict.get("prediction_timedelta") is not None:
+            ds_sliced = ds_sliced.chunk({"prediction_timedelta": 20, "time": 8}).unify_chunks()
+        else:
+            ds_sliced = ds_sliced.chunk({"time": 20}).unify_chunks()
+
         # Remove existing local output if present
         if os.path.exists(local_nc):
             os.remove(local_nc)
-        # Rename variable since this is a keyword in xarray and causes some issues
-        ds_sliced = ds_sliced.rename({"variable": "feature"})
 
         # Write to local NetCDF in parallel
         print("Writing local NetCDF with Dask...")

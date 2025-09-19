@@ -33,7 +33,9 @@ OBSERVATIONS_FLAT_PREPROC_PATH = OUTPUT_DIR / OBSERVATIONS_FLAT_PREPROC_NAME
 TIME_SLICE = slice("2018-01-01", "2022-12-31")
 LATITUDE_SLICE = slice(47.3, 55.1)
 LONGITUDE_SLICE = slice(5.9, 15.0)
-PREDICTION_TIMEDELTA = timedelta(hours=48)
+PREDICTION_TIMEDELTA = [
+    timedelta(hours=h) for h in range(6, 24 * 5, 6)
+]  # Every 6 hours up to 5 days
 LEVEL = [500, 700, 850]  # Level of the FORECAST_ENS data
 
 # For this date, the predictions in the ensemble data are missing.
