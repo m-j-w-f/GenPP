@@ -25,7 +25,7 @@ train = "python src/genpp/train.py" # Specify file by using --config-name ...
 create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
 
 [tool.pixi.dependencies]
-zarr = ">=3.0.10,<4"
+zarr = ">=2.18.3,<3"
 gcsfs = ">=2025.5.1,<2026"
 dask = ">=2025.7.0,<2026"
 xarray = ">=2025.7.1,<2026"
