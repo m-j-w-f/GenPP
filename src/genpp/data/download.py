@@ -10,7 +10,6 @@ import shutil
 import subprocess
 
 import xarray as xr
-from dask.diagnostics.progress import ProgressBar
 from dask.distributed import Client, LocalCluster
 
 from genpp.data import (
@@ -53,14 +52,18 @@ def main():
         # Select the region and forecast lead time
         ds_sliced = ds.sel(slice_dict)
 
+        print(f"Dataset size: {ds_sliced.nbytes / (1024**3):.2f} GB")
+
+        # Slightly better chunking for writing
+        ds_sliced = ds_sliced.chunk("auto")
+
         # Remove existing local output if present
         if os.path.exists(local_zarr):
             shutil.rmtree(local_zarr)
 
-        # Write to local NetCDF in parallel
+        # Write to local Zarr
         print("Writing local NetCDF with Dask...")
-        with ProgressBar():
-            ds_sliced.to_zarr(local_zarr)
+        ds_sliced.to_zarr(local_zarr, mode="w", compute=True, consolidated=True)
         print(f"Local Zarr written to {local_zarr}.")
 
         print(f"Uploading {local_zarr} to {gcs_dest} ...")
