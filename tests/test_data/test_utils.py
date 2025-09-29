@@ -67,37 +67,35 @@ class TestFlattenLevels:
         )
         return ds
 
+    @pytest.mark.unit
     def test_flatten_levels_basic(self, sample_dataset_with_levels):
         """Test basic functionality of flatten_levels."""
         result = flatten_levels(sample_dataset_with_levels)
 
         # Should return a DataArray
-        assert isinstance(result, xr.DataArray)
-
-        # Should have a 'feature' dimension
-        assert "feature" in result.dims
+        assert isinstance(result, xr.Dataset)
 
         # Should have flattened features for each level
         expected_vars = [
-            "temperature_lev850",
-            "temperature_lev500",
-            "pressure_lev850",
-            "pressure_lev500",
+            "temperature+level_850",
+            "temperature+level_500",
+            "pressure+level_850",
+            "pressure+level_500",
             "surface_var",
         ]
-        assert len(result.coords["feature"]) == len(expected_vars)
 
         # Check that feature names are correct
-        var_names = result.coords["feature"].values.tolist()
+        var_names = list(result.data_vars)
         for expected_var in expected_vars:
             assert expected_var in var_names
 
+    @pytest.mark.unit
     def test_flatten_levels_preserves_coordinates(self, sample_dataset_with_levels):
         """Test that non-level coordinates are preserved."""
         result = flatten_levels(sample_dataset_with_levels)
 
         # Should preserve all coordinates except level
-        expected_coords = ["time", "lat", "lon", "feature"]
+        expected_coords = ["time", "lat", "lon"]
         assert set(result.coords.keys()) == set(expected_coords)
 
         # Check coordinate values are preserved
@@ -105,68 +103,69 @@ class TestFlattenLevels:
         np.testing.assert_array_equal(result.lat.values, sample_dataset_with_levels.lat.values)
         np.testing.assert_array_equal(result.lon.values, sample_dataset_with_levels.lon.values)
 
+    @pytest.mark.unit
     def test_flatten_levels_custom_level_dim(self, sample_dataset_custom_level_dim):
         """Test flatten_levels with custom level dimension name."""
         result = flatten_levels(sample_dataset_custom_level_dim, level_dim="height")
 
         # Should have flattened features for each height level
-        expected_vars = ["temperature_lev100", "temperature_lev200", "temperature_lev300"]
-        var_names = result.coords["feature"].values.tolist()
+        expected_vars = [
+            "temperature+height_100",
+            "temperature+height_200",
+            "temperature+height_300",
+        ]
+        var_names = list(result.data_vars)
 
         assert len(var_names) == 3
         for expected_var in expected_vars:
             assert expected_var in var_names
 
+    @pytest.mark.unit
     def test_flatten_levels_no_level_dimension(self, sample_dataset_no_levels):
         """Test flatten_levels with dataset that has no level dimension."""
-        result = flatten_levels(sample_dataset_no_levels)
+        with pytest.raises(KeyError):
+            flatten_levels(sample_dataset_no_levels)
 
-        # Should still work and return all features unchanged
-        var_names = result.coords["feature"].values.tolist()
-        expected_vars = ["temperature", "pressure"]
-
-        assert len(var_names) == 2
-        for expected_var in expected_vars:
-            assert expected_var in var_names
-
+    @pytest.mark.unit
     def test_flatten_levels_data_integrity(self, sample_dataset_with_levels):
         """Test that data values are preserved during flattening."""
         original_ds = sample_dataset_with_levels
         result = flatten_levels(original_ds)
 
         # Check that flattened temperature data matches original
-        temp_850 = result.sel(feature="temperature_lev850")
+        temp_850 = result["temperature+level_850"]
         original_temp_850 = original_ds.temperature.sel(level=850)
 
         np.testing.assert_array_equal(temp_850.values, original_temp_850.values)
 
         # Check surface feature is unchanged
-        surface_var = result.sel(feature="surface_var")
+        surface_var = result["surface_var"]
         original_surface = original_ds.surface_var
 
         np.testing.assert_array_equal(surface_var.values, original_surface.values)
 
+    @pytest.mark.unit
     def test_flatten_levels_mixed_variables(self, sample_dataset_with_levels):
         """Test that features with and without levels are handled correctly."""
         result = flatten_levels(sample_dataset_with_levels)
 
         # features with levels should be split
-        temp_vars = [var for var in result.coords["feature"].values if "temperature_lev" in var]
+        var_names = list(result.data_vars)
+        temp_vars = [var for var in var_names if "temperature+level_" in var]
         assert len(temp_vars) == 2  # Two levels
 
         # features without levels should remain single
-        surface_vars = [var for var in result.coords["feature"].values if var == "surface_var"]
+        surface_vars = [var for var in var_names if var == "surface_var"]
         assert len(surface_vars) == 1
 
+    @pytest.mark.unit
     def test_flatten_levels_empty_dataset(self):
         """Test behavior with empty dataset."""
         empty_ds = xr.Dataset()
-        result = flatten_levels(empty_ds)
+        with pytest.raises(KeyError):
+            flatten_levels(empty_ds)
 
-        # Should return empty DataArray
-        assert isinstance(result, xr.DataArray)
-        assert len(result.coords["feature"]) == 0
-
+    @pytest.mark.unit
     def test_flatten_levels_single_level(self):
         """Test with dataset having only one level."""
         data_4d = np.random.randn(2, 1, 3, 3)  # time, level, lat, lon
@@ -184,9 +183,9 @@ class TestFlattenLevels:
         )
 
         result = flatten_levels(ds)
-        var_names = result.coords["feature"].values.tolist()
+        var_names = list(result.data_vars)
 
-        assert "temperature_lev850" in var_names
+        assert "temperature+level_850" in var_names
         assert len(var_names) == 1
 
 
@@ -229,6 +228,7 @@ class TestGetTimeIntersection:
         )
         return ds
 
+    @pytest.mark.unit
     def test_get_time_intersection_basic(self, dataset1_prediction_time, dataset2_time):
         """Test basic time intersection functionality."""
         result = get_time_intersection(dataset1_prediction_time, dataset2_time)
@@ -245,6 +245,7 @@ class TestGetTimeIntersection:
         assert len(result) == len(expected_times)
         pd.testing.assert_index_equal(result, expected_times)
 
+    @pytest.mark.unit
     def test_get_time_intersection_custom_dims(
         self, dataset1_prediction_time, dataset3_custom_time_dim
     ):
@@ -264,6 +265,7 @@ class TestGetTimeIntersection:
         assert len(result) == len(expected_times)
         pd.testing.assert_index_equal(result, expected_times)
 
+    @pytest.mark.unit
     def test_get_time_intersection_no_overlap(self):
         """Test time intersection with no overlap."""
         # Create datasets with non-overlapping times
@@ -283,6 +285,7 @@ class TestGetTimeIntersection:
         assert len(result) == 0
         assert isinstance(result, pd.Index)
 
+    @pytest.mark.unit
     def test_get_time_intersection_identical_times(self):
         """Test time intersection with identical time coordinates."""
         times = pd.date_range("2023-01-01", periods=5)
@@ -303,6 +306,7 @@ class TestGetTimeIntersection:
         assert len(result) == 5
         pd.testing.assert_index_equal(result, times)
 
+    @pytest.mark.unit
     def test_get_time_intersection_partial_overlap(self):
         """Test time intersection with partial overlap and different frequencies."""
         # Dataset 1: daily from Jan 1-10
@@ -331,6 +335,7 @@ class TestGetTimeIntersection:
         assert len(result) == 3
         pd.testing.assert_index_equal(result.sort_values(), expected_dates)
 
+    @pytest.mark.unit
     def test_get_time_intersection_error_missing_dimension(self, dataset1_prediction_time):
         """Test error handling when dimension doesn't exist."""
         with pytest.raises(KeyError):
@@ -341,6 +346,7 @@ class TestGetTimeIntersection:
                 time_dim2="prediction_time",
             )
 
+    @pytest.mark.unit
     def test_get_time_intersection_different_time_types(self):
         """Test time intersection with different time types/formats."""
         # Dataset with datetime64

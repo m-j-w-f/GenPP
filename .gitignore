@@ -5,6 +5,7 @@
 # Data
 *.nc
 *.pt
+*.zarr
 
 # Log files
 outputs/

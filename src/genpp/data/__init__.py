@@ -10,11 +10,9 @@ FORECAST_ENS_URL = "gs://weatherbench2/datasets/ifs_ens/2018-2022-1440x721.zarr"
 OBSERVATIONS_URL = "gs://weatherbench2/datasets/hres_t0/2016-2022-6h-1440x721.zarr"
 OUTPUT_DIR = BASE_DIR / "data" / "weatherbench2"
 
-FORECAST_NAME = "hres.zarr"
 FORECAST_ENS_NAME = "ifs_ens.zarr"
 OBSERVATIONS_NAME = "hres_t0.zarr"
 
-FORECAST_PATH = OUTPUT_DIR / FORECAST_NAME
 FORECAST_ENS_PATH = OUTPUT_DIR / FORECAST_ENS_NAME
 OBSERVATIONS_PATH = OUTPUT_DIR / OBSERVATIONS_NAME
 
@@ -37,7 +35,7 @@ PREDICTION_TIMEDELTA = [timedelta(days=d + 1) for d in range(0, 5)]  # 1-5 day f
 LEVEL = [500, 700, 850]  # Level of the FORECAST_ENS data
 
 # For this date, the predictions in the ensemble data are missing.
-# TODO: this will need a fix once we are using multiple prediction times.
+# This is across all lead times and ensemble members.
 MISSING_DAYS = [np.datetime64("2019-10-17T00:00:00.000000000")]
 
 FORECAST_SLICE = {

@@ -32,7 +32,7 @@ def main():
     print("Dask dashboard:", client.dashboard_link)
     print(client)
 
-    for dataset_url, slice_dict, local_zarr, gcs_dest in [
+    for dataset_url, slice_dict, local_path, gcs_dest in [
         (
             FORECAST_ENS_URL,
             FORECAST_ENS_SLICE,
@@ -55,19 +55,35 @@ def main():
         print(f"Dataset size: {ds_sliced.nbytes / (1024**3):.2f} GB")
 
         # Slightly better chunking for writing
-        ds_sliced = ds_sliced.chunk("auto")
+        time_chunk_size = 37
+
+        new_chunks = {
+            "time": time_chunk_size,
+            "latitude": ds_sliced.sizes["latitude"],  # Unchunked
+            "longitude": ds_sliced.sizes["longitude"],  # Unchunked
+        }
+        # For variables that also have a 'level' dimension
+        if "level" in ds_sliced.sizes:
+            new_chunks["level"] = ds_sliced.sizes["level"]  # Unchunked
+        if "number" in ds_sliced.sizes:
+            new_chunks["number"] = ds_sliced.sizes["number"]  # Unchunked
+        if "prediction_timedelta" in ds_sliced.sizes:
+            new_chunks["prediction_timedelta"] = ds_sliced.sizes[
+                "prediction_timedelta"
+            ]  # Unchunked
+        ds_rechunked = ds.chunk(new_chunks)
 
         # Remove existing local output if present
-        if os.path.exists(local_zarr):
-            shutil.rmtree(local_zarr)
+        if os.path.exists(local_path):
+            shutil.rmtree(local_path)
 
-        # Write to local Zarr
+        # Write to local NetCDF
         print("Writing local NetCDF with Dask...")
-        ds_sliced.to_zarr(local_zarr, mode="w", compute=True, consolidated=True)
-        print(f"Local Zarr written to {local_zarr}.")
+        ds_rechunked.to_netcdf(local_path, format="NETCDF4")
+        print(f"Local NetCDF written to {local_path}.")
 
-        print(f"Uploading {local_zarr} to {gcs_dest} ...")
-        subprocess.check_call(["gsutil", "-m", "cp", "-r", local_zarr, gcs_dest])
+        print(f"Uploading {local_path} to {gcs_dest} ...")
+        subprocess.check_call(["gsutil", "-m", "cp", "-r", local_path, gcs_dest])
         print("Upload complete.")
 
 

@@ -56,3 +56,10 @@ sync = "rsync -avzr --progress --human-readable --exclude='.pixi/' --exclude='__
 
 [tool.pixi.environments]
 dev = ["default","dev"]
+
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: mark a test as a unit test",
+    "integration: mark a test as an integration test",
+]

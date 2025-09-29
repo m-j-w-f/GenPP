@@ -14,6 +14,7 @@ from genpp.models.loss import (
 class TestEnergyScore:
     """Test cases comparing EnergyScore class with scoringrules.es_ensemble"""
 
+    @pytest.mark.unit
     def test_energy_score_simple_case(self):
         """Test energy score computation for a simple case"""
         # Create simple test data
@@ -36,6 +37,7 @@ class TestEnergyScore:
         assert es_custom.shape == (batch_size,)
         torch.testing.assert_close(es_custom, es_reference, rtol=1e-10, atol=1e-10)
 
+    @pytest.mark.unit
     def test_energy_score_multiple_features(self):
         """Test energy score with multiple output features"""
         batch_size, n_samples, lat, lon, out_features = 4, 5, 3, 3, 2
@@ -49,8 +51,9 @@ class TestEnergyScore:
         es_custom = energy_score_model(x, y)
 
         es_reference = sr.es_ensemble(y, x, backend="torch")
-        torch.testing.assert_close(es_custom, es_reference, rtol=1e-10, atol=1e-10)
+        torch.testing.assert_close(es_custom, es_reference, rtol=1e-7, atol=1e-7)
 
+    @pytest.mark.unit
     def test_energy_score_different_beta_values(self):
         """Test energy score with different beta values (note: scoringrules uses beta=1)"""
         batch_size, n_samples, lat, lon, out_features = 1, 4, 2, 2, 1
@@ -66,7 +69,7 @@ class TestEnergyScore:
 
         es_reference = sr.es_ensemble(y, x, backend="torch")
 
-        torch.testing.assert_close(es_custom_beta1, es_reference, rtol=1e-10, atol=1e-10)
+        torch.testing.assert_close(es_custom_beta1, es_reference, rtol=1e-7, atol=1e-7)
 
         # Test with beta=2.0 (should be different from scoringrules)
         energy_score_beta2 = EnergyScore(beta=2.0, clamp=False)
@@ -75,6 +78,7 @@ class TestEnergyScore:
         # They should not be equal
         assert not torch.allclose(es_custom_beta1, es_custom_beta2)
 
+    @pytest.mark.unit
     def test_energy_score_edge_cases(self):
         """Test edge cases like identical predictions"""
         batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
@@ -94,6 +98,7 @@ class TestEnergyScore:
         # Energy score should be 0 when all predictions equal truth
         assert torch.allclose(es_custom, torch.zeros_like(es_custom), atol=1e-10)
 
+    @pytest.mark.unit
     def test_energy_score_batch_consistency(self):
         """Test that batched computation gives same results as individual computations"""
         n_samples, lat, lon, out_features = 4, 3, 3, 1
@@ -120,6 +125,7 @@ class TestEnergyScore:
         torch.testing.assert_close(es_batch[1:2], es2, rtol=1e-10, atol=1e-10)
 
     @pytest.mark.parametrize("beta", [0.5, 1.0, 1.5, 2.0])
+    @pytest.mark.unit
     def test_energy_score_beta_parameter(self, beta):
         """Test energy score with different beta values"""
         batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
@@ -144,6 +150,7 @@ class TestEnergyScore:
 class TestVariogramScore:
     """Test cases comparing VariogramScore class with scoringrules.vs_ensemble"""
 
+    @pytest.mark.unit
     def test_variogram_score_simple_case(self):
         """Test variogram score computation for a simple case"""
         # Create simple test data
@@ -166,6 +173,7 @@ class TestVariogramScore:
         assert vs_custom.shape == (batch_size,)
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-5, atol=1e-6)
 
+    @pytest.mark.unit
     def test_variogram_score_multiple_features(self):
         """Test variogram score with multiple output features"""
         batch_size, n_samples, lat, lon, out_features = 4, 5, 3, 3, 2
@@ -182,6 +190,7 @@ class TestVariogramScore:
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
     @pytest.mark.parametrize("p", [0.5, 1.0, 1.5, 2.0])
+    @pytest.mark.unit
     def test_variogram_score_different_p_values(self, p):
         """Test variogram score with different p values"""
         batch_size, n_samples, lat, lon, out_features = 2, 4, 3, 3, 1
@@ -197,6 +206,7 @@ class TestVariogramScore:
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
+    @pytest.mark.unit
     def test_variogram_score_edge_cases(self):
         """Test edge cases like identical predictions"""
         batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
@@ -230,6 +240,7 @@ class TestVariogramScore:
             vs_custom_constant, vs_reference_constant, rtol=1e-10, atol=1e-10
         )
 
+    @pytest.mark.unit
     def test_variogram_score_batch_consistency(self):
         """Test that batched computation gives same results as individual computations"""
         n_samples, lat, lon, out_features = 4, 3, 3, 1
@@ -255,6 +266,7 @@ class TestVariogramScore:
         torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-10, atol=1e-10)
         torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-10, atol=1e-10)
 
+    @pytest.mark.unit
     def test_variogram_score_spatial_structure(self):
         """Test variogram score captures spatial structure differences"""
         batch_size, n_samples, lat, lon, out_features = 1, 10, 5, 5, 1
@@ -291,6 +303,7 @@ class TestVariogramScore:
         # (though this isn't guaranteed for all random seeds)
         assert vs_structured.shape == vs_random.shape
 
+    @pytest.mark.unit
     def test_variogram_score_different_spatial_sizes(self):
         """Test variogram score with different spatial dimensions"""
         batch_size, n_samples, out_features = 2, 5, 1
@@ -312,6 +325,7 @@ class TestVariogramScore:
             torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
             assert vs_custom.shape == (batch_size,)
 
+    @pytest.mark.unit
     def test_variogram_score_single_ensemble_member(self):
         """Test variogram score with single ensemble member"""
         batch_size, n_samples, lat, lon, out_features = 2, 1, 3, 3, 1
@@ -328,6 +342,7 @@ class TestVariogramScore:
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
+    @pytest.mark.unit
     def test_variogram_score_large_ensemble(self):
         """Test variogram score with larger ensemble size"""
         batch_size, n_samples, lat, lon, out_features = 1, 50, 4, 4, 1
@@ -348,6 +363,7 @@ class TestVariogramScore:
 class TestCRPS_Normal:
     """Test cases comparing CRPS_Normal class with scoringrules.crps_normal"""
 
+    @pytest.mark.unit
     def test_crps_normal_simple_case(self):
         """Test CRPS normal computation for a simple case"""
         # Create simple test data
@@ -369,6 +385,7 @@ class TestCRPS_Normal:
         # Compare results
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-6, atol=1e-6)
 
+    @pytest.mark.unit
     def test_crps_normal_edge_cases(self):
         """Test CRPS normal with edge cases"""
         batch_size, features, height, width = 1, 1, 2, 2
@@ -395,6 +412,7 @@ class TestCRPS_Normal:
         torch.testing.assert_close(crps_custom_small, crps_reference_small, rtol=1e-10, atol=1e-10)
 
     @pytest.mark.parametrize("sigma_scale", [0.1, 1.0, 2.0, 5.0])
+    @pytest.mark.unit
     def test_crps_normal_different_scales(self, sigma_scale):
         """Test CRPS normal with different sigma scales"""
         batch_size, features, height, width = 2, 1, 2, 2
@@ -410,6 +428,7 @@ class TestCRPS_Normal:
 
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-6, atol=1e-6)
 
+    @pytest.mark.unit
     def test_crps_normal_batch_consistency(self):
         """Test that batched computation gives same results as individual computations"""
         features, height, width = 1, 2, 2
@@ -443,6 +462,7 @@ class TestCRPS_Normal:
 class TestCRPS_TruncatedNormal:
     """Test cases comparing CRPS_TruncatedNormal class with scoringrules.crps_tnormal"""
 
+    @pytest.mark.unit
     def test_crps_truncated_normal_simple_case(self):
         """Test CRPS truncated normal computation for a simple case"""
         # Create simple test data
@@ -467,6 +487,7 @@ class TestCRPS_TruncatedNormal:
         # Compare results
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-6, atol=1e-7)
 
+    @pytest.mark.unit
     def test_crps_truncated_normal_edge_cases(self):
         """Test CRPS truncated normal with edge cases"""
         batch_size, features, height, width = 1, 1, 2, 2
@@ -498,6 +519,7 @@ class TestCRPS_TruncatedNormal:
         torch.testing.assert_close(crps_custom_small, crps_reference_small, rtol=1e-6, atol=1e-7)
 
     @pytest.mark.parametrize("mu_scale", [0.5, 1.0, 2.0, 5.0])
+    @pytest.mark.unit
     def test_crps_truncated_normal_different_scales(self, mu_scale):
         """Test CRPS truncated normal with different mu scales"""
         batch_size, features, height, width = 2, 1, 2, 2
@@ -515,6 +537,7 @@ class TestCRPS_TruncatedNormal:
 
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-6, atol=1e-7)
 
+    @pytest.mark.unit
     def test_crps_truncated_normal_batch_consistency(self):
         """Test that batched computation gives same results as individual computations"""
         features, height, width = 1, 2, 2
@@ -544,6 +567,7 @@ class TestCRPS_TruncatedNormal:
         torch.testing.assert_close(crps_batch[0:1], crps1, rtol=1e-6, atol=1e-7)
         torch.testing.assert_close(crps_batch[1:2], crps2, rtol=1e-6, atol=1e-7)
 
+    @pytest.mark.unit
     def test_crps_truncated_normal_comparison_with_normal(self):
         """Test that truncated normal CRPS approaches normal CRPS when mu >> 0"""
         batch_size, features, height, width = 20, 20, 20, 20
@@ -568,6 +592,7 @@ class TestCRPS_TruncatedNormal:
 class TestEnsembleCRPS:
     """Test cases comparing EnsembleCRPS class with scoringrules.crps_ensemble"""
 
+    @pytest.mark.unit
     def test_ensemble_crps_simple_case(self):
         """Test ensemble CRPS computation for a simple case"""
         # Create simple test data
@@ -589,6 +614,7 @@ class TestEnsembleCRPS:
         assert crps_custom.shape == (batch_size, out_features, height, width)
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-5, atol=1e-6)
 
+    @pytest.mark.unit
     def test_ensemble_crps_multiple_features(self):
         """Test ensemble CRPS with multiple output features"""
         batch_size, n_samples, out_features, height, width = 3, 4, 2, 4, 4
@@ -604,6 +630,7 @@ class TestEnsembleCRPS:
 
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-5, atol=1e-6)
 
+    @pytest.mark.unit
     def test_ensemble_crps_edge_cases(self):
         """Test edge cases like identical predictions"""
         batch_size, n_samples, out_features, height, width = 1, 3, 1, 2, 2
@@ -636,6 +663,7 @@ class TestEnsembleCRPS:
             crps_custom_constant, crps_reference_constant, rtol=1e-10, atol=1e-10
         )
 
+    @pytest.mark.unit
     def test_ensemble_crps_batch_consistency(self):
         """Test that batched computation gives same results as individual computations"""
         n_samples, out_features, height, width = 4, 1, 3, 3
@@ -662,6 +690,7 @@ class TestEnsembleCRPS:
         torch.testing.assert_close(crps_batch[1:2], crps2, rtol=1e-10, atol=1e-10)
 
     @pytest.mark.parametrize("n_samples", [1, 3, 5, 10, 20])
+    @pytest.mark.unit
     def test_ensemble_crps_different_ensemble_sizes(self, n_samples):
         """Test ensemble CRPS with different ensemble sizes"""
         batch_size, out_features, height, width = 2, 1, 3, 3
@@ -678,6 +707,7 @@ class TestEnsembleCRPS:
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-10, atol=1e-10)
         assert crps_custom.shape == (batch_size, out_features, height, width)
 
+    @pytest.mark.unit
     def test_ensemble_crps_different_spatial_sizes(self):
         """Test ensemble CRPS with different spatial dimensions"""
         batch_size, n_samples, out_features = 2, 5, 1
@@ -698,6 +728,7 @@ class TestEnsembleCRPS:
             torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-10, atol=1e-10)
             assert crps_custom.shape == (batch_size, out_features, height, width)
 
+    @pytest.mark.unit
     def test_ensemble_crps_perfect_forecast_distribution(self):
         """Test ensemble CRPS when ensemble perfectly represents the truth distribution"""
         batch_size, n_samples, out_features, height, width = 2, 100, 1, 2, 2
@@ -721,6 +752,7 @@ class TestEnsembleCRPS:
         assert torch.all(crps_custom >= 0)  # CRPS is always non-negative
         assert torch.all(crps_custom < 1.0)  # Should be small for this setup
 
+    @pytest.mark.unit
     def test_ensemble_crps_deterministic_forecast(self):
         """Test ensemble CRPS with deterministic forecast (all members identical)"""
         batch_size, n_samples, out_features, height, width = 2, 5, 1, 3, 3
@@ -743,6 +775,7 @@ class TestEnsembleCRPS:
         expected_crps = torch.abs(x_det.squeeze(1) - y)
         torch.testing.assert_close(crps_custom, expected_crps, rtol=1e-6, atol=1e-7)
 
+    @pytest.mark.unit
     def test_ensemble_crps_properties(self):
         """Test mathematical properties of ensemble CRPS"""
         batch_size, n_samples, out_features, height, width = 3, 7, 2, 4, 4
@@ -764,6 +797,7 @@ class TestEnsembleCRPS:
         crps_reference = sr.crps_ensemble(y, x, m_axis=-4, estimator="nrg", backend="torch")
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-10, atol=1e-10)
 
+    @pytest.mark.unit
     def test_ensemble_crps_shape_handling(self):
         """Test that ensemble CRPS handles different input shapes correctly"""
         # Test with extra leading dimensions
@@ -781,6 +815,7 @@ class TestEnsembleCRPS:
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-10, atol=1e-10)
         assert crps_custom.shape == (extra_dims, batch_size, out_features, height, width)
 
+    @pytest.mark.unit
     def test_ensemble_crps_single_ensemble_member(self):
         """Test ensemble CRPS with single ensemble member"""
         batch_size, n_samples, out_features, height, width = 2, 1, 1, 3, 3

@@ -51,12 +51,14 @@ class TestStandardScalerPreprocessor:
         )
         return data
 
+    @pytest.mark.unit
     def test_init_single_dim(self):
         """Test initialization with a single dimension."""
         preprocessor = StandardScalerPreprocessor(dim="time")
         assert preprocessor.dim == "time"
         assert not preprocessor.is_fitted
 
+    @pytest.mark.unit
     def test_fit_single_dim(self, sample_data_1d):
         """Test fitting the preprocessor on a single dimension."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -73,6 +75,7 @@ class TestStandardScalerPreprocessor:
         assert np.isclose(preprocessor.mean.values, expected_mean, atol=1e-6)
         assert np.isclose(preprocessor.std.values, expected_std, atol=1e-6)
 
+    @pytest.mark.unit
     def test_fit_2d_data_time_dim(self, sample_data_2d):
         """Test fitting on 2D data along time dimension."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -87,6 +90,7 @@ class TestStandardScalerPreprocessor:
         assert preprocessor.mean.equals(expected_mean)
         assert preprocessor.std.equals(expected_std)
 
+    @pytest.mark.unit
     def test_fit_2d_data_space_dim(self, sample_data_2d):
         """Test fitting on 2D data along space dimension."""
         preprocessor = StandardScalerPreprocessor(dim="space")
@@ -100,6 +104,7 @@ class TestStandardScalerPreprocessor:
         assert preprocessor.mean.equals(expected_mean)
         assert preprocessor.std.equals(expected_std)
 
+    @pytest.mark.unit
     def test_preprocess_1d(self, sample_data_1d):
         """Test preprocessing 1D data."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -117,6 +122,7 @@ class TestStandardScalerPreprocessor:
         assert np.isclose(result_mean, 0.0, atol=1e-10)
         assert np.isclose(result_std, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_preprocess_2d(self, sample_data_2d):
         """Test preprocessing 2D data."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -129,6 +135,7 @@ class TestStandardScalerPreprocessor:
         assert result.shape == sample_data_2d.shape
         assert result.dims == sample_data_2d.dims
 
+    @pytest.mark.unit
     def test_preprocess_different_data(self, sample_data_1d):
         """Test preprocessing data different from the fitted data."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -144,6 +151,7 @@ class TestStandardScalerPreprocessor:
         assert result.shape == new_data.shape
         assert result.dims == new_data.dims
 
+    @pytest.mark.unit
     def test_preprocess_before_fit_error(self, sample_data_1d):
         """Test that preprocess fails when called before fit."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -151,6 +159,7 @@ class TestStandardScalerPreprocessor:
         with pytest.raises(RuntimeError):
             preprocessor.preprocess(sample_data_1d)
 
+    @pytest.mark.unit
     def test_zero_std_handling(self):
         """Test behavior when standard deviation is zero."""
         # Create data with zero variance
@@ -167,6 +176,7 @@ class TestStandardScalerPreprocessor:
         result = preprocessor.preprocess(data)
         assert np.isnan(result.values).all()
 
+    @pytest.mark.unit
     def test_mismatched_dimensions_error(self, sample_data_1d):
         """Test error when dimension doesn't exist in data."""
         preprocessor = StandardScalerPreprocessor(dim="nonexistent_dim")
@@ -174,6 +184,7 @@ class TestStandardScalerPreprocessor:
         with pytest.raises((ValueError, KeyError)):
             preprocessor.fit(sample_data_1d)
 
+    @pytest.mark.unit
     def test_preprocess_preserves_coordinates(self, sample_data_2d):
         """Test that preprocessing preserves coordinate information."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -186,6 +197,7 @@ class TestStandardScalerPreprocessor:
         for coord_name in sample_data_2d.coords:
             assert result.coords[coord_name].equals(sample_data_2d.coords[coord_name])
 
+    @pytest.mark.unit
     def test_fit_idempotent(self, sample_data_1d):
         """Test that calling fit multiple times gives same result."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -204,12 +216,14 @@ class TestStandardScalerPreprocessor:
         assert first_mean.equals(second_mean)
         assert first_std.equals(second_std)
 
+    @pytest.mark.unit
     def test_multiple_dim_string_error(self):
         """Test that passing multiple dimensions as string raises appropriate error."""
         # This should work fine - just testing the initialization
         preprocessor = StandardScalerPreprocessor(dim="time")
         assert preprocessor.dim == "time"
 
+    @pytest.mark.unit
     def test_different_data_types(self, sample_data_1d):
         """Test preprocessing with different numeric data types."""
         # Convert to different data types
@@ -228,6 +242,7 @@ class TestStandardScalerPreprocessor:
         result_int = preprocessor.preprocess(int_data)
         assert isinstance(result_int, xr.DataArray)
 
+    @pytest.mark.unit
     def test_3d_data_complex_case(self, sample_data_3d):
         """Test with more complex 3D data."""
         preprocessor = StandardScalerPreprocessor(dim="time")
@@ -247,6 +262,7 @@ class TestStandardScalerPreprocessor:
                 assert np.isclose(point_data.mean().values, 0.0, atol=1e-10)
                 assert np.isclose(point_data.std(ddof=1).values, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_init_with_variables(self):
         """Test initialization with feature selection."""
         preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature", "pressure"])
@@ -254,6 +270,7 @@ class TestStandardScalerPreprocessor:
         assert preprocessor.features == ["temperature", "pressure"]
         assert not preprocessor.is_fitted
 
+    @pytest.mark.unit
     def test_fit_with_variables(self, sample_data_with_variables):
         """Test fitting with feature selection."""
         preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature", "pressure"])
@@ -264,6 +281,7 @@ class TestStandardScalerPreprocessor:
         assert set(preprocessor.mean.feature.values) == {"temperature", "pressure"}
         assert set(preprocessor.std.feature.values) == {"temperature", "pressure"}
 
+    @pytest.mark.unit
     def test_preprocess_with_variables(self, sample_data_with_variables):
         """Test preprocessing with feature selection."""
         original = sample_data_with_variables.copy()
@@ -299,6 +317,7 @@ class TestStandardScalerPreprocessor:
         original_humidity = sample_data_with_variables.sel(feature="humidity")
         assert np.allclose(humidity_data.values, original_humidity.values)
 
+    @pytest.mark.unit
     def test_preprocess_with_variables_preserves_unselected(self, sample_data_with_variables):
         """Test that unselected features are preserved exactly."""
         preprocessor = StandardScalerPreprocessor(dim="time", features=["temperature"])
@@ -361,18 +380,21 @@ class TestMinMaxScalerPreprocessor:
         )
         return data
 
+    @pytest.mark.unit
     def test_init_single_dim(self):
         """Test initialization with a single dimension."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
         assert preprocessor.dim == "time"
         assert preprocessor.feature_range == (0, 1)
 
+    @pytest.mark.unit
     def test_init_custom_feature_range(self):
         """Test initialization with custom feature range."""
         preprocessor = MinMaxScalerPreprocessor(dim="time", feature_range=(-1, 1))
         assert preprocessor.dim == "time"
         assert preprocessor.feature_range == (-1, 1)
 
+    @pytest.mark.unit
     def test_fit_single_dim(self, sample_data_1d):
         """Test fitting the preprocessor on a single dimension."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
@@ -385,6 +407,7 @@ class TestMinMaxScalerPreprocessor:
         assert preprocessor.data_min.equals(expected_min)
         assert preprocessor.data_max.equals(expected_max)
 
+    @pytest.mark.unit
     def test_preprocess_1d_default_range(self, sample_data_1d):
         """Test preprocessing 1D data with default range [0, 1]."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
@@ -400,6 +423,7 @@ class TestMinMaxScalerPreprocessor:
         assert result.shape == sample_data_1d.shape
         assert result.dims == sample_data_1d.dims
 
+    @pytest.mark.unit
     def test_preprocess_1d_custom_range(self, sample_data_1d):
         """Test preprocessing 1D data with custom range [-1, 1]."""
         preprocessor = MinMaxScalerPreprocessor(dim="time", feature_range=(-1, 1))
@@ -415,6 +439,7 @@ class TestMinMaxScalerPreprocessor:
         assert result.shape == sample_data_1d.shape
         assert result.dims == sample_data_1d.dims
 
+    @pytest.mark.unit
     def test_preprocess_2d_along_time(self, sample_data_2d):
         """Test preprocessing 2D data along time dimension."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
@@ -432,6 +457,7 @@ class TestMinMaxScalerPreprocessor:
             assert np.isclose(space_data.min().values, 0.0, atol=1e-10)
             assert np.isclose(space_data.max().values, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_preprocess_2d_along_space(self, sample_data_2d):
         """Test preprocessing 2D data along space dimension."""
         preprocessor = MinMaxScalerPreprocessor(dim="space")
@@ -449,6 +475,7 @@ class TestMinMaxScalerPreprocessor:
             assert np.isclose(time_data.min().values, 0.0, atol=1e-10)
             assert np.isclose(time_data.max().values, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_preprocess_multiple_dims(self, sample_data_2d):
         """Test preprocessing with multiple dimensions."""
         preprocessor = MinMaxScalerPreprocessor(dim=["time", "space"])
@@ -464,6 +491,7 @@ class TestMinMaxScalerPreprocessor:
         assert result.shape == sample_data_2d.shape
         assert result.dims == sample_data_2d.dims
 
+    @pytest.mark.unit
     def test_constant_data(self):
         """Test preprocessing with constant data (min == max)."""
         constant_data = xr.DataArray([5.0, 5.0, 5.0, 5.0], dims=["time"], coords={"time": range(4)})
@@ -479,6 +507,7 @@ class TestMinMaxScalerPreprocessor:
         assert result.shape == constant_data.shape
         assert result.dims == constant_data.dims
 
+    @pytest.mark.unit
     def test_different_data_types(self, sample_data_1d):
         """Test preprocessing with different numeric data types."""
         # Convert to different data types
@@ -501,6 +530,7 @@ class TestMinMaxScalerPreprocessor:
         assert np.isclose(result_int.min().values, 0.0, atol=1e-10)
         assert np.isclose(result_int.max().values, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_3d_data_complex_case(self, sample_data_3d):
         """Test with more complex 3D data."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
@@ -520,6 +550,7 @@ class TestMinMaxScalerPreprocessor:
                 assert np.isclose(point_data.min().values, 0.0, atol=1e-10)
                 assert np.isclose(point_data.max().values, 1.0, atol=1e-10)
 
+    @pytest.mark.unit
     def test_inverse_transform_not_implemented(self, sample_data_1d):
         """Test that inverse_transform raises NotImplementedError."""
         preprocessor = MinMaxScalerPreprocessor(dim="time")
@@ -531,6 +562,7 @@ class TestMinMaxScalerPreprocessor:
         with pytest.raises(NotImplementedError, match="TODO Inverse transform is not implemented"):
             preprocessor.inverse_transform(dummy_tensor)
 
+    @pytest.mark.unit
     def test_refitting_updates_statistics(self, sample_data_1d):
         """Test that refitting updates the min/max statistics."""
         # Create different data
@@ -556,6 +588,7 @@ class TestMinMaxScalerPreprocessor:
         assert second_min.equals(new_data.min(dim="time"))
         assert second_max.equals(new_data.max(dim="time"))
 
+    @pytest.mark.unit
     def test_init_with_variables(self):
         """Test initialization with feature selection."""
         preprocessor = MinMaxScalerPreprocessor(dim="time", features=["temperature", "pressure"])
@@ -563,6 +596,7 @@ class TestMinMaxScalerPreprocessor:
         assert preprocessor.features == ["temperature", "pressure"]
         assert preprocessor.feature_range == (0, 1)
 
+    @pytest.mark.unit
     def test_init_with_variables_and_custom_range(self):
         """Test initialization with feature selection and custom range."""
         preprocessor = MinMaxScalerPreprocessor(
@@ -572,6 +606,7 @@ class TestMinMaxScalerPreprocessor:
         assert preprocessor.features == ["temperature"]
         assert preprocessor.feature_range == (-1, 1)
 
+    @pytest.mark.unit
     def test_fit_with_variables(self, sample_data_with_variables):
         """Test fitting with feature selection."""
         preprocessor = MinMaxScalerPreprocessor(dim="time", features=["temperature", "pressure"])
@@ -581,6 +616,7 @@ class TestMinMaxScalerPreprocessor:
         assert set(preprocessor.data_min.feature.values) == {"temperature", "pressure"}
         assert set(preprocessor.data_max.feature.values) == {"temperature", "pressure"}
 
+    @pytest.mark.unit
     def test_preprocess_with_variables(self, sample_data_with_variables):
         """Test preprocessing with feature selection."""
         original = sample_data_with_variables.copy()
@@ -620,6 +656,7 @@ class TestMinMaxScalerPreprocessor:
         original_humidity = original.sel(feature="humidity")
         assert np.allclose(humidity_data.values, original_humidity.values)
 
+    @pytest.mark.unit
     def test_preprocess_with_variables_custom_range(self, sample_data_with_variables):
         """Test preprocessing with feature selection and custom range."""
         original = sample_data_with_variables.copy()
@@ -652,6 +689,7 @@ class TestMinMaxScalerPreprocessor:
         assert np.allclose(result_pressure.values, original_pressure.values)
         assert np.allclose(result_humidity.values, original_humidity.values)
 
+    @pytest.mark.unit
     def test_preprocess_with_variables_preserves_unselected(self, sample_data_with_variables):
         """Test that unselected features are preserved exactly."""
         preprocessor = MinMaxScalerPreprocessor(dim="time", features=["pressure"])
