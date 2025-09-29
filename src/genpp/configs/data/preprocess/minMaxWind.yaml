@@ -5,7 +5,7 @@ x_preprocessing:
       - ${enum:genpp.data.MetadataVars.LATITUDE}
       - ${enum:genpp.data.MetadataVars.LONGITUDE}
   - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
-    dim: ["prediction_time", "latitude", "longitude"]
+    dim: ["time", "prediction_timedelta", "latitude", "longitude"]
   - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
     meta_features:
       - ${enum:genpp.data.MetadataVars.SIN_PREDICTION_TIME}

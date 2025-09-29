@@ -18,6 +18,7 @@ import xarray as xr
 import xbatcher
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from xbatcher.loaders.torch import to_tensor
 
 from genpp.data import (
@@ -27,6 +28,7 @@ from genpp.data import (
     OBSERVATIONS_NAME,
     OUTPUT_DIR,
 )
+from genpp.data.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
 
 
@@ -41,6 +43,7 @@ class TransformTensorDataset(Dataset):
         self,
         x_tensor: torch.Tensor,
         y_tensor: torch.Tensor,
+        dt_tensor: torch.Tensor,
         x_transform: Any = None,
         y_transform: Any = None,
     ):
@@ -54,6 +57,7 @@ class TransformTensorDataset(Dataset):
         """
         self.x_tensor = x_tensor
         self.y_tensor = y_tensor
+        self.dt_tensor = dt_tensor
         self.x_transform = x_transform
         self.y_transform = y_transform
 
@@ -63,9 +67,10 @@ class TransformTensorDataset(Dataset):
     def __len__(self) -> int:
         return len(self.x_tensor)
 
-    def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x = self.x_tensor[index]
         y = self.y_tensor[index]
+        dt = self.dt_tensor[index]
 
         # Apply transforms if provided
         if self.x_transform is not None:
@@ -73,66 +78,86 @@ class TransformTensorDataset(Dataset):
         if self.y_transform is not None:
             y = self.y_transform(y)
 
-        return x, y
+        return x, y, dt
 
 
 def _cache_data(
-    da: xr.DataArray,
+    x_da: xr.DataArray,
+    y_da: xr.DataArray,
     time_slices: dict[str, slice],
     cache_dir: Path,
     batch_kwargs: dict,
 ) -> tuple[Any, dict[str, list[int]]]:
-    """Preprocess xarray data and save as PyTorch tensor files.
+    """
+    Pre-process xarray data and save as PyTorch tensor files.
 
     Args:
-        da: Input xarray DataArray
+        x_da: Input xarray DataArray
+              (feature: 63, time: 3651, prediction_timedelta: 5, latitude: 31, longitude: 37)
+        y_da: Target xarray DataArray
+              (feature: 2, time: 7304, latitude: 31, longitude: 37)
         time_slices: Dictionary mapping split names to time slices
         cache_dir: Directory to save cached files
         batch_kwargs: Batching configuration from xbatcher
 
     Returns:
-        Tuple of (temporary_file, split_indices)
+        Tuple of (path_to_saved_dict, split_indices)
+        The saved dict contains keys: "x", "y", "prediction_timedelta"
     """
-    # We never want to get patches from the feature dimension.
-    assert da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
-    # Generate all batches using xbatcher
-    all_batches = []
-    split_indices = {}
+    assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
+
+    all_x, all_y, all_dt = [], [], []
+    split_indices: dict[str, list[int]] = {}
     current_idx = 0
 
     for split_name, time_slice in time_slices.items():
-        split_data = (
-            da.sel(time=time_slice) if "time" in da.dims else da.sel(prediction_time=time_slice)
-        )
+        # We split both datasets right here to prevent leaking data
+        x_split = x_da.sel(time=time_slice)
+        y_split = y_da.sel(time=time_slice)
 
-        # Create batch generator
-        # Force batch dim = 1 so that batching later will be truly random
-        batch_kwargs["batch_dims"] = (
-            {"prediction_time": 1} if "prediction_time" in da.dims else {"time": 1}
-        )
-        batch_gen = xbatcher.BatchGenerator(split_data, **batch_kwargs)
+        # These batch kwargs are fixed so that the batches are random
+        batch_kwargs["batch_dims"]["time"] = 1
+        batch_kwargs["batch_dims"]["prediction_timedelta"] = 1
+
+        gen = xbatcher.BatchGenerator(x_split, **batch_kwargs)
 
         split_batch_indices = []
-        for batch in batch_gen:
-            # Convert to tensor (no transforms applied here)
-            tensor_batch = to_tensor(batch)
+        for x_batch in tqdm(gen):
+            x_tensor = to_tensor(x_batch)
+            t0 = x_batch.time.values[0]
+            dt = x_batch.prediction_timedelta.values[0]
+            y_t = t0 + dt
+            if y_t not in y_split.time.values:
+                # This data is not includeded as it would be in another split
+                # thus leaking data
+                continue
+            y_batch = y_split.sel(time=y_t, longitude=x_batch.longitude, latitude=x_batch.latitude)
+            y_tensor = to_tensor(y_batch.compute())
 
-            all_batches.append(tensor_batch)
+            if y_tensor.dim() == 3:
+                y_tensor = y_tensor.unsqueeze(0).unsqueeze(0)
+
+            tensor_dt = torch.tensor([dt], dtype=torch.float32)
+
+            all_x.append(x_tensor)
+            all_y.append(y_tensor)
+            all_dt.append(tensor_dt)
+
             split_batch_indices.append(current_idx)
             current_idx += 1
 
         split_indices[split_name] = split_batch_indices
 
-    if not all_batches:
+    if not all_x:
         raise ValueError("No batches generated from the data")
 
-    # Stack all batches into a single tensor
-    full_tensor = torch.cat(all_batches, dim=0)  # shape [batch, time, feature, longitude, latitude]
-    # Create temporary file for tensor
-    temp_file = tempfile.NamedTemporaryFile(dir=cache_dir, suffix="_tensor.pt", delete=False)
-    torch.save(full_tensor, temp_file.name)
+    x_tensor = torch.cat(all_x, dim=0)
+    y_tensor = torch.cat(all_y, dim=0)
+    dt_tensor = torch.cat(all_dt, dim=0)
 
-    return temp_file, split_indices
+    temp_file = tempfile.NamedTemporaryFile(dir=cache_dir, suffix="_tensor.pt", delete=False)
+    torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": dt_tensor}, temp_file.name)
+    return temp_file.name, split_indices
 
 
 class FastWeatherBench2DataModule(L.LightningDataModule):
@@ -154,8 +179,12 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         self.y_preprocessing = y_preprocessing
         self.dataset_config = dataset_config
         self.dataloader_config = dataloader_config
-        self.x_select_variables = x_select_variables
-        self.y_select_variables = y_select_variables
+        self.x_select_variables = (
+            x_select_variables if isinstance(x_select_variables, list) else list(x_select_variables)
+        )
+        self.y_select_variables = (
+            y_select_variables if isinstance(y_select_variables, list) else list(y_select_variables)
+        )
         self.already_prepared = False
 
         # Create cache directory for fast tensor data
@@ -204,7 +233,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         return da.sel(feature=selected_features)
 
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         """Prepare and cache tensor data for fast loading."""
         if self.already_prepared:
             return
@@ -231,26 +260,35 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 "Flattening and aggregation of ensemble members and observations is not done yet. "
                 "This will take some time..."
             )
-            from genpp.preproc.flat_and_aggr import main as preprocess_main
+            from genpp.data.flat_and_aggr import main as preprocess_main
 
             preprocess_main(base_dir=self.path)
 
         # Process X data
-        x_da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
+        x_da = xr.open_zarr(self.path / FORECAST_ENS_FLAT_AGG_NAME, consolidated=True)
+        # Select only specified variables
         if self.x_select_variables:
-            x_da = self._select_variables(x_da, self.x_select_variables, append_suffix=True)
+            x_da = x_da[self.x_select_variables]
+
+        # Turn into DataArray
+        x_da = flatten_levels(x_da, level_dim="statistic", interleave=False)
+        x_da = x_da.to_dataarray(dim="feature")
 
         # Apply preprocessing to x data
         if self.x_preprocessing:
             for preprocessor in self.x_preprocessing:
-                preprocessor.fit(x_da.sel(prediction_time=self.dataset_config.train.slice))
+                # Preprocessors work on dataarrays
+                preprocessor.fit(x_da.sel(time=self.dataset_config.train.slice))
                 if not preprocessor.fit_only:
                     x_da = preprocessor.preprocess(x_da)
 
         # Process Y data
-        y_da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+        y_da = xr.open_zarr(self.path / OBSERVATIONS_FLAT_NAME, consolidated=True)
         if self.y_select_variables:
-            y_da = self._select_variables(y_da, self.y_select_variables, append_suffix=False)
+            y_da = y_da[self.y_select_variables]
+
+        # Turn into DataArray (there are no levels to flatten here)
+        y_da = y_da.to_dataarray(dim="feature")
 
         # Apply preprocessing to y data
         if self.y_preprocessing:
@@ -260,40 +298,23 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                     y_da = preprocessor.preprocess(y_da)
 
         # Define time slices for splits
-        time_slices_x = {
+        time_slice = {
             "train": self.dataset_config.train.slice,
             "val": self.dataset_config.val.slice,
             "test": self.dataset_config.test.slice,
         }
-
-        time_slices_y = {
-            "train": self.dataset_config.train.slice,
-            "val": self.dataset_config.val.slice,
-            "test": self.dataset_config.test.slice,
-        }
+        # TODO check if the data is already cached as tensors
+        # This can be done by creating a hash of the dataset config and seeing if a file with that name exists
 
         # Preprocess and save x data
-        self.x_tmp, x_split_indices = _cache_data(
-            x_da,
-            time_slices_x,
-            self.cache_dir,
-            self.dataset_config.train.x_kwargs,
-        )
-
-        # Preprocess and save y data
-        self.y_tmp, y_split_indices = _cache_data(
-            y_da,
-            time_slices_y,
-            self.cache_dir,
-            self.dataset_config.train.y_kwargs,
+        self.tmp, split_indices = _cache_data(
+            x_da, y_da, time_slice, self.cache_dir, batch_kwargs=self.dataset_config.train.x_kwargs
         )
 
         # Store metadata in a temporary file
         cache_metadata = {
-            "x_tensor_path": self.x_tmp.name,
-            "y_tensor_path": self.y_tmp.name,
-            "x_split_indices": x_split_indices,
-            "y_split_indices": y_split_indices,
+            "tmp_path": self.tmp.name,
+            "split_indices": split_indices,
         }
 
         # Store reverse modules for later use
@@ -329,8 +350,10 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             cache_metadata = pickle.load(f)
 
         # Load cached tensors
-        x_tensor = torch.load(cache_metadata["x_tensor_path"])
-        y_tensor = torch.load(cache_metadata["y_tensor_path"])
+        tmp_tensor = torch.load(cache_metadata["tmp_path"])
+        x_tensor = tmp_tensor["x"]
+        y_tensor = tmp_tensor["y"]
+        dt_tensor = tmp_tensor["prediction_timedelta"]
 
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
@@ -342,6 +365,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.train_dataset = TransformTensorDataset(
                 x_tensor[train_indices],
                 y_tensor[train_indices],
+                dt_tensor[train_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -352,6 +376,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.val_dataset = TransformTensorDataset(
                 x_tensor[val_indices],
                 y_tensor[val_indices],
+                dt_tensor[val_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -362,6 +387,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.test_dataset = TransformTensorDataset(
                 x_tensor[test_indices],
                 y_tensor[test_indices],
+                dt_tensor[test_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
