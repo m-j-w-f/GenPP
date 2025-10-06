@@ -5,6 +5,7 @@ TODO if we need it we could extend this to use numpy's memory mapping for larger
 For huge cloud datasets, xbatcher seems like the best option.
 """
 
+import hashlib
 import os
 import pickle
 import tempfile
@@ -16,7 +17,7 @@ import lightning as L
 import torch
 import xarray as xr
 import xbatcher
-from omegaconf import DictConfig, ListConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from xbatcher.loaders.torch import to_tensor
@@ -30,6 +31,40 @@ from genpp.data import (
 )
 from genpp.data.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
+
+
+def _compute_config_hash(
+    dataset_config: DictConfig,
+    x_select_variables: list[str],
+    y_select_variables: list[str],
+    x_preprocessing: list[Preprocessor] | None = None,
+    y_preprocessing: list[Preprocessor] | None = None,
+) -> str:
+    """
+    Compute a hash of the dataset configuration to detect if cached data can be reused.
+
+    Args:
+        dataset_config: Dataset configuration including time slices and batch kwargs
+        x_select_variables: List of x variables to select
+        y_select_variables: List of y variables to select
+        x_preprocessing: List of preprocessing steps for x data
+        y_preprocessing: List of preprocessing steps for y data
+
+    Returns:
+        Hash string representing the configuration
+    """
+    # Create a dictionary with all relevant configuration
+    config_dict = {
+        "dataset_config": OmegaConf.to_container(dataset_config, resolve=True),
+        "x_select_variables": sorted(x_select_variables),
+        "y_select_variables": sorted(y_select_variables),
+        "x_preprocessing": [type(p).__name__ for p in x_preprocessing] if x_preprocessing else [],
+        "y_preprocessing": [type(p).__name__ for p in y_preprocessing] if y_preprocessing else [],
+    }
+
+    # Convert to string and compute hash
+    config_str = str(sorted(config_dict.items()))
+    return hashlib.sha256(config_str.encode()).hexdigest()
 
 
 class TransformTensorDataset(Dataset):
@@ -238,6 +273,47 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         if self.already_prepared:
             return
 
+        # Compute hash of configuration to check if data is already cached
+        config_hash = _compute_config_hash(
+            self.dataset_config,
+            self.x_select_variables,
+            self.y_select_variables,
+            self.x_preprocessing,
+            self.y_preprocessing,
+        )
+
+        # Check if cached data with this hash exists
+        cached_tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
+        cached_metadata_path = self.cache_dir / f"metadata_{config_hash}.pkl"
+
+        if cached_tensor_path.exists() and cached_metadata_path.exists():
+            # Load existing cached data
+            with open(cached_metadata_path, "rb") as f:
+                cache_metadata = pickle.load(f)
+
+            # Verify the hash matches
+            if cache_metadata.get("config_hash") == config_hash:
+                # Use existing cached files
+                self.tmp = cached_tensor_path
+                self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
+
+                # Store reverse modules for later use
+                if self.x_preprocessing:
+                    self.x_reverseModules = [
+                        rm
+                        for preprocessor in self.x_preprocessing
+                        if (rm := preprocessor.get_reverse_module()) is not None
+                    ]
+                if self.y_preprocessing:
+                    self.y_reverseModules = [
+                        rm
+                        for preprocessor in self.y_preprocessing
+                        if (rm := preprocessor.get_reverse_module()) is not None
+                    ]
+
+                self.already_prepared = True
+                return
+
         # Check if data exists
         if not os.path.exists(self.path / FORECAST_ENS_NAME):
             raise FileNotFoundError(
@@ -303,17 +379,21 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             "val": self.dataset_config.val.slice,
             "test": self.dataset_config.test.slice,
         }
-        # TODO check if the data is already cached as tensors
-        # This can be done by creating a hash of the dataset config and seeing if a file with that name exists
 
         # Preprocess and save x data
-        self.tmp, split_indices = _cache_data(
+        tmp_tensor_path, split_indices = _cache_data(
             x_da, y_da, time_slice, self.cache_dir, batch_kwargs=self.dataset_config.train.x_kwargs
         )
 
-        # Store metadata in a temporary file
+        # Move temporary file to hash-based permanent location
+        cached_tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
+        os.rename(tmp_tensor_path, cached_tensor_path)
+        self.tmp = cached_tensor_path
+
+        # Store metadata with hash
         cache_metadata = {
-            "tmp_path": self.tmp.name,
+            "config_hash": config_hash,
+            "tmp_path": str(cached_tensor_path),
             "split_indices": split_indices,
         }
 
@@ -331,13 +411,12 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 if (rm := preprocessor.get_reverse_module()) is not None
             ]
 
-        # Save metadata to temporary file
-        self.metadata_tmp = tempfile.NamedTemporaryFile(
-            dir=self.cache_dir, suffix="_metadata.pkl", delete=False
-        )
-        with open(self.metadata_tmp.name, "wb") as f:
+        # Save metadata to hash-based permanent location
+        cached_metadata_path = self.cache_dir / f"metadata_{config_hash}.pkl"
+        with open(cached_metadata_path, "wb") as f:
             pickle.dump(cache_metadata, f)
 
+        self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
         self.already_prepared = True
 
     def setup(self, stage: str) -> None:
@@ -361,7 +440,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "fit":
             # Create training dataset
-            train_indices = cache_metadata["x_split_indices"]["train"]
+            train_indices = cache_metadata["split_indices"]["train"]
             self.train_dataset = TransformTensorDataset(
                 x_tensor[train_indices],
                 y_tensor[train_indices],
@@ -372,7 +451,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage in ("fit", "validate"):
             # Create validation dataset
-            val_indices = cache_metadata["x_split_indices"]["val"]
+            val_indices = cache_metadata["split_indices"]["val"]
             self.val_dataset = TransformTensorDataset(
                 x_tensor[val_indices],
                 y_tensor[val_indices],
@@ -383,7 +462,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "test":
             # Create test dataset
-            test_indices = cache_metadata["x_split_indices"]["test"]
+            test_indices = cache_metadata["split_indices"]["test"]
             self.test_dataset = TransformTensorDataset(
                 x_tensor[test_indices],
                 y_tensor[test_indices],
@@ -411,18 +490,12 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         )
 
     def cleanup(self) -> None:
-        """Clean up any temporary files."""
-        # Clean up x tensor temporary file
-        if self.x_tmp and os.path.exists(self.x_tmp.name):
-            self.x_tmp.close()
-            os.remove(self.x_tmp.name)
+        """Clean up any temporary files.
 
-        # Clean up y tensor temporary file
-        if self.y_tmp and os.path.exists(self.y_tmp.name):
-            self.y_tmp.close()
-            os.remove(self.y_tmp.name)
-
-        # Clean up metadata temporary file
-        if self.metadata_tmp and os.path.exists(self.metadata_tmp.name):
-            self.metadata_tmp.close()
-            os.remove(self.metadata_tmp.name)
+        Note: Cached tensor and metadata files are kept for future use.
+        They are reused when the same configuration is used again.
+        """
+        # The tensor and metadata files are now persistent cache files
+        # and should not be deleted. They will be reused when the same
+        # configuration is used again based on the config hash.
+        pass
