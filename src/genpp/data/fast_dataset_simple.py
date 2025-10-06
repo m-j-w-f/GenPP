@@ -53,9 +53,18 @@ def _compute_config_hash(
     Returns:
         Hash string representing the configuration
     """
+    # Convert dataset config to dict and exclude transforms (they are applied after caching)
+    config_container = OmegaConf.to_container(dataset_config, resolve=True)
+    
+    # Remove x_transform and y_transform from each split as they don't affect cached data
+    for split in ["train", "val", "test"]:
+        if split in config_container and isinstance(config_container[split], dict):
+            config_container[split].pop("x_transform", None)
+            config_container[split].pop("y_transform", None)
+    
     # Create a dictionary with all relevant configuration
     config_dict = {
-        "dataset_config": OmegaConf.to_container(dataset_config, resolve=True),
+        "dataset_config": config_container,
         "x_select_variables": sorted(x_select_variables),
         "y_select_variables": sorted(y_select_variables),
         "x_preprocessing": [type(p).__name__ for p in x_preprocessing] if x_preprocessing else [],

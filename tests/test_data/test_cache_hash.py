@@ -121,3 +121,60 @@ def test_compute_config_hash_variable_order_invariant():
 
     # Should produce the same hash (variables are sorted)
     assert hash1 == hash2
+
+
+@pytest.mark.unit
+def test_compute_config_hash_transforms_excluded():
+    """Test that x_transform and y_transform don't affect the hash."""
+    # Config without transforms
+    config1 = OmegaConf.create({
+        "train": {
+            "slice": "2020-01-01:2020-12-31",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": None,
+            "y_transform": None,
+        },
+        "val": {
+            "slice": "2021-01-01:2021-06-30",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": None,
+            "y_transform": None,
+        },
+        "test": {
+            "slice": "2021-07-01:2021-12-31",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": None,
+            "y_transform": None,
+        },
+    })
+
+    # Config with transforms (as strings to simulate transform objects)
+    config2 = OmegaConf.create({
+        "train": {
+            "slice": "2020-01-01:2020-12-31",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": "SomeTransform",  # Different!
+            "y_transform": "AnotherTransform",  # Different!
+        },
+        "val": {
+            "slice": "2021-01-01:2021-06-30",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": "SomeTransform",
+            "y_transform": "AnotherTransform",
+        },
+        "test": {
+            "slice": "2021-07-01:2021-12-31",
+            "x_kwargs": {"input_dims": {"feature": 10}},
+            "x_transform": "SomeTransform",
+            "y_transform": "AnotherTransform",
+        },
+    })
+
+    x_vars = ["temp", "pressure"]
+    y_vars = ["precipitation"]
+
+    hash1 = _compute_config_hash(config1, x_vars, y_vars)
+    hash2 = _compute_config_hash(config2, x_vars, y_vars)
+
+    # Should produce the same hash (transforms are excluded from hash)
+    assert hash1 == hash2
