@@ -282,47 +282,6 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         if self.already_prepared:
             return
 
-        # Compute hash of configuration to check if data is already cached
-        config_hash = _compute_config_hash(
-            self.dataset_config,
-            self.x_select_variables,
-            self.y_select_variables,
-            self.x_preprocessing,
-            self.y_preprocessing,
-        )
-
-        # Check if cached data with this hash exists
-        cached_tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
-        cached_metadata_path = self.cache_dir / f"metadata_{config_hash}.pkl"
-
-        if cached_tensor_path.exists() and cached_metadata_path.exists():
-            # Load existing cached data
-            with open(cached_metadata_path, "rb") as f:
-                cache_metadata = pickle.load(f)
-
-            # Verify the hash matches
-            if cache_metadata.get("config_hash") == config_hash:
-                # Use existing cached files
-                self.tmp = cached_tensor_path
-                self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
-
-                # Store reverse modules for later use
-                if self.x_preprocessing:
-                    self.x_reverseModules = [
-                        rm
-                        for preprocessor in self.x_preprocessing
-                        if (rm := preprocessor.get_reverse_module()) is not None
-                    ]
-                if self.y_preprocessing:
-                    self.y_reverseModules = [
-                        rm
-                        for preprocessor in self.y_preprocessing
-                        if (rm := preprocessor.get_reverse_module()) is not None
-                    ]
-
-                self.already_prepared = True
-                return
-
         # Check if data exists
         if not os.path.exists(self.path / FORECAST_ENS_NAME):
             raise FileNotFoundError(
@@ -382,31 +341,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 if not preprocessor.fit_only:
                     y_da = preprocessor.preprocess(y_da)
 
-        # Define time slices for splits
-        time_slice = {
-            "train": self.dataset_config.train.slice,
-            "val": self.dataset_config.val.slice,
-            "test": self.dataset_config.test.slice,
-        }
-
-        # Preprocess and save x data
-        tmp_tensor_path, split_indices = _cache_data(
-            x_da, y_da, time_slice, self.cache_dir, batch_kwargs=self.dataset_config.train.x_kwargs
-        )
-
-        # Move temporary file to hash-based permanent location
-        cached_tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
-        os.rename(tmp_tensor_path, cached_tensor_path)
-        self.tmp = cached_tensor_path
-
-        # Store metadata with hash
-        cache_metadata = {
-            "config_hash": config_hash,
-            "tmp_path": str(cached_tensor_path),
-            "split_indices": split_indices,
-        }
-
-        # Store reverse modules for later use
+        # Store reverse modules for later use (requires fitted preprocessors)
         if self.x_preprocessing:
             self.x_reverseModules = [
                 rm
@@ -420,8 +355,56 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 if (rm := preprocessor.get_reverse_module()) is not None
             ]
 
-        # Save metadata to hash-based permanent location
+        # Compute hash of configuration to check if data is already cached
+        config_hash = _compute_config_hash(
+            self.dataset_config,
+            self.x_select_variables,
+            self.y_select_variables,
+            self.x_preprocessing,
+            self.y_preprocessing,
+        )
+
+        # Check if cached data with this hash exists
+        cached_tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
         cached_metadata_path = self.cache_dir / f"metadata_{config_hash}.pkl"
+
+        if cached_tensor_path.exists() and cached_metadata_path.exists():
+            # Load existing cached data
+            with open(cached_metadata_path, "rb") as f:
+                cache_metadata = pickle.load(f)
+
+            # Verify the hash matches
+            if cache_metadata.get("config_hash") == config_hash:
+                # Use existing cached files (skip expensive _cache_data call)
+                self.tmp = cached_tensor_path
+                self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
+                self.already_prepared = True
+                return
+
+        # Define time slices for splits
+        time_slice = {
+            "train": self.dataset_config.train.slice,
+            "val": self.dataset_config.val.slice,
+            "test": self.dataset_config.test.slice,
+        }
+
+        # Cache is not found - run the expensive _cache_data function
+        tmp_tensor_path, split_indices = _cache_data(
+            x_da, y_da, time_slice, self.cache_dir, batch_kwargs=self.dataset_config.train.x_kwargs
+        )
+
+        # Move temporary file to hash-based permanent location
+        os.rename(tmp_tensor_path, cached_tensor_path)
+        self.tmp = cached_tensor_path
+
+        # Store metadata with hash
+        cache_metadata = {
+            "config_hash": config_hash,
+            "tmp_path": str(cached_tensor_path),
+            "split_indices": split_indices,
+        }
+
+        # Save metadata to hash-based permanent location
         with open(cached_metadata_path, "wb") as f:
             pickle.dump(cache_metadata, f)
 
