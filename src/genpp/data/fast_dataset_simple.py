@@ -55,13 +55,13 @@ def _compute_config_hash(
     """
     # Convert dataset config to dict and exclude transforms (they are applied after caching)
     config_container = OmegaConf.to_container(dataset_config, resolve=True)
-    
+
     # Remove x_transform and y_transform from each split as they don't affect cached data
     for split in ["train", "val", "test"]:
-        if split in config_container and isinstance(config_container[split], dict):
-            config_container[split].pop("x_transform", None)
-            config_container[split].pop("y_transform", None)
-    
+        if split in config_container and isinstance(config_container[split], dict):  # type: ignore
+            config_container[split].pop("x_transform", None)  # type: ignore
+            config_container[split].pop("y_transform", None)  # type: ignore
+
     # Create a dictionary with all relevant configuration
     config_dict = {
         "dataset_config": config_container,
@@ -238,7 +238,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         # Initialize temporary file attributes
         self.x_tmp = None
         self.y_tmp = None
-        self.metadata_tmp = None
+        self.metadata_path = None
 
     def _select_variables(
         self,
@@ -377,7 +377,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             if cache_metadata.get("config_hash") == config_hash:
                 # Use existing cached files (skip expensive _cache_data call)
                 self.tmp = cached_tensor_path
-                self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
+                self.metadata_path = cached_metadata_path
                 self.already_prepared = True
                 return
 
@@ -408,16 +408,16 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         with open(cached_metadata_path, "wb") as f:
             pickle.dump(cache_metadata, f)
 
-        self.metadata_tmp = type("obj", (object,), {"name": str(cached_metadata_path)})
+        self.metadata_path = cached_metadata_path
         self.already_prepared = True
 
     def setup(self, stage: str) -> None:
         """Setup datasets for the given stage."""
-        if not hasattr(self, "metadata_tmp") or self.metadata_tmp is None:
+        if not hasattr(self, "metadata_path") or self.metadata_path is None:
             raise RuntimeError("prepare_data() must be called before setup()")
 
         # Load cache metadata from file
-        with open(self.metadata_tmp.name, "rb") as f:
+        with open(self.metadata_path, "rb") as f:
             cache_metadata = pickle.load(f)
 
         # Load cached tensors
