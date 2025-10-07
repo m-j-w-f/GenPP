@@ -19,6 +19,7 @@ def _data_ready() -> bool:
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _data_ready(), reason="WeatherBench2 preprocessed data not available")
+@pytest.mark.filterwarnings("ignore:'pin_memory'")
 def test_fast_weatherbench2_train_cycle():
     with initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
         cfg = compose(config_name="base_drn")
@@ -43,7 +44,7 @@ def test_fast_weatherbench2_train_cycle():
             assert y.ndim == 4
             assert dt.ndim == 1
             # all dt values should be in [0, 1]
-            expected = torch.ones_like(x, dtype=torch.bool)
+            expected = torch.ones_like(dt, dtype=torch.bool)
             torch.testing.assert_close(dt <= 1.0, expected)
             torch.testing.assert_close(dt >= 0.0, expected)
         print(f"Total batches in train dataloader: {batch_idx + 1 if batch_idx is not None else 0}")
