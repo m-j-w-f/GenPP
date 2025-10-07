@@ -76,6 +76,11 @@ class WeatherBench2DataModule(L.LightningDataModule):
         x_preprocessing: list[Preprocessor] | None = None,
         y_preprocessing: list[Preprocessor] | None = None,
     ) -> None:
+        warn(
+            "WeatherBench2DataModule is deprecated and will be removed.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__()
         self.path = save_dir
         self.x_preprocessing = x_preprocessing
@@ -153,7 +158,7 @@ class WeatherBench2DataModule(L.LightningDataModule):
                 "Flattening and aggregation of ensemble members and observations is not done yet. "
                 "This will take some time..."
             )
-            from genpp.preproc.flat_and_aggr import main as preprocess_main
+            from genpp.data.flat_and_aggr import main as preprocess_main
 
             preprocess_main(base_dir=self.path)
 

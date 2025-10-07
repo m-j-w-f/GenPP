@@ -6,6 +6,7 @@ from hydra.utils import instantiate
 from genpp import BASE_DIR
 from genpp.configs import register_resolvers
 from genpp.data import FORECAST_ENS_FLAT_AGG_PATH, OBSERVATIONS_FLAT_PATH
+from genpp.data.fast_dataset_simple import FastWeatherBench2DataModule
 
 CONFIG_DIR = BASE_DIR / "configs"
 
@@ -22,7 +23,7 @@ def test_fast_weatherbench2_train_cycle():
     with initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
         cfg = compose(config_name="base_drn")
 
-    datamodule = instantiate(cfg.data.module)
+    datamodule: FastWeatherBench2DataModule = instantiate(cfg.data.module)
 
     try:
         datamodule.prepare_data()
@@ -30,14 +31,18 @@ def test_fast_weatherbench2_train_cycle():
 
         loader = datamodule.train_dataloader()
 
-        for batch_idx, (x, y) in enumerate(loader):
+        batch_idx = None
+        for batch_idx, batch in enumerate(loader):
+            x, y, dt = batch
+            if batch_idx == 0:
+                print(x.shape, y.shape, dt.shape)
             assert isinstance(x, torch.Tensor)
             assert isinstance(y, torch.Tensor)
-            assert x.ndim >= 3
-            assert y.ndim >= 3
-            if batch_idx >= 1:
-                break
-        else:
+            assert isinstance(dt, torch.Tensor)
+            assert x.ndim == 4
+            assert y.ndim == 4
+        print(f"Total batches in train dataloader: {batch_idx + 1 if batch_idx is not None else 0}")
+        if batch_idx is None:
             pytest.fail("Train dataloader did not yield any batches")
     finally:
         datamodule.cleanup()
