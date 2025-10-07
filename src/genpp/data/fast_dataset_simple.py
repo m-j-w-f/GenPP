@@ -98,7 +98,7 @@ def _cache_data(
     """
     assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
 
-    all_x, all_y, all_dt = [], [], []
+    all_x, all_y, all_td = [], [], []
     split_indices: dict[str, list[int]] = {}
     current_idx = 0
 
@@ -117,8 +117,8 @@ def _cache_data(
         for x_batch in tqdm(gen):
             x_tensor = to_tensor(x_batch)
             t0 = x_batch.time.values[0]
-            dt = x_batch.prediction_timedelta.values[0]
-            y_t = t0 + dt
+            td = x_batch.prediction_timedelta.values[0]
+            y_t = t0 + td
             if y_t not in y_split.time.values:
                 # This data is not includeded as it would be in another split
                 # thus leaking data
@@ -130,11 +130,11 @@ def _cache_data(
             # prepending singleton dimensions as needed.
             y_tensor = y_tensor.unsqueeze(0)
 
-            tensor_dt = torch.tensor([dt], dtype=torch.float32)
+            tensor_td = torch.tensor([td], dtype=torch.float32)
 
             all_x.append(x_tensor)
             all_y.append(y_tensor)
-            all_dt.append(tensor_dt)
+            all_td.append(tensor_td)
 
             split_batch_indices.append(current_idx)
             current_idx += 1
@@ -146,9 +146,12 @@ def _cache_data(
 
     x_tensor = torch.cat(all_x, dim=0)
     y_tensor = torch.cat(all_y, dim=0)
-    dt_tensor = torch.cat(all_dt, dim=0)
+    td_tensor = torch.cat(all_td, dim=0)
 
-    torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": dt_tensor}, tensor_save_path)
+    # Normalize td_tensor to have max value of 1
+    td_tensor = td_tensor / td_tensor.max()
+
+    torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": td_tensor}, tensor_save_path)
     return split_indices
 
 
@@ -163,7 +166,7 @@ class TransformTensorDataset(Dataset):
         self,
         x_tensor: torch.Tensor,
         y_tensor: torch.Tensor,
-        dt_tensor: torch.Tensor,
+        td_tensor: torch.Tensor,
         x_transform: Any = None,
         y_transform: Any = None,
     ):
@@ -172,12 +175,13 @@ class TransformTensorDataset(Dataset):
         Args:
             x_tensor: Input feature tensor
             y_tensor: Target tensor
+            td_tensor: Prediction timedelta tensor
             x_transform: Optional transform to apply to x data
             y_transform: Optional transform to apply to y data
         """
         self.x_tensor = x_tensor
         self.y_tensor = y_tensor
-        self.dt_tensor = dt_tensor
+        self.td_tensor = td_tensor
         self.x_transform = x_transform
         self.y_transform = y_transform
 
@@ -190,7 +194,7 @@ class TransformTensorDataset(Dataset):
     def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x = self.x_tensor[index]
         y = self.y_tensor[index]
-        dt = self.dt_tensor[index]
+        td = self.td_tensor[index]
 
         # Apply transforms if provided
         if self.x_transform is not None:
@@ -198,7 +202,7 @@ class TransformTensorDataset(Dataset):
         if self.y_transform is not None:
             y = self.y_transform(y)
 
-        return x, y, dt
+        return x, y, td
 
 
 class FastWeatherBench2DataModule(L.LightningDataModule):
@@ -419,7 +423,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         tmp_tensor = torch.load(cache_metadata["tmp_path"])
         x_tensor = tmp_tensor["x"]
         y_tensor = tmp_tensor["y"]
-        dt_tensor = tmp_tensor["prediction_timedelta"]
+        td_tensor = tmp_tensor["prediction_timedelta"]
 
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
@@ -431,7 +435,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.train_dataset = TransformTensorDataset(
                 x_tensor[train_indices],
                 y_tensor[train_indices],
-                dt_tensor[train_indices],
+                td_tensor[train_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -442,7 +446,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.val_dataset = TransformTensorDataset(
                 x_tensor[val_indices],
                 y_tensor[val_indices],
-                dt_tensor[val_indices],
+                td_tensor[val_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -452,16 +456,16 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             test_indices = cache_metadata["split_indices"]["test"]
             x_test = x_tensor[test_indices]
             y_test = y_tensor[test_indices]
-            dt_test = dt_tensor[test_indices]
-            unique_dts = torch.sort(torch.unique(dt_test))[0]
+            td_test = td_tensor[test_indices]
+            unique_tds = torch.sort(torch.unique(td_test))[0]
             self.test_datasets = []
-            for dt in unique_dts:
-                mask = dt_test == dt
+            for td in unique_tds:
+                mask = td_test == td
                 x_subset = x_test[mask]
                 y_subset = y_test[mask]
-                dt_subset = dt_test[mask]
+                td_subset = td_test[mask]
                 ds = TransformTensorDataset(
-                    x_subset, y_subset, dt_subset, x_transform=x_transform, y_transform=y_transform
+                    x_subset, y_subset, td_subset, x_transform=x_transform, y_transform=y_transform
                 )
                 self.test_datasets.append(ds)
 

@@ -41,6 +41,11 @@ def test_fast_weatherbench2_train_cycle():
             assert isinstance(dt, torch.Tensor)
             assert x.ndim == 4
             assert y.ndim == 4
+            assert dt.ndim == 1
+            # all dt values should be in [0, 1]
+            expected = torch.ones_like(x, dtype=torch.bool)
+            torch.testing.assert_close(dt <= 1.0, expected)
+            torch.testing.assert_close(dt >= 0.0, expected)
         print(f"Total batches in train dataloader: {batch_idx + 1 if batch_idx is not None else 0}")
         if batch_idx is None:
             pytest.fail("Train dataloader did not yield any batches")
