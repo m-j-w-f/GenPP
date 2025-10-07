@@ -1,5 +1,6 @@
 """Custom neural network layers for the GenPP project."""
 
+import math
 from collections.abc import Sequence
 from itertools import batched
 
@@ -216,3 +217,28 @@ class PixelEmbedder(nn.Module):
         x = torch.cat([x, emb], dim=1)
 
         return x
+
+
+class FourierEncoder(nn.Module):
+    """
+    Based on https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/karras_unet.py#L183
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        assert dim % 2 == 0
+        self.half_dim = dim // 2
+        self.weights = nn.Parameter(torch.randn(1, self.half_dim))
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            t (torch.Tensor): [...], typically [bs]
+        Returns:
+            torch.Tensor: [..., dim]
+        """
+        t = rearrange(t, "... -> (...) 1")  # [..., 1]
+        freqs = t * self.weights * 2 * math.pi  # [..., half_dim]
+        sin_embed = torch.sin(freqs)  # [..., half_dim]
+        cos_embed = torch.cos(freqs)  # [..., half_dim]
+        return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # [..., dim]
