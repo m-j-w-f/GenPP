@@ -1,3 +1,5 @@
+from warnings import warn
+
 import pandas as pd
 import xarray as xr
 
@@ -78,4 +80,10 @@ def get_time_intersection(
     Returns:
         pd.Index: The intersection of the two time coordinates.
     """
+    # Emit deprecation warning
+    warn(
+        "get_time_intersection is deprecated and will be removed.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return ds1[time_dim1].to_index().intersection(ds2[time_dim2].to_index())
