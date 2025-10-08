@@ -242,3 +242,23 @@ class FourierEncoder(nn.Module):
         sin_embed = torch.sin(freqs)  # [..., half_dim]
         cos_embed = torch.cos(freqs)  # [..., half_dim]
         return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # [..., dim]
+
+
+class ScaleTD(nn.Module):
+    """A layer that scales and shifts the input tensor by a learnable parameter."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scale = nn.Parameter(torch.tensor(1.0))
+        self.shift = nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, td: Tensor) -> Tensor:
+        """Scales the input tensor.
+
+        Args:
+            td (Tensor): Input tensor of shape [b, ...].
+
+        Returns:
+            Tensor: Scaled tensor of shape [b, ...].
+        """
+        return self.scale * td + self.shift
