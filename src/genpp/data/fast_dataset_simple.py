@@ -316,6 +316,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         # Turn into DataArray
         x_da = flatten_levels(x_da, level_dim="statistic", interleave=False)
         x_da = x_da.to_dataarray(dim="feature")
+        x_da = x_da.transpose("time", "prediction_timedelta", "feature", "longitude", "latitude")
 
         # Apply preprocessing to x data
         if self.x_preprocessing:
@@ -332,6 +333,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         # Turn into DataArray (there are no levels to flatten here)
         y_da = y_da.to_dataarray(dim="feature")
+        y_da = y_da.transpose("time", "feature", "longitude", "latitude")
 
         # Apply preprocessing to y data
         if self.y_preprocessing:
