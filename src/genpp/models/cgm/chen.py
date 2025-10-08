@@ -73,6 +73,9 @@ class BaseChenModel(BaseModule, ABC):
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
 
+        self.scale_td_w = torch.nn.Parameter(torch.randn(1))
+        self.scale_td_b = torch.nn.Parameter(torch.tensor(1.0))
+
     # Abstract components - to be implemented by subclasses
     @property
     @abstractmethod
@@ -127,7 +130,28 @@ class BaseChenModel(BaseModule, ABC):
         """
         pass
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def scale_td(self, td: torch.Tensor) -> torch.Tensor:
+        """Scale the predicted noise based on the time delta.
+        This is based on a simple linear function that maps the time delta to a scaling factor.
+
+        Args:
+            td (torch.Tensor): the time delta tensor. Shape [batch_size]
+
+        Returns:
+            torch.Tensor: the scaled noise tensor. Shape [batch_size]
+        """
+        return self.scale_td_w * td + self.scale_td_b
+
+    def forward(self, x: torch.Tensor, td: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model.
+
+        Args:
+            x (torch.Tensor): the input tensor. Shape [batch_size, in_features, height, width]
+            td (torch.Tensor): the time delta tensor (used to scale the predicted noise). Shape [batch_size]
+
+        Returns:
+            torch.Tensor: the output tensor. Shape [batch_size, n_samples_train, out_features, height, width]
+        """
         batch_size = x.shape[0]
         mean, std, meta = x.split(
             (self.in_features, self.in_features, self.meta_dim + self.use_embedding), dim=1
@@ -156,16 +180,19 @@ class BaseChenModel(BaseModule, ABC):
         std_samples = self.noise_decoder(
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
-        res = pred_mean + std_samples  # Shape [batch_size, n_samples_train, out_features, lon, lat]
+        std_samples_scaled = self.scale_td(td) * std_samples
+        res = (
+            pred_mean + std_samples_scaled
+        )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         return self.final_activation(res)
 
     def predict_step(self, batch) -> Any:
-        x, _ = batch
-        return self.forward(x)
+        x, _, td = batch
+        return self.forward(x, td)
 
     def training_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)  # shape [b, n_samples, out_features, lon, lat]
+        x, y, td = batch
+        res = self.forward(x, td)  # shape [b, n_samples, out_features, lon, lat]
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape = rearrange(y, "b c h w -> b (c h w)")
         loss = self.loss_fn(res_reshape, y_reshape)
@@ -174,8 +201,8 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)
+        x, y, td = batch
+        res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
         loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
@@ -198,8 +225,8 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)
+        x, y, td = batch
+        res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
         loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
