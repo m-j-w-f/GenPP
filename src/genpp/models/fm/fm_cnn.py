@@ -327,6 +327,8 @@ class _FMUNet(ConditionalVectorField):
 
 
 class FMUNet(BaseModule):
+    """TODO Implement multiple lead times like in the Landry paper"""
+
     def __init__(
         self,
         channels: list[int],
