@@ -367,8 +367,7 @@ class FMUNet(BaseModule):
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
         self.path = CondOTProbPath()
-        self.solver = ODESolver(self.model)  # TODO how to pass conditioning variable to the solver
-        # Register as buffer so it is moved with the model
+        self.solver = ODESolver(self.model)
         self.step_size = 1 / solver_iter
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
@@ -385,7 +384,7 @@ class FMUNet(BaseModule):
 
     def _calc_loss(self, batch) -> torch.Tensor:
         # Sample Data (X_0,X_1) ~ π(X_0,X_1) = N(X_0|0,I)q(X_1)
-        y, x_1 = batch  # y is the conditioning variable in this setting
+        y, x_1, td = batch  # y is the conditioning variable in this setting
         x_0 = torch.randn_like(x_1).to(x_1)  # Initial noise
 
         # Sample a random timestep
@@ -394,11 +393,10 @@ class FMUNet(BaseModule):
         # Get the probability path
         path_sample = self.path.sample(t=t, x_0=x_0, x_1=x_1)
 
-        # Calc the l2 loss
-        t = rearrange(t, "b -> b 1 1 1")
         u_t_theta = self.model(path_sample.x_t, path_sample.t, y)
         u_t_ref = path_sample.dx_t
 
+        # Calc the l2 loss
         loss = torch.pow(u_t_theta - u_t_ref, 2)
         return loss
 
@@ -416,7 +414,7 @@ class FMUNet(BaseModule):
         return loss
 
     def predict_step(self, batch) -> torch.Tensor:
-        y, x_1 = batch
+        y, x_1, td = batch
 
         # repeat shaps to be able to generate 50 different samples
         y = repeat(y, "b c h w -> n_samples b c h w", n_samples=self.n_samples)
