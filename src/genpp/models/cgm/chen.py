@@ -9,7 +9,7 @@ from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, LocallyConnected2D, UNet
+from genpp.models.layers import CropND, LocallyConnected2D, ScaleTD, UNet
 from genpp.models.utils import BaseModule
 
 
@@ -72,9 +72,7 @@ class BaseChenModel(BaseModule, ABC):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-
-        self.scale_td_w = torch.nn.Parameter(torch.randn(1))
-        self.scale_td_b = torch.nn.Parameter(torch.tensor(1.0))
+        self.scale_td = ScaleTD()
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -130,18 +128,6 @@ class BaseChenModel(BaseModule, ABC):
         """
         pass
 
-    def scale_td(self, td: torch.Tensor) -> torch.Tensor:
-        """Scale the predicted noise based on the time delta.
-        This is based on a simple linear function that maps the time delta to a scaling factor.
-
-        Args:
-            td (torch.Tensor): the time delta tensor. Shape [batch_size]
-
-        Returns:
-            torch.Tensor: the scaled noise tensor. Shape [batch_size]
-        """
-        return self.scale_td_w * td + self.scale_td_b
-
     def forward(self, x: torch.Tensor, td: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
 
@@ -181,9 +167,8 @@ class BaseChenModel(BaseModule, ABC):
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         scales = rearrange(self.scale_td(td), "b -> b 1 1 1 1")
-        std_samples_scaled = scales * std_samples
         res = (
-            pred_mean + std_samples_scaled
+            pred_mean + scales * std_samples
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         return self.final_activation(res)
 
