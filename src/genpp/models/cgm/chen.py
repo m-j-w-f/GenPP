@@ -180,7 +180,8 @@ class BaseChenModel(BaseModule, ABC):
         std_samples = self.noise_decoder(
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
-        std_samples_scaled = self.scale_td(td) * std_samples
+        scales = rearrange(self.scale_td(td), "b -> b 1 1 1 1")
+        std_samples_scaled = scales * std_samples
         res = (
             pred_mean + std_samples_scaled
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
