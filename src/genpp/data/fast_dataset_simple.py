@@ -404,6 +404,14 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             "config_hash": config_hash,
             "tmp_path": str(self.tensor_path),
             "split_indices": split_indices,
+            "x_variables": x_da.feature.values.tolist(),
+            "y_variables": y_da.feature.values.tolist(),
+            "x_preprocessing": [type(p).__name__ for p in self.x_preprocessing]
+            if self.x_preprocessing
+            else [],
+            "y_preprocessing": [type(p).__name__ for p in self.y_preprocessing]
+            if self.y_preprocessing
+            else [],
         }
 
         # Save metadata to hash-based permanent location
