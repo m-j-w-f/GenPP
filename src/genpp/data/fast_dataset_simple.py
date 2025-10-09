@@ -63,8 +63,8 @@ def _compute_config_hash(
     # Create a dictionary with all relevant configuration
     config_dict = {
         "dataset_config": config_container,
-        "x_select_variables": sorted(x_select_variables),
-        "y_select_variables": sorted(y_select_variables),
+        "x_select_variables": x_select_variables,
+        "y_select_variables": y_select_variables,
         "x_preprocessing": [type(p).__name__ for p in x_preprocessing] if x_preprocessing else [],
         "y_preprocessing": [type(p).__name__ for p in y_preprocessing] if y_preprocessing else [],
     }
