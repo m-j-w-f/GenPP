@@ -5,6 +5,7 @@
 # Data
 *.nc
 *.pt
+*.zarr
 
 # Log files
 outputs/
@@ -12,7 +13,7 @@ logs/
 wandb/
 
 # Temporary files
-tmp/
+cache/
 
 # MacOS
 .DS_Store
