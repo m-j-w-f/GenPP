@@ -50,6 +50,7 @@ rsync = ">=3.4.1,<4"
 
 
 [tool.pixi.feature.dev.tasks]
+test = "pytest"
 unittest = "pytest -m unit"
 sync = '''rsync -avzr --progress --human-readable \
   --exclude='.pixi/' \
