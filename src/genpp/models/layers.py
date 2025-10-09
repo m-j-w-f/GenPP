@@ -117,7 +117,8 @@ class CropND(nn.Module):
 
         self.spatial_slices = []
         for stop, start in batched(reversed(self.padding), 2):
-            self.spatial_slices.append(slice(start, -stop))
+            stop = None if stop == 0 else -stop
+            self.spatial_slices.append(slice(start, stop))
 
     def forward(self, x: Tensor) -> Tensor:
         """Crops the input tensor to the target size.

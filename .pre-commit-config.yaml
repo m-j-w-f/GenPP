@@ -26,4 +26,4 @@ repos:
       rev: v1.5.0
       hooks:
         - id: detect-secrets
-          exclude: pixi.lock
+          exclude: '(\.ipynb$|pixi\.lock)'
