@@ -1,0 +1,24 @@
+# Default trainer configuration for PyTorch Lightning
+_target_: lightning.Trainer
+max_epochs: 100
+accelerator: gpu
+devices: 1
+accumulate_grad_batches: 1
+check_val_every_n_epoch: 1
+log_every_n_steps: 1
+enable_checkpointing: true
+enable_model_summary: true
+enable_progress_bar: true
+callbacks:
+  - _target_: genpp.models.callbacks.FitScaleVarianceTDCallback
+  - _target_: lightning.pytorch.callbacks.model_checkpoint.ModelCheckpoint
+    monitor: val_loss
+    mode: min
+    save_top_k: 1
+    filename: "{epoch}-{val_loss:.2f}"
+  - _target_: lightning.pytorch.callbacks.early_stopping.EarlyStopping
+    monitor: val_loss
+    patience: 10
+    min_delta: 0.001
+  - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: epoch

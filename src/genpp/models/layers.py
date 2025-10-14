@@ -245,21 +245,29 @@ class FourierEncoder(nn.Module):
         return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # [..., dim]
 
 
-class ScaleTD(nn.Module):
-    """A layer that scales and shifts the input tensor by a learnable parameter."""
+def _get_scale_td(td: torch.Tensor, betas: torch.Tensor) -> torch.Tensor:
+    """Get the scale tensor based on the the time delta.
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.scale = nn.Parameter(torch.tensor(1.0))
-        self.shift = nn.Parameter(torch.tensor(0.0))
+    Args:
+        td (torch.Tensor): The time delta input tensor of shape [batch_size].
+        betas (torch.Tensor | None): The beta parameters of shape [n_vars, 2] or None.
 
-    def forward(self, td: Tensor) -> Tensor:
-        """Scales the input tensor.
+    Raises:
+        ValueError: If betas is None. This is placed inside this function to make the model code cleaner.
 
-        Args:
-            td (Tensor): Input tensor of shape [b, ...].
-
-        Returns:
-            Tensor: Scaled tensor of shape [b, ...].
-        """
-        return self.scale * td + self.shift
+    Returns:
+        torch.Tensor: The scale tensor of shape [b, n_vars, 1, 1].
+    """
+    if betas is None:
+        raise ValueError(
+            "scale_variance_td is not fitted yet. Please run the 'fit_scale_variance_td' callback first."
+        )
+    # Ensure betas is on the same device as td
+    betas = betas.to(td)
+    intercepts_scale_variance_td = betas[:, 0]  # Shape [n_vars]
+    betas_scale_variance_td = betas[:, 1]  # Shape [n_vars]
+    scale = rearrange(intercepts_scale_variance_td, "c -> 1 c") + rearrange(
+        betas_scale_variance_td, "c -> 1 c"
+    ) * rearrange(td, "b -> b 1")  # Shape [b, n_vars]
+    scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
+    return scale

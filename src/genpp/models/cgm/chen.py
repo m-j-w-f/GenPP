@@ -9,7 +9,7 @@ from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, LocallyConnected2D, ScaleTD, UNet
+from genpp.models.layers import CropND, LocallyConnected2D, UNet, _get_scale_td
 from genpp.models.utils import BaseModule
 
 
@@ -72,7 +72,7 @@ class BaseChenModel(BaseModule, ABC):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-        self.scale_td = ScaleTD()
+        self.scale_variance_td = None  # To be fitted via callback
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -166,7 +166,9 @@ class BaseChenModel(BaseModule, ABC):
         std_samples = self.noise_decoder(
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
-        scales = rearrange(self.scale_td(td), "b -> b 1 1 1 1")
+        scales = rearrange(
+            _get_scale_td(td=td, betas=self.scale_variance_td), "b c h w -> b 1 c h w"
+        )
         res = (
             pred_mean + scales * std_samples
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]

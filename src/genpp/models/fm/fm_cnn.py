@@ -8,7 +8,7 @@ from flow_matching.path import CondOTProbPath
 from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder
+from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder, _get_scale_td
 from genpp.models.utils import BaseModule
 
 
@@ -327,6 +327,18 @@ class _FMUNet(ConditionalVectorField):
 
 
 class FMUNet(BaseModule):
+    """
+    NOTE that in this class the naming convention is different than in the other classes:
+    - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
+    - y is the conditioning (i.e. the nwp forecasts)
+    - td is the lead time (between 0 and 1) for which the prediction is made
+
+    How the prediction works:
+    - Instead of generating samples similar to the ground truth directly, we want to sample the deviation (x_1 - y)
+    - Then these sampled deviations are added to the nwp forecasts y to get the final samples
+    - Also the deviations are scaled according to the lead time. The scaling factor is learned via linear regression.
+    """
+
     def __init__(
         self,
         channels: list[int],
@@ -370,12 +382,16 @@ class FMUNet(BaseModule):
         self.solver = ODESolver(self.model)
         self.step_size = 1 / solver_iter
 
+        self.register_buffer("scale_variance_td", None)  # To be fitted via callback
+
+        self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
+
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
         """
         Args:
-            x (torch.Tensor): [bs, 2, 48, 32]
-            t (torch.Tensor): [bs, 1, 1, 1]
-            y (torch.Tensor): [bs, 50, 48, 32]
+            x (torch.Tensor): the (noisy) input [bs, 2, 48, 32]
+            t (torch.Tensor): the timestep [bs, 1, 1, 1]
+            y (torch.Tensor): the conditioning feature[bs, 50, 48, 32]
         Returns:
             torch.Tensor: [bs, 2, 48, 32], h and w dim might be cropped
         """
@@ -385,7 +401,21 @@ class FMUNet(BaseModule):
     def _calc_loss(self, batch) -> torch.Tensor:
         # Sample Data (X_0,X_1) ~ π(X_0,X_1) = N(X_0|0,I)q(X_1)
         y, x_1, td = batch  # y is the conditioning variable in this setting
-        x_0 = torch.randn_like(x_1).to(x_1)  # Initial noise
+        # We want to predict the errors of the NWP forecasts
+        # Now x_1 contains the errors (NOTE the :2 is here since we only predict the first two channels)
+        x_1 = x_1 - y[:, : self.num_predicted_vars, ...]
+        # x_1 should always have roughly the same magnitude, independent of the lead time
+        scale = _get_scale_td(
+            td=td,
+            betas=self.scale_variance_td,  # type: ignore
+        )  # Shape [b, n_vars, 1, 1]
+        # Now x_1 contains the scaled errors, the model has to learn only one scale
+        # NOTE the predicted noise needs to be scaled back during inference
+        # to get the actual noise that is added to the NWP forecasts
+        x_1 = x_1 / scale
+
+        # Sample x_0 ~ N(0,I)
+        x_0 = torch.randn_like(x_1).to(x_1)
 
         # Sample a random timestep
         t = torch.rand(x_1.size(0)).to(x_1)
@@ -416,6 +446,8 @@ class FMUNet(BaseModule):
     def predict_step(self, batch) -> torch.Tensor:
         y, x_1, td = batch
 
+        ens_mean = rearrange(y[:, : self.num_predicted_vars, ...], "b c h w -> b 1 c h w")
+
         # repeat shaps to be able to generate 50 different samples
         y = repeat(y, "b c h w -> n_samples b c h w", n_samples=self.n_samples)
         y = rearrange(y, "n_samples b c h w -> (n_samples b) c h w")
@@ -429,9 +461,20 @@ class FMUNet(BaseModule):
             method="midpoint",
             step_size=self.step_size,
         )
+        # Sol now contains the deviations that need to be added to the nwp forecasts
         sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
-        sol_cropped = self.crop(sol)
-        return sol_cropped
+
+        # Calculate the scale factor based on the lead time
+        scale = _get_scale_td(
+            td=td,
+            betas=self.scale_variance_td,  # type: ignore
+        )  # Shape [b, n_vars, 1, 1]
+        # Rescale the deviations according to the lead time (inverse of what was done during training)
+        sol = sol * scale  # type: ignore
+
+        res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
+        res_cropped = self.crop(res)
+        return res_cropped
 
     def validation_step(self, batch) -> torch.Tensor:
         loss = self._calc_loss(batch)
