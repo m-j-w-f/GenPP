@@ -8,7 +8,7 @@ from flow_matching.path import CondOTProbPath
 from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder, ScaleTD
+from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder, _get_scale_td
 from genpp.models.utils import BaseModule
 
 
@@ -327,9 +327,8 @@ class _FMUNet(ConditionalVectorField):
 
 
 class FMUNet(BaseModule):
-    """TODO Implement multiple lead times like in the Landry paper
-
-    Note that in this class the naming convention is different than in the other classes:
+    """
+    NOTE that in this class the naming convention is different than in the other classes:
     - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
     - y is the conditioning (i.e. the nwp forecasts)
     - td is the lead time (between 0 and 1) for which the prediction is made
@@ -376,13 +375,14 @@ class FMUNet(BaseModule):
             width=width,
             embedding_dim=embedding_dim,
         )
-        self.scale_td = ScaleTD()
         self.n_samples = n_samples
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.model)
         self.step_size = 1 / solver_iter
+
+        self.scale_variance_td = None  # To be fitted via callback
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
         """
@@ -403,15 +403,9 @@ class FMUNet(BaseModule):
         # Now x_1 contains the errors (NOTE the :2 is here since we only predict the first two channels)
         x_1 = x_1 - y[:, :2, ...]
         # x_1 should always have roughly the same magnitude, independent of the lead time
-        scale = self.scale_td(td)  # Calculate the scale factor based on the lead time
-        scale = rearrange(scale, "b -> b 1 1 1")
+        scale = _get_scale_td(td=td, betas=self.scale_variance_td)  # Shape [b, n_vars, 1, 1]
         # Now x_1 contains the scaled errors, the model has to learn only one scale
-        # TODO check if this is correct
-        # TODO the scales can just be arbitrary here. We might want to run a training and see what they are
-        # TODO it might make sense to learn them beforehand via linear regression and then keep them fixed
-        # TODO what would we even learn in the regression then?
-        # TODO something like average absolute error ~ lead time? (as the average error would be probably 0)
-        # Note the predicted noise needs to be scaled back during inference
+        # NOTE the predicted noise needs to be scaled back during inference
         # to get the actual noise that is added to the NWP forecasts
         x_1 = x_1 / scale
 
@@ -466,8 +460,9 @@ class FMUNet(BaseModule):
         sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
 
         # Calculate the scale factor based on the lead time
-        scale = rearrange(self.scale_td(td), "b -> b 1 1 1 1")
-        sol = sol * scale  # Scale the deviations according to the lead time
+        scale = _get_scale_td(td=td, betas=self.scale_variance_td)  # Shape [b, n_vars, 1, 1]
+        # Rescale the deviations according to the lead time (inverse of what was done during training)
+        sol = sol * scale  # type: ignore
 
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
         res_cropped = self.crop(res)

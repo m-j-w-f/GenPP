@@ -10,7 +10,7 @@ class FitScaleVarianceTDCallback(Callback):
     def __init__(self) -> None:
         super().__init__()
 
-    def on_fit_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
+    def on_train_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
         """Fit a regression of the form absolute_prediction_error ~ LeadTime for each variable.
         The regression coefficients are stored in the pl_module as a buffer called 'fit_scale_variance_td'.
 
@@ -18,6 +18,14 @@ class FitScaleVarianceTDCallback(Callback):
             trainer (Trainer): The trainer instance.
             pl_module (LightningModule): The Lightning module instance.
         """
+        # If already fitted, skip
+        if (
+            hasattr(pl_module, "fit_scale_variance_td")
+            and pl_module.fit_scale_variance_td is not None
+        ):
+            print("fit_scale_variance_td already fitted, skipping.")
+            return
+
         # Access the training dataloader
         train_loader = trainer.train_dataloader
         if train_loader is None:
@@ -70,4 +78,6 @@ class FitScaleVarianceTDCallback(Callback):
             betas = torch.linalg.solve(A, b)
             # The first dimension is the variable dimension
             # The second dimension is the intercept and slope
-            pl_module.register_buffer("fit_scale_variance_td", betas)
+            if hasattr(pl_module, "scale_variance_td"):
+                delattr(pl_module, "scale_variance_td")
+            pl_module.register_buffer("scale_variance_td", betas)  # Shape [n_vars, 2]
