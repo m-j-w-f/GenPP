@@ -382,7 +382,9 @@ class FMUNet(BaseModule):
         self.solver = ODESolver(self.model)
         self.step_size = 1 / solver_iter
 
-        self.scale_variance_td = None  # To be fitted via callback
+        self.register_buffer("scale_variance_td", None)  # To be fitted via callback
+
+        self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
         """
@@ -401,9 +403,12 @@ class FMUNet(BaseModule):
         y, x_1, td = batch  # y is the conditioning variable in this setting
         # We want to predict the errors of the NWP forecasts
         # Now x_1 contains the errors (NOTE the :2 is here since we only predict the first two channels)
-        x_1 = x_1 - y[:, :2, ...]
+        x_1 = x_1 - y[:, : self.num_predicted_vars, ...]
         # x_1 should always have roughly the same magnitude, independent of the lead time
-        scale = _get_scale_td(td=td, betas=self.scale_variance_td)  # Shape [b, n_vars, 1, 1]
+        scale = _get_scale_td(
+            td=td,
+            betas=self.scale_variance_td,  # type: ignore
+        )  # Shape [b, n_vars, 1, 1]
         # Now x_1 contains the scaled errors, the model has to learn only one scale
         # NOTE the predicted noise needs to be scaled back during inference
         # to get the actual noise that is added to the NWP forecasts
@@ -441,7 +446,7 @@ class FMUNet(BaseModule):
     def predict_step(self, batch) -> torch.Tensor:
         y, x_1, td = batch
 
-        ens_mean = rearrange(y[:, :2, ...], "b c h w -> b 1 c h w")
+        ens_mean = rearrange(y[:, : self.num_predicted_vars, ...], "b c h w -> b 1 c h w")
 
         # repeat shaps to be able to generate 50 different samples
         y = repeat(y, "b c h w -> n_samples b c h w", n_samples=self.n_samples)
@@ -460,7 +465,10 @@ class FMUNet(BaseModule):
         sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
 
         # Calculate the scale factor based on the lead time
-        scale = _get_scale_td(td=td, betas=self.scale_variance_td)  # Shape [b, n_vars, 1, 1]
+        scale = _get_scale_td(
+            td=td,
+            betas=self.scale_variance_td,  # type: ignore
+        )  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
         sol = sol * scale  # type: ignore
 

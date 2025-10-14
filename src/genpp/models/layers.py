@@ -245,7 +245,7 @@ class FourierEncoder(nn.Module):
         return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # [..., dim]
 
 
-def _get_scale_td(td: torch.Tensor, betas: torch.Tensor | None) -> torch.Tensor:
+def _get_scale_td(td: torch.Tensor, betas: torch.Tensor) -> torch.Tensor:
     """Get the scale tensor based on the the time delta.
 
     Args:
@@ -260,7 +260,7 @@ def _get_scale_td(td: torch.Tensor, betas: torch.Tensor | None) -> torch.Tensor:
     """
     if betas is None:
         raise ValueError(
-            "scale_variance_td is not fitted yet. Please run the fitting callback first."
+            "scale_variance_td is not fitted yet. Please run the 'fit_scale_variance_td' callback first."
         )
     # Ensure betas is on the same device as td
     betas = betas.to(td)
