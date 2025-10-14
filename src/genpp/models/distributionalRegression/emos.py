@@ -17,9 +17,7 @@ from genpp.models.distributionalRegression.meta import DistributionRegression
 class EMOS(DistributionRegression):
     """EMOS Model
     NOTE that we can use unscaled inputs and outputs since the model is very simple
-
-    Args:
-        DistributionRegression (_type_): _description_
+    A separate linear model is fitted for each variable and lead time.
     """
 
     def __init__(
