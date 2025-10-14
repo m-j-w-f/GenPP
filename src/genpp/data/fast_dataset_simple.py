@@ -26,6 +26,7 @@ from genpp.data import (
     OBSERVATIONS_FLAT_NAME,
     OBSERVATIONS_NAME,
     OUTPUT_DIR,
+    MetadataVars,
 )
 from genpp.data.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
@@ -80,7 +81,7 @@ def _cache_data(
     time_slices: dict[str, slice],
     tensor_save_path: Path,
     batch_kwargs: dict,
-) -> dict[str, list[int]]:
+) -> tuple[dict[str, list[int]], dict[str, Any]]:
     """
     Pre-process xarray data and save as PyTorch tensor files.
 
@@ -94,9 +95,41 @@ def _cache_data(
         batch_kwargs: Batching configuration from xbatcher
 
     Returns:
-        The split indices indicating the train, val and test sets.
+        A tuple containing:
+        - The split indices indicating the train, val and test sets.
+        - Feature categorization metadata (predicted, auxiliary, meta variable info)
     """
     assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
+
+    # Categorize features
+    all_x_features = x_da.feature.values.tolist()
+    all_y_features = y_da.feature.values.tolist()
+    meta_var_values = [v.value for v in MetadataVars]
+
+    # Identify feature categories
+    meta_var_names = [f for f in all_x_features if f in meta_var_values and f != "pixel_idx"]
+    predicted_var_names = [
+        f for f in all_x_features if f.removesuffix("+statistic_mean") in all_y_features
+    ]
+    auxiliary_var_names = [
+        f for f in all_x_features if f not in predicted_var_names and f not in meta_var_names
+    ]
+
+    # Get feature indices for each category
+    meta_var_indices = [i for i, f in enumerate(all_x_features) if f in meta_var_names]
+    predicted_var_indices = [i for i, f in enumerate(all_x_features) if f in predicted_var_names]
+    auxiliary_var_indices = [i for i, f in enumerate(all_x_features) if f in auxiliary_var_names]
+    pixel_idx_index = [all_x_features.index("pixel_idx")] if "pixel_idx" in all_x_features else None
+
+    feature_metadata = {
+        "predicted_var_names": predicted_var_names,
+        "predicted_var_indices": predicted_var_indices,
+        "auxiliary_var_names": auxiliary_var_names,
+        "auxiliary_var_indices": auxiliary_var_indices,
+        "meta_var_names": meta_var_names,
+        "meta_var_indices": meta_var_indices,
+        "pixel_idx_index": pixel_idx_index,
+    }
 
     all_x, all_y, all_td = [], [], []
     split_indices: dict[str, list[int]] = {}
@@ -152,7 +185,7 @@ def _cache_data(
     td_tensor = td_tensor / td_tensor.max()
 
     torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": td_tensor}, tensor_save_path)
-    return split_indices
+    return split_indices, feature_metadata
 
 
 class TransformTensorDataset(Dataset):
@@ -167,6 +200,7 @@ class TransformTensorDataset(Dataset):
         x_tensor: torch.Tensor,
         y_tensor: torch.Tensor,
         td_tensor: torch.Tensor,
+        feature_metadata: dict[str, Any],
         x_transform: Any = None,
         y_transform: Any = None,
     ):
@@ -176,12 +210,14 @@ class TransformTensorDataset(Dataset):
             x_tensor: Input feature tensor
             y_tensor: Target tensor
             td_tensor: Prediction timedelta tensor
+            feature_metadata: Dictionary containing feature categorization info
             x_transform: Optional transform to apply to x data
             y_transform: Optional transform to apply to y data
         """
         self.x_tensor = x_tensor
         self.y_tensor = y_tensor
         self.td_tensor = td_tensor
+        self.feature_metadata = feature_metadata
         self.x_transform = x_transform
         self.y_transform = y_transform
 
@@ -191,7 +227,7 @@ class TransformTensorDataset(Dataset):
     def __len__(self) -> int:
         return len(self.x_tensor)
 
-    def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index) -> dict[str, Any]:
         x = self.x_tensor[index]
         y = self.y_tensor[index]
         td = self.td_tensor[index]
@@ -202,7 +238,29 @@ class TransformTensorDataset(Dataset):
         if self.y_transform is not None:
             y = self.y_transform(y)
 
-        return x, y, td
+        # Split x into predicted, auxiliary, and meta variables
+        predicted_var_indices = self.feature_metadata["predicted_var_indices"]
+        auxiliary_var_indices = self.feature_metadata["auxiliary_var_indices"]
+        meta_var_indices = self.feature_metadata["meta_var_indices"]
+        pixel_idx_index = self.feature_metadata.get("pixel_idx_index", None)
+
+        # Extract tensors for each category
+        # x shape: [feature, ...] (the collate is not called yet -> no batch dimension)
+        predicted_vars = x[predicted_var_indices] if predicted_var_indices else torch.tensor([])
+        auxiliary_vars = x[auxiliary_var_indices] if auxiliary_var_indices else torch.tensor([])
+        meta_vars = x[meta_var_indices] if meta_var_indices else torch.tensor([])
+        pixel_idx = x[pixel_idx_index] if pixel_idx_index else torch.tensor([])
+
+        return {
+            "x": {
+                "predicted_vars": predicted_vars,
+                "auxiliary_vars": auxiliary_vars,
+                "meta_vars": meta_vars,
+                "pixel_idx": pixel_idx.int(),
+            },
+            "y": y,
+            "timedelta": td,
+        }
 
 
 class FastWeatherBench2DataModule(L.LightningDataModule):
@@ -391,7 +449,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         }
 
         # Cache is not found - run the expensive _cache_data function
-        split_indices = _cache_data(
+        split_indices, feature_metadata = _cache_data(
             x_da,
             y_da,
             time_slice,
@@ -404,6 +462,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             "config_hash": config_hash,
             "tmp_path": str(self.tensor_path),
             "split_indices": split_indices,
+            "feature_metadata": feature_metadata,
             "x_variables": x_da.feature.values.tolist(),
             "y_variables": y_da.feature.values.tolist(),
             "x_preprocessing": [type(p).__name__ for p in self.x_preprocessing]
@@ -435,6 +494,9 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         y_tensor = tmp_tensor["y"]
         td_tensor = tmp_tensor["prediction_timedelta"]
 
+        # Get feature metadata
+        feature_metadata = cache_metadata["feature_metadata"]
+
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
         y_transform = self.dataset_config.train.y_transform
@@ -446,6 +508,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 x_tensor[train_indices],
                 y_tensor[train_indices],
                 td_tensor[train_indices],
+                feature_metadata=feature_metadata,
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -457,6 +520,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 x_tensor[val_indices],
                 y_tensor[val_indices],
                 td_tensor[val_indices],
+                feature_metadata=feature_metadata,
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
@@ -475,7 +539,12 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 y_subset = y_test[mask]
                 td_subset = td_test[mask]
                 ds = TransformTensorDataset(
-                    x_subset, y_subset, td_subset, x_transform=x_transform, y_transform=y_transform
+                    x_subset,
+                    y_subset,
+                    td_subset,
+                    feature_metadata=feature_metadata,
+                    x_transform=x_transform,
+                    y_transform=y_transform,
                 )
                 self.test_datasets.append(ds)
 
