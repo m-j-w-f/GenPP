@@ -6,17 +6,15 @@ This script is designed to run on a gcloud compute instance.
 """
 
 import os
+import shutil
 import subprocess
 
 import xarray as xr
-from dask.diagnostics.progress import ProgressBar
 from dask.distributed import Client, LocalCluster
 
 from genpp.data import (
     FORECAST_ENS_SLICE,
     FORECAST_ENS_URL,
-    FORECAST_SLICE,
-    FORECAST_URL,
     OBSERVATIONS_SLICE,
     OBSERVATIONS_URL,
 )
@@ -34,24 +32,18 @@ def main():
     print("Dask dashboard:", client.dashboard_link)
     print(client)
 
-    for dataset_url, slice_dict, local_nc, gcs_dest in [
-        (
-            FORECAST_URL,
-            FORECAST_SLICE,
-            "hres_slice.nc",
-            "gs://slice-data-output/hres_slice.nc",
-        ),
+    for dataset_url, slice_dict, local_path, gcs_dest in [
         (
             FORECAST_ENS_URL,
             FORECAST_ENS_SLICE,
-            "ifs_ens_slice.nc",
-            "gs://slice-data-output/ifs_ens_slice.nc",
+            "ifs_ens_slice.zarr",
+            "gs://slice-data-output/ifs_ens_slice.zarr",
         ),
         (
             OBSERVATIONS_URL,
             OBSERVATIONS_SLICE,
-            "hres_t0_slice.nc",
-            "gs://slice-data-output/hres_t0_slice.nc",
+            "hres_t0_slice.zarr",
+            "gs://slice-data-output/hres_t0_slice.zarr",
         ),
     ]:
         # Open the Zarr store lazily
@@ -60,20 +52,38 @@ def main():
         # Select the region and forecast lead time
         ds_sliced = ds.sel(slice_dict)
 
+        print(f"Dataset size: {ds_sliced.nbytes / (1024**3):.2f} GB")
+
+        # Slightly better chunking for writing
+        time_chunk_size = 37
+
+        new_chunks = {
+            "time": time_chunk_size,
+            "latitude": ds_sliced.sizes["latitude"],  # Unchunked
+            "longitude": ds_sliced.sizes["longitude"],  # Unchunked
+        }
+        # For variables that also have a 'level' dimension
+        if "level" in ds_sliced.sizes:
+            new_chunks["level"] = ds_sliced.sizes["level"]  # Unchunked
+        if "number" in ds_sliced.sizes:
+            new_chunks["number"] = ds_sliced.sizes["number"]  # Unchunked
+        if "prediction_timedelta" in ds_sliced.sizes:
+            new_chunks["prediction_timedelta"] = ds_sliced.sizes[
+                "prediction_timedelta"
+            ]  # Unchunked
+        ds_rechunked = ds.chunk(new_chunks)
+
         # Remove existing local output if present
-        if os.path.exists(local_nc):
-            os.remove(local_nc)
-        # Rename variable since this is a keyword in xarray and causes some issues
-        ds_sliced = ds_sliced.rename({"variable": "feature"})
+        if os.path.exists(local_path):
+            shutil.rmtree(local_path)
 
-        # Write to local NetCDF in parallel
+        # Write to local NetCDF
         print("Writing local NetCDF with Dask...")
-        with ProgressBar():
-            ds_sliced.to_netcdf(local_nc, engine="netcdf4")
-        print(f"Local NetCDF written to {local_nc}.")
+        ds_rechunked.to_netcdf(local_path, format="NETCDF4")
+        print(f"Local NetCDF written to {local_path}.")
 
-        print(f"Uploading {local_nc} to {gcs_dest} ...")
-        subprocess.check_call(["gsutil", "-m", "cp", local_nc, gcs_dest])
+        print(f"Uploading {local_path} to {gcs_dest} ...")
+        subprocess.check_call(["gsutil", "-m", "cp", "-r", local_path, gcs_dest])
         print("Upload complete.")
 
 

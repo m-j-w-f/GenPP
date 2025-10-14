@@ -12,6 +12,7 @@ hidden_channels:
 height: ${data.spatial.original.longitude}
 width: ${data.spatial.original.latitude}
 embedding_dim: 5
+td_embedding_dim: 4
 normalize: true
 use_rescaler: true
 

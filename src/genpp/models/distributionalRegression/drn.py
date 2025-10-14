@@ -4,12 +4,13 @@ from warnings import warn
 
 import torch
 import torch.nn as nn
-from einops import rearrange
+from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.distributionalRegression.distributions import PredictiveDistribution
 from genpp.models.distributionalRegression.meta import DistributionRegression
+from genpp.models.layers import FourierEncoder
 
 
 class DRNModel(DistributionRegression):
@@ -49,6 +50,7 @@ class DRNModel(DistributionRegression):
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         embedding_dim: int = 5,
+        td_embedding_dim: int = 4,
         normalize: bool = False,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         use_rescaler: bool = True,  # NOTE difference to emos
@@ -67,11 +69,12 @@ class DRNModel(DistributionRegression):
         if kwargs:
             warn(f"Ignoring additional arguments: {kwargs}")
         # Pixel index is removed if favor for embedding
-        self.in_features = in_features + embedding_dim - 1
+        # TODO account for the time delta as input feature (encode this properly)
+        self.in_features = in_features + embedding_dim - 1 + td_embedding_dim
         self.hidden_channels = hidden_channels
         self.normalize = normalize
-
-        self.embedding = nn.Embedding(
+        self.td_embedding = FourierEncoder(dim=td_embedding_dim)
+        self.space_embedding = nn.Embedding(
             num_embeddings=self.height * self.width, embedding_dim=embedding_dim
         )
 
@@ -101,18 +104,21 @@ class DRNModel(DistributionRegression):
         layers.append(self.out_distribution.final_activation)
         self.network = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, time_delta: torch.Tensor) -> torch.Tensor:
         """Forward pass through the network.
 
         Args:
             x (torch.Tensor): Input tensor of shape [batch_size, var, lon, lat].
+            time_delta (torch.Tensor): Time delta tensor of shape [batch_size].
 
         Returns:
             torch.Tensor: Output tensor.
         """
         x, pixel_idx = x[:, :-1], x[:, -1]  # Last variable is the pixel index
-        embedding = self.embedding(pixel_idx.int())
-        embedding = rearrange(embedding, "b h w e -> b e h w")
-        x = torch.cat([x, embedding], dim=1)
+        space_embedding = self.space_embedding(pixel_idx.int())
+        space_embedding = rearrange(space_embedding, "b h w e -> b e h w")
+        td_embedding = self.td_embedding(time_delta)  # [b, td_embedding_dim]
+        td_embedding = repeat(td_embedding, "b e -> b e h w", h=self.height, w=self.width)
+        x = torch.cat([x, space_embedding, td_embedding], dim=1)
         x = self.network(x)
         return x

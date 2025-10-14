@@ -1,9 +1,9 @@
 # FastWeatherBench2 DataModule Configuration - Optimized for fast tensor loading
 x_select_variables:
+  - '2m_temperature'
+  - '10m_wind_speed'
   - '10m_u_component_of_wind'
   - '10m_v_component_of_wind'
-  - '10m_wind_speed'
-  - '2m_temperature'
   - 'geopotential_lev500'
   - 'geopotential_lev700'
   - 'geopotential_lev850'
@@ -52,15 +52,12 @@ _split_template: &split_template
       longitude: ${data.spatial.original.longitude}
       latitude: ${data.spatial.original.latitude}
     batch_dims:
-      prediction_time: ${data.batch_size}
+    # These dims are set to 1 so that the batching works correctly
+      time: 1
+      prediction_timedelta: 1
   x_transform: ${data.spatial.x_transform}
-  y_kwargs:
-    input_dims:
-      feature: ${data.features.output}
-      longitude: ${data.spatial.original.longitude}
-      latitude: ${data.spatial.original.latitude}
-    batch_dims:
-      time: ${data.batch_size}
+  # Y data is not batched with xbatcher anymore,
+  # the correct data is selected automatically using x_kwards
   y_transform: ${data.spatial.y_transform}
 
 # Optimized dataloader template for faster loading

@@ -1,17 +1,24 @@
+from warnings import warn
+
 import pandas as pd
 import xarray as xr
 
 
-def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
+def flatten_levels(ds: xr.Dataset, level_dim: str = "level", interleave=True) -> xr.Dataset:
     """Flattens the level dimension of an xarray Dataset by creating separate features for each level.
     Do not call .compute() on large datasets, as this will likely lead to memory issues.
 
     Args:
         ds (xr.Dataset): The input dataset.
         level_dim (str, optional): The name of the level dimension. Defaults to "level".
+        interleave (bool, optional): If True, the new features are interleaved by feature name
+            (e.g., var1_level1, var1_level2, var2_level1, var2_level2).
+            If False, they are interleaved by level
+            (e.g., var1_level1, var2_level1, var1_level2, var2_level2).
+            Defaults to True.
 
     Returns:
-        xr.DataArray: The flattened dataset with separate features for each level.
+        xr.Dataset: The flattened dataset with separate features for each level.
     """
     # Create new dataset
     ds_flat = xr.Dataset()
@@ -21,23 +28,39 @@ def flatten_levels(ds: xr.Dataset, level_dim: str = "level") -> xr.DataArray:
         if coord != level_dim:
             ds_flat.coords[coord] = ds.coords[coord]
 
-    # Process each feature
-    for feat_name, feat_data in ds.data_vars.items():
-        if level_dim in feat_data.dims:
-            # Create separate features for each level
-            for level in feat_data[level_dim].values:
-                new_name = f"{feat_name}_lev{level}"
+    # Get features with and without the level dimension
+    features_with_level = [name for name, var in ds.data_vars.items() if level_dim in var.dims]
+    features_without_level = [name for name in ds.data_vars if name not in features_with_level]
+    levels = ds[level_dim].values
+
+    if interleave:
+        # Interleave by feature: var1_level1, var1_level2, var2_level1, var2_level2
+        for feat_name in features_with_level:
+            feat_data = ds[feat_name]
+            for level in levels:
+                new_name = f"{feat_name}+{level_dim}_{level}"
                 ds_flat[new_name] = feat_data.sel({level_dim: level}).reset_coords(
                     level_dim, drop=True
                 )
-        else:
-            # Keep features without level as-is
-            ds_flat[feat_name] = feat_data
+    else:
+        # Interleave by level: var1_level1, var2_level1, var1_level2, var2_level2
+        for level in levels:
+            for feat_name in features_with_level:
+                feat_data = ds[feat_name]
+                new_name = f"{feat_name}+{level_dim}_{level}"
+                ds_flat[new_name] = feat_data.sel({level_dim: level}).reset_coords(
+                    level_dim, drop=True
+                )
+
+    # Keep features without level dimension as-is
+    for feat_name in features_without_level:
+        ds_flat[feat_name] = ds[feat_name]
 
     # Handle empty dataset case
-    if len(ds_flat.data_vars) == 0:
-        return xr.DataArray(data=[], coords={"feature": []}, dims=["feature"])
-    return ds_flat.to_array().rename({"variable": "feature"})
+    if not ds_flat.data_vars:
+        raise ValueError("The input dataset has no data variables.")
+
+    return ds_flat
 
 
 def get_time_intersection(
@@ -57,4 +80,10 @@ def get_time_intersection(
     Returns:
         pd.Index: The intersection of the two time coordinates.
     """
+    # Emit deprecation warning
+    warn(
+        "get_time_intersection is deprecated and will be removed.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return ds1[time_dim1].to_index().intersection(ds2[time_dim2].to_index())

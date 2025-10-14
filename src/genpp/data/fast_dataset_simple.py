@@ -5,9 +5,8 @@ TODO if we need it we could extend this to use numpy's memory mapping for larger
 For huge cloud datasets, xbatcher seems like the best option.
 """
 
-import os
+import hashlib
 import pickle
-import tempfile
 import warnings
 from pathlib import Path
 from typing import Any
@@ -16,8 +15,9 @@ import lightning as L
 import torch
 import xarray as xr
 import xbatcher
-from omegaconf import DictConfig, ListConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from xbatcher.loaders.torch import to_tensor
 
 from genpp.data import (
@@ -27,7 +27,132 @@ from genpp.data import (
     OBSERVATIONS_NAME,
     OUTPUT_DIR,
 )
+from genpp.data.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
+
+
+def _compute_config_hash(
+    dataset_config: DictConfig,
+    x_select_variables: list[str],
+    y_select_variables: list[str],
+    x_preprocessing: list[Preprocessor] | None = None,
+    y_preprocessing: list[Preprocessor] | None = None,
+) -> str:
+    """
+    Compute a hash of the dataset configuration to detect if cached data can be reused.
+
+    Args:
+        dataset_config: Dataset configuration including time slices and batch kwargs
+        x_select_variables: List of x variables to select
+        y_select_variables: List of y variables to select
+        x_preprocessing: List of preprocessing steps for x data
+        y_preprocessing: List of preprocessing steps for y data
+
+    Returns:
+        Hash string representing the configuration
+    """
+    # Convert dataset config to dict and exclude transforms (they are applied after caching)
+    config_container = OmegaConf.to_container(dataset_config, resolve=True)
+
+    # Remove x_transform and y_transform from each split as they don't affect cached data
+    for split in ["train", "val", "test"]:
+        if split in config_container and isinstance(config_container[split], dict):  # type: ignore
+            config_container[split].pop("x_transform", None)  # type: ignore
+            config_container[split].pop("y_transform", None)  # type: ignore
+
+    # Create a dictionary with all relevant configuration
+    config_dict = {
+        "dataset_config": config_container,
+        "x_select_variables": x_select_variables,
+        "y_select_variables": y_select_variables,
+        "x_preprocessing": [type(p).__name__ for p in x_preprocessing] if x_preprocessing else [],
+        "y_preprocessing": [type(p).__name__ for p in y_preprocessing] if y_preprocessing else [],
+    }
+
+    # Convert to string and compute hash
+    config_str = str(sorted(config_dict.items()))
+    return hashlib.sha256(config_str.encode()).hexdigest()
+
+
+def _cache_data(
+    x_da: xr.DataArray,
+    y_da: xr.DataArray,
+    time_slices: dict[str, slice],
+    tensor_save_path: Path,
+    batch_kwargs: dict,
+) -> dict[str, list[int]]:
+    """
+    Pre-process xarray data and save as PyTorch tensor files.
+
+    Args:
+        x_da: Input xarray DataArray
+              (feature: 63, time: 3651, prediction_timedelta: 5, latitude: 31, longitude: 37)
+        y_da: Target xarray DataArray
+              (feature: 2, time: 7304, latitude: 31, longitude: 37)
+        time_slices: Dictionary mapping split names to time slices
+        tensor_save_path: Directory to save cached tensor files
+        batch_kwargs: Batching configuration from xbatcher
+
+    Returns:
+        The split indices indicating the train, val and test sets.
+    """
+    assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
+
+    all_x, all_y, all_td = [], [], []
+    split_indices: dict[str, list[int]] = {}
+    current_idx = 0
+
+    for split_name, time_slice in time_slices.items():
+        # We split both datasets right here to prevent leaking data
+        x_split = x_da.sel(time=time_slice)
+        y_split = y_da.sel(time=time_slice)
+
+        # These batch kwargs are fixed so that the batches are random
+        batch_kwargs["batch_dims"]["time"] = 1
+        batch_kwargs["batch_dims"]["prediction_timedelta"] = 1
+
+        gen = xbatcher.BatchGenerator(x_split, **batch_kwargs)
+
+        split_batch_indices = []
+        for x_batch in tqdm(gen):
+            x_tensor = to_tensor(x_batch)
+            t0 = x_batch.time.values[0]
+            td = x_batch.prediction_timedelta.values[0]
+            y_t = t0 + td
+            if y_t not in y_split.time.values:
+                # This data is not includeded as it would be in another split
+                # thus leaking data
+                continue
+            y_batch = y_split.sel(time=y_t, longitude=x_batch.longitude, latitude=x_batch.latitude)
+            y_tensor = to_tensor(y_batch.compute())
+
+            # Ensure y_tensor has the same number of dimensions as x_tensor by
+            # prepending singleton dimensions as needed.
+            y_tensor = y_tensor.unsqueeze(0)
+
+            tensor_td = torch.tensor([td], dtype=torch.float32)
+
+            all_x.append(x_tensor)
+            all_y.append(y_tensor)
+            all_td.append(tensor_td)
+
+            split_batch_indices.append(current_idx)
+            current_idx += 1
+
+        split_indices[split_name] = split_batch_indices
+
+    if not all_x:
+        raise ValueError("No batches generated from the data")
+
+    x_tensor = torch.cat(all_x, dim=0)
+    y_tensor = torch.cat(all_y, dim=0)
+    td_tensor = torch.cat(all_td, dim=0)
+
+    # Normalize td_tensor to have max value of 1
+    td_tensor = td_tensor / td_tensor.max()
+
+    torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": td_tensor}, tensor_save_path)
+    return split_indices
 
 
 class TransformTensorDataset(Dataset):
@@ -41,6 +166,7 @@ class TransformTensorDataset(Dataset):
         self,
         x_tensor: torch.Tensor,
         y_tensor: torch.Tensor,
+        td_tensor: torch.Tensor,
         x_transform: Any = None,
         y_transform: Any = None,
     ):
@@ -49,11 +175,13 @@ class TransformTensorDataset(Dataset):
         Args:
             x_tensor: Input feature tensor
             y_tensor: Target tensor
+            td_tensor: Prediction timedelta tensor
             x_transform: Optional transform to apply to x data
             y_transform: Optional transform to apply to y data
         """
         self.x_tensor = x_tensor
         self.y_tensor = y_tensor
+        self.td_tensor = td_tensor
         self.x_transform = x_transform
         self.y_transform = y_transform
 
@@ -63,9 +191,10 @@ class TransformTensorDataset(Dataset):
     def __len__(self) -> int:
         return len(self.x_tensor)
 
-    def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x = self.x_tensor[index]
         y = self.y_tensor[index]
+        td = self.td_tensor[index]
 
         # Apply transforms if provided
         if self.x_transform is not None:
@@ -73,66 +202,7 @@ class TransformTensorDataset(Dataset):
         if self.y_transform is not None:
             y = self.y_transform(y)
 
-        return x, y
-
-
-def _cache_data(
-    da: xr.DataArray,
-    time_slices: dict[str, slice],
-    cache_dir: Path,
-    batch_kwargs: dict,
-) -> tuple[Any, dict[str, list[int]]]:
-    """Preprocess xarray data and save as PyTorch tensor files.
-
-    Args:
-        da: Input xarray DataArray
-        time_slices: Dictionary mapping split names to time slices
-        cache_dir: Directory to save cached files
-        batch_kwargs: Batching configuration from xbatcher
-
-    Returns:
-        Tuple of (temporary_file, split_indices)
-    """
-    # We never want to get patches from the feature dimension.
-    assert da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
-    # Generate all batches using xbatcher
-    all_batches = []
-    split_indices = {}
-    current_idx = 0
-
-    for split_name, time_slice in time_slices.items():
-        split_data = (
-            da.sel(time=time_slice) if "time" in da.dims else da.sel(prediction_time=time_slice)
-        )
-
-        # Create batch generator
-        # Force batch dim = 1 so that batching later will be truly random
-        batch_kwargs["batch_dims"] = (
-            {"prediction_time": 1} if "prediction_time" in da.dims else {"time": 1}
-        )
-        batch_gen = xbatcher.BatchGenerator(split_data, **batch_kwargs)
-
-        split_batch_indices = []
-        for batch in batch_gen:
-            # Convert to tensor (no transforms applied here)
-            tensor_batch = to_tensor(batch)
-
-            all_batches.append(tensor_batch)
-            split_batch_indices.append(current_idx)
-            current_idx += 1
-
-        split_indices[split_name] = split_batch_indices
-
-    if not all_batches:
-        raise ValueError("No batches generated from the data")
-
-    # Stack all batches into a single tensor
-    full_tensor = torch.cat(all_batches, dim=0)  # shape [batch, time, feature, longitude, latitude]
-    # Create temporary file for tensor
-    temp_file = tempfile.NamedTemporaryFile(dir=cache_dir, suffix="_tensor.pt", delete=False)
-    torch.save(full_tensor, temp_file.name)
-
-    return temp_file, split_indices
+        return x, y, td
 
 
 class FastWeatherBench2DataModule(L.LightningDataModule):
@@ -154,18 +224,20 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         self.y_preprocessing = y_preprocessing
         self.dataset_config = dataset_config
         self.dataloader_config = dataloader_config
-        self.x_select_variables = x_select_variables
-        self.y_select_variables = y_select_variables
+        self.x_select_variables = (
+            x_select_variables if isinstance(x_select_variables, list) else list(x_select_variables)
+        )
+        self.y_select_variables = (
+            y_select_variables if isinstance(y_select_variables, list) else list(y_select_variables)
+        )
         self.already_prepared = False
 
         # Create cache directory for fast tensor data
-        self.cache_dir = save_dir / "tmp"
+        self.cache_dir = save_dir / "cache"
         self.cache_dir.mkdir(exist_ok=True)
 
         # Initialize temporary file attributes
-        self.x_tmp = None
-        self.y_tmp = None
-        self.metadata_tmp = None
+        self.metadata_path = None
 
     def _select_variables(
         self,
@@ -204,19 +276,19 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         return da.sel(feature=selected_features)
 
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         """Prepare and cache tensor data for fast loading."""
         if self.already_prepared:
             return
 
         # Check if data exists
-        if not os.path.exists(self.path / FORECAST_ENS_NAME):
+        if not (self.path / FORECAST_ENS_NAME).exists():
             raise FileNotFoundError(
                 f"Forecast ensemble data not found at {self.path / FORECAST_ENS_NAME}. "
                 "Please download the dataset first."
             )
 
-        if not os.path.exists(self.path / OBSERVATIONS_NAME):
+        if not (self.path / OBSERVATIONS_NAME).exists():
             raise FileNotFoundError(
                 f"Observations data not found at {self.path / OBSERVATIONS_NAME}. "
                 "Please download the dataset first."
@@ -231,26 +303,37 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 "Flattening and aggregation of ensemble members and observations is not done yet. "
                 "This will take some time..."
             )
-            from genpp.preproc.flat_and_aggr import main as preprocess_main
+            from genpp.data.flat_and_aggr import main as preprocess_main
 
             preprocess_main(base_dir=self.path)
 
         # Process X data
-        x_da = xr.open_dataarray(self.path / FORECAST_ENS_FLAT_AGG_NAME)
+        x_da = xr.open_zarr(self.path / FORECAST_ENS_FLAT_AGG_NAME, consolidated=True)
+        # Select only specified variables
         if self.x_select_variables:
-            x_da = self._select_variables(x_da, self.x_select_variables, append_suffix=True)
+            x_da = x_da[self.x_select_variables]
+
+        # Turn into DataArray
+        x_da = flatten_levels(x_da, level_dim="statistic", interleave=False)
+        x_da = x_da.to_dataarray(dim="feature")
+        x_da = x_da.transpose("time", "prediction_timedelta", "feature", "longitude", "latitude")
 
         # Apply preprocessing to x data
         if self.x_preprocessing:
             for preprocessor in self.x_preprocessing:
-                preprocessor.fit(x_da.sel(prediction_time=self.dataset_config.train.slice))
+                # Preprocessors work on dataarrays
+                preprocessor.fit(x_da.sel(time=self.dataset_config.train.slice))
                 if not preprocessor.fit_only:
                     x_da = preprocessor.preprocess(x_da)
 
         # Process Y data
-        y_da = xr.open_dataarray(self.path / OBSERVATIONS_FLAT_NAME)
+        y_da = xr.open_zarr(self.path / OBSERVATIONS_FLAT_NAME, consolidated=True)
         if self.y_select_variables:
-            y_da = self._select_variables(y_da, self.y_select_variables, append_suffix=False)
+            y_da = y_da[self.y_select_variables]
+
+        # Turn into DataArray (there are no levels to flatten here)
+        y_da = y_da.to_dataarray(dim="feature")
+        y_da = y_da.transpose("time", "feature", "longitude", "latitude")
 
         # Apply preprocessing to y data
         if self.y_preprocessing:
@@ -259,44 +342,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 if not preprocessor.fit_only:
                     y_da = preprocessor.preprocess(y_da)
 
-        # Define time slices for splits
-        time_slices_x = {
-            "train": self.dataset_config.train.slice,
-            "val": self.dataset_config.val.slice,
-            "test": self.dataset_config.test.slice,
-        }
-
-        time_slices_y = {
-            "train": self.dataset_config.train.slice,
-            "val": self.dataset_config.val.slice,
-            "test": self.dataset_config.test.slice,
-        }
-
-        # Preprocess and save x data
-        self.x_tmp, x_split_indices = _cache_data(
-            x_da,
-            time_slices_x,
-            self.cache_dir,
-            self.dataset_config.train.x_kwargs,
-        )
-
-        # Preprocess and save y data
-        self.y_tmp, y_split_indices = _cache_data(
-            y_da,
-            time_slices_y,
-            self.cache_dir,
-            self.dataset_config.train.y_kwargs,
-        )
-
-        # Store metadata in a temporary file
-        cache_metadata = {
-            "x_tensor_path": self.x_tmp.name,
-            "y_tensor_path": self.y_tmp.name,
-            "x_split_indices": x_split_indices,
-            "y_split_indices": y_split_indices,
-        }
-
-        # Store reverse modules for later use
+        # Store reverse modules for later use (requires fitted preprocessors)
         if self.x_preprocessing:
             self.x_reverseModules = [
                 rm
@@ -310,27 +356,84 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 if (rm := preprocessor.get_reverse_module()) is not None
             ]
 
-        # Save metadata to temporary file
-        self.metadata_tmp = tempfile.NamedTemporaryFile(
-            dir=self.cache_dir, suffix="_metadata.pkl", delete=False
+        # Compute hash of configuration to check if data is already cached
+        config_hash = _compute_config_hash(
+            self.dataset_config,
+            self.x_select_variables,
+            self.y_select_variables,
+            self.x_preprocessing,
+            self.y_preprocessing,
         )
-        with open(self.metadata_tmp.name, "wb") as f:
+        print(f"Configuration hash: {config_hash}")
+
+        # Check if cached data with this hash exists
+        self.tensor_path = self.cache_dir / f"tensor_{config_hash}.pt"
+        self.metadata_path = self.cache_dir / f"metadata_{config_hash}.pkl"
+
+        if self.tensor_path.exists() and self.metadata_path.exists():
+            # Load existing cached data
+            print("Cached tensor data found. Verifying configuration...")
+            with open(self.metadata_path, "rb") as f:
+                cache_metadata = pickle.load(f)
+
+            # Verify the hash matches
+            if cache_metadata.get("config_hash") == config_hash:
+                # Use existing cached files (skip expensive _cache_data call)
+                self.already_prepared = True
+                print("Using cached tensor data.")
+                return
+
+        # Define time slices for splits
+        time_slice = {
+            "train": self.dataset_config.train.slice,
+            "val": self.dataset_config.val.slice,
+            "test": self.dataset_config.test.slice,
+        }
+
+        # Cache is not found - run the expensive _cache_data function
+        split_indices = _cache_data(
+            x_da,
+            y_da,
+            time_slice,
+            self.tensor_path,
+            batch_kwargs=self.dataset_config.train.x_kwargs,
+        )
+
+        # Store metadata with hash
+        cache_metadata = {
+            "config_hash": config_hash,
+            "tmp_path": str(self.tensor_path),
+            "split_indices": split_indices,
+            "x_variables": x_da.feature.values.tolist(),
+            "y_variables": y_da.feature.values.tolist(),
+            "x_preprocessing": [type(p).__name__ for p in self.x_preprocessing]
+            if self.x_preprocessing
+            else [],
+            "y_preprocessing": [type(p).__name__ for p in self.y_preprocessing]
+            if self.y_preprocessing
+            else [],
+        }
+
+        # Save metadata to hash-based permanent location
+        with open(self.metadata_path, "wb") as f:
             pickle.dump(cache_metadata, f)
 
         self.already_prepared = True
 
     def setup(self, stage: str) -> None:
         """Setup datasets for the given stage."""
-        if not hasattr(self, "metadata_tmp") or self.metadata_tmp is None:
+        if self.metadata_path is None:
             raise RuntimeError("prepare_data() must be called before setup()")
 
         # Load cache metadata from file
-        with open(self.metadata_tmp.name, "rb") as f:
+        with open(self.metadata_path, "rb") as f:
             cache_metadata = pickle.load(f)
 
         # Load cached tensors
-        x_tensor = torch.load(cache_metadata["x_tensor_path"])
-        y_tensor = torch.load(cache_metadata["y_tensor_path"])
+        tmp_tensor = torch.load(cache_metadata["tmp_path"])
+        x_tensor = tmp_tensor["x"]
+        y_tensor = tmp_tensor["y"]
+        td_tensor = tmp_tensor["prediction_timedelta"]
 
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
@@ -338,65 +441,67 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "fit":
             # Create training dataset
-            train_indices = cache_metadata["x_split_indices"]["train"]
+            train_indices = cache_metadata["split_indices"]["train"]
             self.train_dataset = TransformTensorDataset(
                 x_tensor[train_indices],
                 y_tensor[train_indices],
+                td_tensor[train_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
 
         if stage in ("fit", "validate"):
             # Create validation dataset
-            val_indices = cache_metadata["x_split_indices"]["val"]
+            val_indices = cache_metadata["split_indices"]["val"]
             self.val_dataset = TransformTensorDataset(
                 x_tensor[val_indices],
                 y_tensor[val_indices],
+                td_tensor[val_indices],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
 
         if stage == "test":
-            # Create test dataset
-            test_indices = cache_metadata["x_split_indices"]["test"]
-            self.test_dataset = TransformTensorDataset(
-                x_tensor[test_indices],
-                y_tensor[test_indices],
-                x_transform=x_transform,
-                y_transform=y_transform,
-            )
+            # Create test datasets grouped by unique lead times
+            test_indices = cache_metadata["split_indices"]["test"]
+            x_test = x_tensor[test_indices]
+            y_test = y_tensor[test_indices]
+            td_test = td_tensor[test_indices]
+            unique_tds = torch.sort(torch.unique(td_test))[0]
+            self.test_datasets = []
+            for td in unique_tds:
+                mask = td_test == td
+                x_subset = x_test[mask]
+                y_subset = y_test[mask]
+                td_subset = td_test[mask]
+                ds = TransformTensorDataset(
+                    x_subset, y_subset, td_subset, x_transform=x_transform, y_transform=y_transform
+                )
+                self.test_datasets.append(ds)
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader[Any]:
         return DataLoader(
             self.train_dataset,
             **self.dataloader_config.train,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader[Any]:
         return DataLoader(
             self.val_dataset,
             **self.dataloader_config.val,
         )
 
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            **self.dataloader_config.test,
-        )
+    def test_dataloader(self) -> list[DataLoader[Any]]:
+        # Lightning implicitly uses a combined_loader here with mode="sequential"
+        return [DataLoader(ds, **self.dataloader_config.test) for ds in self.test_datasets]
 
     def cleanup(self) -> None:
-        """Clean up any temporary files."""
-        # Clean up x tensor temporary file
-        if self.x_tmp and os.path.exists(self.x_tmp.name):
-            self.x_tmp.close()
-            os.remove(self.x_tmp.name)
+        """Clean up any temporary files.
 
-        # Clean up y tensor temporary file
-        if self.y_tmp and os.path.exists(self.y_tmp.name):
-            self.y_tmp.close()
-            os.remove(self.y_tmp.name)
-
-        # Clean up metadata temporary file
-        if self.metadata_tmp and os.path.exists(self.metadata_tmp.name):
-            self.metadata_tmp.close()
-            os.remove(self.metadata_tmp.name)
+        Note: Cached tensor and metadata files are kept for future use.
+        They are reused when the same configuration is used again.
+        """
+        # The tensor and metadata files are now persistent cache files
+        # and should not be deleted. They will be reused when the same
+        # configuration is used again based on the config hash.
+        pass

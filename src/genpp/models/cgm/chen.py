@@ -9,7 +9,7 @@ from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, LocallyConnected2D, UNet
+from genpp.models.layers import CropND, LocallyConnected2D, UNet, _get_scale_td
 from genpp.models.utils import BaseModule
 
 
@@ -72,6 +72,7 @@ class BaseChenModel(BaseModule, ABC):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
+        self.scale_variance_td = None  # To be fitted via callback
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -127,7 +128,16 @@ class BaseChenModel(BaseModule, ABC):
         """
         pass
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, td: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model.
+
+        Args:
+            x (torch.Tensor): the input tensor. Shape [batch_size, in_features, height, width]
+            td (torch.Tensor): the time delta tensor (used to scale the predicted noise). Shape [batch_size]
+
+        Returns:
+            torch.Tensor: the output tensor. Shape [batch_size, n_samples_train, out_features, height, width]
+        """
         batch_size = x.shape[0]
         mean, std, meta = x.split(
             (self.in_features, self.in_features, self.meta_dim + self.use_embedding), dim=1
@@ -156,16 +166,21 @@ class BaseChenModel(BaseModule, ABC):
         std_samples = self.noise_decoder(
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
-        res = pred_mean + std_samples  # Shape [batch_size, n_samples_train, out_features, lon, lat]
+        scales = rearrange(
+            _get_scale_td(td=td, betas=self.scale_variance_td), "b c h w -> b 1 c h w"
+        )
+        res = (
+            pred_mean + scales * std_samples
+        )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         return self.final_activation(res)
 
     def predict_step(self, batch) -> Any:
-        x, _ = batch
-        return self.forward(x)
+        x, _, td = batch
+        return self.forward(x, td)
 
     def training_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)  # shape [b, n_samples, out_features, lon, lat]
+        x, y, td = batch
+        res = self.forward(x, td)  # shape [b, n_samples, out_features, lon, lat]
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape = rearrange(y, "b c h w -> b (c h w)")
         loss = self.loss_fn(res_reshape, y_reshape)
@@ -174,8 +189,8 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)
+        x, y, td = batch
+        res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
         loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
@@ -198,8 +213,8 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
-        x, y = batch
-        res = self.forward(x)
+        x, y, td = batch
+        res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
         loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]

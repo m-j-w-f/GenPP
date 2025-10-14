@@ -22,18 +22,21 @@ class TestPad:
         # Shape: (batch=1, channels=1, height=2, width=2)
         return torch.randn(1, 1, 2, 2)
 
+    @pytest.mark.unit
     def test_pad_initialization_default(self):
         """Test Pad initialization with default parameters."""
         pad = Pad(padding=(1, 1, 1, 1))
         assert pad.padding == (1, 1, 1, 1)
         assert pad.mode == "reflect"
 
+    @pytest.mark.unit
     def test_pad_initialization_custom(self):
         """Test Pad initialization with custom parameters."""
         pad = Pad(padding=(2, 3, 1, 4), mode="constant")
         assert pad.padding == (2, 3, 1, 4)
         assert pad.mode == "constant"
 
+    @pytest.mark.unit
     def test_pad_initialization_valid_padding(self):
         """Test that valid padding tuples work correctly."""
         # Test with zero padding
@@ -44,6 +47,7 @@ class TestPad:
         pad2 = Pad(padding=(1, 2, 3, 4))
         assert pad2.padding == (1, 2, 3, 4)
 
+    @pytest.mark.unit
     def test_pad_transform_basic(self, sample_tensor_small):
         """Test basic padding functionality."""
         # Add 1 pixel padding on all sides: (left=1, right=1, top=1, bottom=1)
@@ -56,6 +60,7 @@ class TestPad:
         # Check that original data is preserved somewhere in the padded tensor
         assert result.sum() != 0  # Basic sanity check
 
+    @pytest.mark.unit
     def test_pad_call_method(self, sample_tensor_small):
         """Test that __call__ method works correctly."""
         pad = Pad(padding=(1, 1, 1, 1))
@@ -65,6 +70,7 @@ class TestPad:
         expected = pad.transform(sample_tensor_small)
         torch.testing.assert_close(result, expected)
 
+    @pytest.mark.unit
     def test_pad_various_sizes(self):
         """Test that different padding sizes can be applied within constraints."""
         # Create small tensor
@@ -80,6 +86,7 @@ class TestPad:
         result_large = pad_large.transform(small_tensor)
         assert result_large.shape == (1, 1, 13, 18)  # height: 3+2+8=13, width: 3+5+10=18
 
+    @pytest.mark.unit
     def test_pad_different_modes(self, sample_tensor_small):
         """Test different padding modes."""
         modes = ["reflect", "constant", "replicate", "circular"]
@@ -91,6 +98,7 @@ class TestPad:
             # All should produce same output shape
             assert result.shape == (1, 1, 4, 4)
 
+    @pytest.mark.unit
     def test_pad_preserves_batch_and_channel_dims(self, sample_tensor_4d):
         """Test that batch and channel dimensions are preserved."""
         original_shape = sample_tensor_4d.shape
@@ -109,6 +117,7 @@ class TestPad:
         assert result.shape[2] == expected_height
         assert result.shape[3] == expected_width
 
+    @pytest.mark.unit
     def test_pad_symmetric_padding(self):
         """Test that padding is applied symmetrically."""
         # Create small known tensor
@@ -124,6 +133,7 @@ class TestPad:
         center = result[0, 0, 1:3, 1:3]
         torch.testing.assert_close(center, torch.ones(2, 2))
 
+    @pytest.mark.unit
     def test_pad_with_xarray_input(self):
         """Test that Pad works with xarray input through __call__."""
         # Create xarray DataArray
@@ -167,6 +177,7 @@ class TestPipe:
 
         return MockTransform()
 
+    @pytest.mark.unit
     def test_pipe_initialization(self):
         """Test Pipe initialization."""
         pad1 = Pad(padding=(1, 1, 1, 1))
@@ -177,6 +188,7 @@ class TestPipe:
         assert pipe.transforms[0] is pad1
         assert pipe.transforms[1] is pad2
 
+    @pytest.mark.unit
     def test_pipe_empty_transforms(self):
         """Test Pipe with empty transform list."""
         pipe = Pipe([])
@@ -187,6 +199,7 @@ class TestPipe:
         result = pipe.transform(tensor)
         torch.testing.assert_close(result, tensor)
 
+    @pytest.mark.unit
     def test_pipe_single_transform(self, mock_transform):
         """Test Pipe with single transform."""
         pipe = Pipe([mock_transform])
@@ -198,6 +211,7 @@ class TestPipe:
         expected = mock_transform(tensor)
         torch.testing.assert_close(result, expected)
 
+    @pytest.mark.unit
     def test_pipe_multiple_transforms_order(self):
         """Test that transforms are applied in correct order."""
         from genpp.preproc.transforms import Transform
@@ -229,6 +243,7 @@ class TestPipe:
         expected = torch.full((2, 2), 2.0)
         torch.testing.assert_close(result, expected)
 
+    @pytest.mark.unit
     def test_pipe_call_method_with_xarray(self, sample_xarray_data, mock_transform):
         """Test Pipe __call__ method with xarray input."""
         pad = Pad(padding=(1, 1, 1, 1))
@@ -247,6 +262,7 @@ class TestPipe:
             # Expected - transforms may have different input requirements
             pass
 
+    @pytest.mark.unit
     def test_pipe_call_method_with_tensor(self, mock_transform):
         """Test Pipe __call__ method with tensor input."""
         pad = Pad(padding=(1, 1, 1, 1))
@@ -263,6 +279,7 @@ class TestPipe:
             # Expected - transforms may have different input requirements
             pass
 
+    @pytest.mark.unit
     def test_pipe_transform_method(self):
         """Test Pipe transform method directly."""
         from genpp.preproc.transforms import Transform
@@ -281,6 +298,7 @@ class TestPipe:
         # Should be unchanged through identity transforms
         torch.testing.assert_close(result, tensor)
 
+    @pytest.mark.unit
     def test_pipe_inheritance_from_transform(self):
         """Test that Pipe properly inherits from Transform."""
         from genpp.preproc.transforms import Transform
@@ -292,6 +310,7 @@ class TestPipe:
         assert hasattr(pipe, "transform")
         assert hasattr(pipe, "__call__")
 
+    @pytest.mark.unit
     def test_pipe_real_world_example(self, sample_xarray_data, mock_transform):
         """Test a realistic pipeline example."""
         # Create a simple pipeline with just our mock transform

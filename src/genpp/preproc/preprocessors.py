@@ -228,7 +228,7 @@ class AddMetadataPreprocessor(Preprocessor):
         meta_vars = []
 
         try:
-            times = data.prediction_time
+            times = data.time + data.prediction_timedelta
         except KeyError:
             warnings.warn(
                 "The input data does not have a 'prediction_time' dimension. "
@@ -264,7 +264,8 @@ class AddMetadataPreprocessor(Preprocessor):
         if MetadataVars.LATITUDE in self.meta_features:  # type: ignore
             lat_grid = data.latitude.expand_dims(
                 {
-                    "prediction_time": data.prediction_time,
+                    "time": data.time,
+                    "prediction_timedelta": data.prediction_timedelta,
                     "longitude": data.longitude,
                     "feature": [MetadataVars.LATITUDE.value],
                 }
@@ -274,7 +275,8 @@ class AddMetadataPreprocessor(Preprocessor):
         if MetadataVars.LONGITUDE in self.meta_features:  # type: ignore
             lon_grid = data.longitude.expand_dims(
                 {
-                    "prediction_time": data.prediction_time,
+                    "time": data.time,
+                    "prediction_timedelta": data.prediction_timedelta,
                     "latitude": data.latitude,
                     "feature": [MetadataVars.LONGITUDE.value],
                 }
@@ -295,7 +297,8 @@ class AddMetadataPreprocessor(Preprocessor):
             )
             pixel_idx_grid = pixel_idx_xr.expand_dims(
                 {
-                    "prediction_time": data.prediction_time,
+                    "time": data.time,
+                    "prediction_timedelta": data.prediction_timedelta,
                     "feature": [MetadataVars.PIXEL_IDX.value],
                 }
             )
@@ -304,7 +307,7 @@ class AddMetadataPreprocessor(Preprocessor):
         # Concatenate all metadata features along the last dimension using dask
         if meta_vars:
             meta_xr = xr.concat(meta_vars, dim="feature", coords="minimal").transpose(
-                "prediction_time", "latitude", "longitude", "feature"
+                "time", "prediction_timedelta", "latitude", "longitude", "feature"
             )
             return xr.concat([data, meta_xr], dim="feature")
         else:
