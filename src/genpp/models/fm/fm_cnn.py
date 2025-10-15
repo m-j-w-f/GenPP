@@ -244,7 +244,7 @@ class _FMUNet(ConditionalVectorField):
         self.time_embedder = FourierEncoder(t_embed_dim)
 
         # Embed the Pixel IDX
-        # Note that y now has the channels channels_y + pixel_embed_dim - 1
+        # Note that y now has the channels channels_y + pixel_embed_dim
         self.y_embedder = PixelEmbedder(num_embeddings=height * width, embedding_dim=embedding_dim)
         # Adjust channels_y to account for pixel embedding
         channels_y += embedding_dim
@@ -452,7 +452,6 @@ class FMUNet(BaseModule):
         return loss
 
     def predict_step(self, batch) -> torch.Tensor:
-        # TODO fix this
         y, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
         ens_mean = rearrange(y["predicted_vars"], "b c h w -> b 1 c h w")
