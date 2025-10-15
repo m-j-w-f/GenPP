@@ -192,6 +192,7 @@ class ReverseAffineTransform(nn.Module):
 
 class PixelEmbedder(nn.Module):
     """A layer that embeds the input tensor into a higher-dimensional space.
+    This is essentially a wrapper around nn.Embedding.
 
     Args:
         in_dim (int): The dimensionality of the input space.
@@ -212,7 +213,7 @@ class PixelEmbedder(nn.Module):
             Tensor: Embedded tensor of shape [b, embedding_dim, h, w].
         """
         emb = self.emb(pixel_idx)
-        emb = rearrange(emb, "b h w c -> b c h w")
+        emb = rearrange(emb, "b 1 h w c -> b c h w")
         return emb
 
 

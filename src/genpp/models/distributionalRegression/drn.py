@@ -68,9 +68,8 @@ class DRNModel(DistributionRegression):
         )
         if kwargs:
             warn(f"Ignoring additional arguments: {kwargs}")
-        # Pixel index is removed if favor for embedding
-        # TODO account for the time delta as input feature (encode this properly)
-        self.in_features = in_features + embedding_dim - 1 + td_embedding_dim
+
+        self.in_features = in_features + embedding_dim + td_embedding_dim
         self.hidden_channels = hidden_channels
         self.normalize = normalize
         self.td_embedding = FourierEncoder(dim=td_embedding_dim)
@@ -117,7 +116,7 @@ class DRNModel(DistributionRegression):
         x_full = torch.cat([x["predicted_vars"], x["auxiliary_vars"], x["meta_vars"]], dim=1)
         pixel_idx = x["pixel_idx"]
         space_embedding = self.space_embedding(pixel_idx)
-        space_embedding = rearrange(space_embedding, "b h w e -> b e h w")
+        space_embedding = rearrange(space_embedding, "b 1 h w e -> b e h w")
         td_embedding = self.td_embedding(time_delta)  # [b, td_embedding_dim]
         td_embedding = repeat(td_embedding, "b e -> b e h w", h=self.height, w=self.width)
         x_full = torch.cat([x_full, space_embedding, td_embedding], dim=1)

@@ -146,7 +146,7 @@ class BaseChenModel(BaseModule, ABC):
         if self.use_embedding:
             pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
             emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
-            emb = rearrange(emb, "b h w c -> b c h w")
+            emb = rearrange(emb, "b 1 h w c -> b c h w")
         else:
             emb = None
 

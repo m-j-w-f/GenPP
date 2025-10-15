@@ -247,7 +247,7 @@ class _FMUNet(ConditionalVectorField):
         # Note that y now has the channels channels_y + pixel_embed_dim - 1
         self.y_embedder = PixelEmbedder(num_embeddings=height * width, embedding_dim=embedding_dim)
         # Adjust channels_y to account for pixel embedding
-        channels_y += embedding_dim - 1
+        channels_y += embedding_dim
 
         # Encoders, Midcoders, and Decoders
         encoders = []
@@ -307,7 +307,7 @@ class _FMUNet(ConditionalVectorField):
                 self.y_embedder(y["pixel_idx"]),
             ],
             dim=1,
-        )  # [bs, c_y, 48, 32]
+        )  # [bs, c_y, 48, 32] most likely c_y = 2 + 56 + 4 + 5 = 67
 
         # Initial convolution
         x = self.init_conv(x)  # [bs, c_0, 48, 32]
@@ -394,12 +394,12 @@ class FMUNet(BaseModule):
 
         self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
         """
         Args:
             x (torch.Tensor): the (noisy) input [bs, 2, 48, 32]
             t (torch.Tensor): the timestep [bs, 1, 1, 1]
-            y (torch.Tensor): the conditioning feature[bs, 50, 48, 32]
+            y (dict[str, torch.Tensor]): the conditioning dict with tensors of shape [bs, ...]
         Returns:
             torch.Tensor: [bs, 2, 48, 32], h and w dim might be cropped
         """
@@ -459,7 +459,7 @@ class FMUNet(BaseModule):
 
         # repeat shapes to be able to generate 50 different samples
         for k, v in y.items():
-            y[k] = repeat(v, "b c h w -> (n_samples b) c h w", n_samples=self.n_samples)
+            y[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
 
         # Sample n_samples * batch size random images. Keep the other dimensions as x_1
         x_init = torch.randn(y["predicted_vars"].size(0), *x_1.shape[1:]).to(x_1)
@@ -471,7 +471,7 @@ class FMUNet(BaseModule):
             step_size=self.step_size,
         )
         # Sol now contains the deviations that need to be added to the nwp forecasts
-        sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
+        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
 
         # Calculate the scale factor based on the lead time
         scale = _get_scale_td(
@@ -479,8 +479,7 @@ class FMUNet(BaseModule):
             betas=self.scale_variance_td,  # type: ignore
         )  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
-        sol = sol * scale  # type: ignore
-
+        sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
         res_cropped = self.crop(res)
         return res_cropped
