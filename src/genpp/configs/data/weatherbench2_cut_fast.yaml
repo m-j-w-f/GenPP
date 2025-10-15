@@ -1,78 +1,15 @@
-# WeatherBench2 DataModule Configuration for the EMOS Model
+# WeatherBench2 Cut DataModule Configuration for the EMOS Model
+# Inherits from weatherbench2_full_fast.yaml and overrides specific variables
 # - no embedding
 # - only 2 input vars
+
+defaults:
+  - weatherbench2_full_fast
+
+# Override with reduced variable set
 x_select_variables:
   - '2m_temperature'
   - '10m_wind_speed'
-y_select_variables: # TODO check the order
-  - '2m_temperature'
-  - '10m_wind_speed'
 
-# Feature configuration for full dataset
-features:
-  input_features: ${eval:'len(${data.x_select_variables})'}
-  aggregation_levels: 2
-  meta_features: 0
-  output: ${eval:'len(${data.y_select_variables})'}
-  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features} + (${model.embedding_dim} > 0)'}
-
-# Shared configuration parameters
+# Reduce batch size for smaller dataset
 batch_size: 8
-
-# Template for dataset split configuration
-_split_template: &split_template
-  x_kwargs:
-    input_dims:
-      feature: ${data.features.input_concat}
-      longitude: ${data.spatial.original.longitude}
-      latitude: ${data.spatial.original.latitude}
-    batch_dims: # These dimes are set to generate the "batches" with xbatcher
-      time: 1
-      prediction_timedelta: 1
-  x_transform: ${data.spatial.x_transform}
-  # Y data is not batched with xbatcher anymore,
-  # the correct data is selected automatically using x_kwards
-  y_transform: ${data.spatial.y_transform}
-
-
-_dataloader_template: &dataloader_template
-  batch_size: ${data.batch_size} # Use the actual batch size here
-  prefetch_factor: ${data.dataloader.prefetch_factor}
-  num_workers: ${data.dataloader.num_workers}
-  multiprocessing_context: ${data.dataloader.multiprocessing_context}
-  pin_memory: ${data.dataloader.pin_memory}
-  persistent_workers: true
-
-module:
-  _target_: genpp.data.fast_dataset_simple.FastWeatherBench2DataModule
-  # Dataset configuration using templates and interpolation
-  dataset_config:
-    train:
-      <<: *split_template
-      slice: ${data.splits.train}
-
-    val:
-      <<: *split_template
-      slice: ${data.splits.val}
-
-    test:
-      <<: *split_template
-      slice: ${data.splits.test}
-
-  # DataLoader configuration using composition
-  dataloader_config:
-    train:
-      <<: *dataloader_template
-      shuffle: true
-
-    val:
-      <<: *dataloader_template
-      shuffle: false
-
-    test:
-      <<: *dataloader_template
-      shuffle: false
-  x_preprocessing: ${data.preprocess.x_preprocessing}
-  y_preprocessing: ${data.preprocess.y_preprocessing}
-  x_select_variables: ${data.x_select_variables}
-  y_select_variables: ${data.y_select_variables}

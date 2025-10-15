@@ -99,8 +99,9 @@ def _cache_data(
         - The split indices indicating the train, val and test sets.
         - Feature categorization metadata (predicted, auxiliary, meta variable info)
     """
-    assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"]
-
+    assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"], (
+        "Feature dimension mismatch, slicing features is not permitted here."
+    )
     # Categorize features
     all_x_features = x_da.feature.values.tolist()
     all_y_features = y_da.feature.values.tolist()
@@ -112,7 +113,9 @@ def _cache_data(
         f for f in all_x_features if f.removesuffix("+statistic_mean") in all_y_features
     ]
     auxiliary_var_names = [
-        f for f in all_x_features if f not in predicted_var_names and f not in meta_var_names
+        f
+        for f in all_x_features
+        if f not in predicted_var_names and f not in meta_var_names and f != "pixel_idx"
     ]
 
     # Get feature indices for each category
@@ -144,6 +147,7 @@ def _cache_data(
         batch_kwargs["batch_dims"]["time"] = 1
         batch_kwargs["batch_dims"]["prediction_timedelta"] = 1
 
+        # TODO instead of doing this sequentially we can do this for all lead times at once
         gen = xbatcher.BatchGenerator(x_split, **batch_kwargs)
 
         split_batch_indices = []
