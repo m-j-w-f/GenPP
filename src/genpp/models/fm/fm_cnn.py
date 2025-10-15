@@ -208,12 +208,12 @@ class ConditionalVectorField(nn.Module, ABC):
     """
 
     @abstractmethod
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): [bs, c, h, w]
             t (torch.Tensor): [bs, 1, 1, 1]
-            y (torch.Tensor): [bs,]
+            y (dict[str, torch.Tensor]): [bs,...]
         Returns:
             torch.Tensor: u_t^theta(x|y) [bs, c, h, w]
         """
@@ -244,10 +244,10 @@ class _FMUNet(ConditionalVectorField):
         self.time_embedder = FourierEncoder(t_embed_dim)
 
         # Embed the Pixel IDX
-        # Note that y now has the channels channels_y + pixel_embed_dim - 1
+        # Note that y now has the channels channels_y + pixel_embed_dim
         self.y_embedder = PixelEmbedder(num_embeddings=height * width, embedding_dim=embedding_dim)
         # Adjust channels_y to account for pixel embedding
-        channels_y += embedding_dim - 1
+        channels_y += embedding_dim
 
         # Encoders, Midcoders, and Decoders
         encoders = []
@@ -288,7 +288,7 @@ class _FMUNet(ConditionalVectorField):
         # Final convolution
         self.final_conv = nn.Conv2d(channels[0], channels_x, kernel_size=3, padding=1)
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
         """
         Args:
             x (torch.Tensor): [bs, 2, 48, 32]
@@ -299,7 +299,15 @@ class _FMUNet(ConditionalVectorField):
         """
         # Embed t and y
         t_embed = self.time_embedder(t)  # [bs, time_embed_dim]
-        y_embed = self.y_embedder(y)  # [bs, c_y, 48, 32]
+        y_embed = torch.cat(
+            [
+                y["predicted_vars"],
+                y["auxiliary_vars"],
+                y["meta_vars"],
+                self.y_embedder(y["pixel_idx"]),
+            ],
+            dim=1,
+        )  # [bs, c_y, 48, 32] most likely c_y = 2 + 56 + 4 + 5 = 67
 
         # Initial convolution
         x = self.init_conv(x)  # [bs, c_0, 48, 32]
@@ -386,12 +394,12 @@ class FMUNet(BaseModule):
 
         self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
         """
         Args:
             x (torch.Tensor): the (noisy) input [bs, 2, 48, 32]
             t (torch.Tensor): the timestep [bs, 1, 1, 1]
-            y (torch.Tensor): the conditioning feature[bs, 50, 48, 32]
+            y (dict[str, torch.Tensor]): the conditioning dict with tensors of shape [bs, ...]
         Returns:
             torch.Tensor: [bs, 2, 48, 32], h and w dim might be cropped
         """
@@ -400,10 +408,10 @@ class FMUNet(BaseModule):
 
     def _calc_loss(self, batch) -> torch.Tensor:
         # Sample Data (X_0,X_1) ~ π(X_0,X_1) = N(X_0|0,I)q(X_1)
-        y, x_1, td = batch  # y is the conditioning variable in this setting
+        nwp_fc, ground_truth, td = batch["x"], batch["y"], batch["timedelta"]
         # We want to predict the errors of the NWP forecasts
-        # Now x_1 contains the errors (NOTE the :2 is here since we only predict the first two channels)
-        x_1 = x_1 - y[:, : self.num_predicted_vars, ...]
+        # Now x_1 contains the errors
+        x_1 = ground_truth - nwp_fc["predicted_vars"]
         # x_1 should always have roughly the same magnitude, independent of the lead time
         scale = _get_scale_td(
             td=td,
@@ -423,7 +431,7 @@ class FMUNet(BaseModule):
         # Get the probability path
         path_sample = self.path.sample(t=t, x_0=x_0, x_1=x_1)
 
-        u_t_theta = self.model(path_sample.x_t, path_sample.t, y)
+        u_t_theta = self.model(x=path_sample.x_t, t=path_sample.t, y=nwp_fc)
         u_t_ref = path_sample.dx_t
 
         # Calc the l2 loss
@@ -444,16 +452,16 @@ class FMUNet(BaseModule):
         return loss
 
     def predict_step(self, batch) -> torch.Tensor:
-        y, x_1, td = batch
+        y, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
-        ens_mean = rearrange(y[:, : self.num_predicted_vars, ...], "b c h w -> b 1 c h w")
+        ens_mean = rearrange(y["predicted_vars"], "b c h w -> b 1 c h w")
 
-        # repeat shaps to be able to generate 50 different samples
-        y = repeat(y, "b c h w -> n_samples b c h w", n_samples=self.n_samples)
-        y = rearrange(y, "n_samples b c h w -> (n_samples b) c h w")
+        # repeat shapes to be able to generate 50 different samples
+        for k, v in y.items():
+            y[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
 
         # Sample n_samples * batch size random images. Keep the other dimensions as x_1
-        x_init = torch.randn(y.size(0), *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(y["predicted_vars"].size(0), *x_1.shape[1:]).to(x_1)
 
         sol = self.solver.sample(
             x_init=x_init,
@@ -462,7 +470,7 @@ class FMUNet(BaseModule):
             step_size=self.step_size,
         )
         # Sol now contains the deviations that need to be added to the nwp forecasts
-        sol = rearrange(sol, "(n_samples b) c h w -> b n_samples c h w", n_samples=self.n_samples)
+        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
 
         # Calculate the scale factor based on the lead time
         scale = _get_scale_td(
@@ -470,8 +478,7 @@ class FMUNet(BaseModule):
             betas=self.scale_variance_td,  # type: ignore
         )  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
-        sol = sol * scale  # type: ignore
-
+        sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
         res_cropped = self.crop(res)
         return res_cropped

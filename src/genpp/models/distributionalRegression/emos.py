@@ -57,18 +57,20 @@ class EMOS(DistributionRegression):
         self.weight_std = nn.Parameter(torch.randn(self.n_lead_times, self.n_vars, height, width))
         self.bias_std = nn.Parameter(torch.zeros_like(self.weight_std))
 
-    def forward(self, x: torch.Tensor, time_delta: torch.Tensor) -> maybe_list_dist_param_dict:
+    def forward(
+        self, x: dict[str, torch.Tensor], time_delta: torch.Tensor
+    ) -> maybe_list_dist_param_dict:
         """Forward pass for the EMOS model.
 
         Args:
-            x (torch.Tensor): Input tensor containing the variables. Should contain the means and standard deviations of the respective variables.
+            x (dict[str, torch.Tensor]): Input dictionary containing the variables. Should contain the means and standard deviations of the respective variables.
             The ordering of the channels is expected to be mean_var0, mean_var1, ..., std_var0, std_var1, ...
             time_delta (torch.Tensor): Lead time (between 0 and 1) for which the prediction is made. There are n_lead_times different lead times.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The means and standard deviations predicted by the model.
         """
-        means, stds = torch.chunk(x, 2, dim=1)  # Both have shape [b, n_vars, h, w]
+        means, stds = x["predicted_vars"], x["auxiliary_vars"]  # Both have shape [b, n_vars, h, w]
         means = means * self.weight_mean + self.bias_mean
         # Select the appropriate std parameters based on lead time
         distances = torch.abs(
@@ -80,8 +82,8 @@ class EMOS(DistributionRegression):
         stds = stds * weight_std + bias_std
 
         # Interleave the means and stds so that we have mean_var0, std_var0, mean_var1, std_var1, ...
-        x = torch.stack([means, stds], dim=2)  # Shape [b, n_vars, 2, h, w]
-        x = rearrange(x, "b c two h w -> b (c two) h w")
+        params = torch.stack([means, stds], dim=2)  # Shape [b, n_vars, 2, h, w]
+        params = rearrange(params, "b c two h w -> b (c two) h w")
         # TODO check what this function here expects (in which order)
-        x = self.out_distribution.final_activation(x)
-        return x  # type: ignore
+        params = self.out_distribution.final_activation(params)
+        return params  # type: ignore

@@ -34,7 +34,7 @@ class DistributionRegression(BaseModule, ABC):
         self.lr_scheduler_partial = lr_scheduler
 
     def training_step(self, batch) -> torch.Tensor:
-        x, y, time_delta = batch
+        x, y, time_delta = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, time_delta)
         loss = self.out_distribution.compute_loss(res, y)
         loss = torch.mean(loss)
@@ -42,7 +42,7 @@ class DistributionRegression(BaseModule, ABC):
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        x, y, time_delta = batch
+        x, y, time_delta = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, time_delta)
         loss = self.out_distribution.compute_loss(res, y)
         loss = reduce(loss, "b c h w -> c", "mean")
@@ -62,13 +62,13 @@ class DistributionRegression(BaseModule, ABC):
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
-        x, y, time_delta = batch
+        x, y, time_delta = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, time_delta)
         loss = self.out_distribution.compute_loss(res, y)
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def predict_step(self, batch) -> torch.Tensor:
-        x, _, time_delta = batch
+        x, time_delta = batch["x"], batch["timedelta"]
         res = self.forward(x, time_delta)
         return res

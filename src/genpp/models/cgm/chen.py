@@ -72,7 +72,7 @@ class BaseChenModel(BaseModule, ABC):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-        self.scale_variance_td = None  # To be fitted via callback
+        self.register_buffer("scale_variance_td", None)  # To be fitted via callback
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -128,32 +128,31 @@ class BaseChenModel(BaseModule, ABC):
         """
         pass
 
-    def forward(self, x: torch.Tensor, td: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
 
         Args:
-            x (torch.Tensor): the input tensor. Shape [batch_size, in_features, height, width]
+            x (dict[str, torch.Tensor]): the input dictionary.
             td (torch.Tensor): the time delta tensor (used to scale the predicted noise). Shape [batch_size]
 
         Returns:
             torch.Tensor: the output tensor. Shape [batch_size, n_samples_train, out_features, height, width]
         """
-        batch_size = x.shape[0]
-        mean, std, meta = x.split(
-            (self.in_features, self.in_features, self.meta_dim + self.use_embedding), dim=1
-        )  # Mean, Std, Meta have now shape [batch_size, var, lon, lat]
+        batch_size = x["predicted_vars"].shape[0]
+        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
+        mean, std = torch.chunk(x_cat, 2, dim=1)
+        meta = x["meta_vars"]
+
         if self.use_embedding:
-            pixel_idx = meta[:, -1, ...].int()  # Shape [batch_size, lon, lat]
-            meta = meta[
-                :, :-1, ...
-            ]  # Remove the pixel index from the meta tensor. Shape [batch_size, meta_dim, lon, lat]
+            pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
             emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
-            emb = rearrange(emb, "b h w c -> b c h w")
+            emb = rearrange(emb, "b 1 h w c -> b c h w")
         else:
             emb = None
 
         # NOTE it would make sense to use a residual connection here, but the original paper does not use it.
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
+        # TODO this is easy with the improved data loading
         pred_mean = self.mean_model(mean)  # Shape [batch_size, out_features, lon, lat]
         delta = self.std_model(std)
         z = self.get_noise(batch_size).to(delta)  # Must be on the same device as delta
@@ -167,7 +166,8 @@ class BaseChenModel(BaseModule, ABC):
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         scales = rearrange(
-            _get_scale_td(td=td, betas=self.scale_variance_td), "b c h w -> b 1 c h w"
+            _get_scale_td(td=td, betas=self.scale_variance_td),  # type: ignore
+            "b c h w -> b 1 c h w",
         )
         res = (
             pred_mean + scales * std_samples
@@ -175,11 +175,11 @@ class BaseChenModel(BaseModule, ABC):
         return self.final_activation(res)
 
     def predict_step(self, batch) -> Any:
-        x, _, td = batch
+        x, td = batch["x"], batch["timedelta"]
         return self.forward(x, td)
 
     def training_step(self, batch) -> torch.Tensor:
-        x, y, td = batch
+        x, y, td = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, td)  # shape [b, n_samples, out_features, lon, lat]
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape = rearrange(y, "b c h w -> b (c h w)")
@@ -189,7 +189,7 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        x, y, td = batch
+        x, y, td = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
@@ -213,7 +213,7 @@ class BaseChenModel(BaseModule, ABC):
         return loss
 
     def test_step(self, batch) -> torch.Tensor:
-        x, y, td = batch
+        x, y, td = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")

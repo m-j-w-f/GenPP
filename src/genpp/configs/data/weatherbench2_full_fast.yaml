@@ -37,9 +37,10 @@ y_select_variables: # TODO check the order
 features:
   input_features: ${eval:'len(${data.x_select_variables})'}
   aggregation_levels: 2
-  meta_features: 4 # Number of meta features excluding pixel id
+  # Number of meta features excluding pixel id (thus the false flag)
+  meta_features: ${count_meta_features:${data.preprocess.x_preprocessing},false}
   output: ${eval:'len(${data.y_select_variables})'}
-  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features} + (${model.embedding_dim} > 0)'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
 
 # Shared configuration parameters
 batch_size: 64
@@ -48,7 +49,8 @@ batch_size: 64
 _split_template: &split_template
   x_kwargs:
     input_dims:
-      feature: ${data.features.input_concat}
+      # feature dim contains all input features and the pixel index if it exists
+      feature: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${count_meta_features:${data.preprocess.x_preprocessing},true}'}
       longitude: ${data.spatial.original.longitude}
       latitude: ${data.spatial.original.latitude}
     batch_dims:
