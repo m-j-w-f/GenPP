@@ -343,19 +343,6 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         if self.already_prepared:
             return
 
-        # Check if data exists
-        if not (self.path / FORECAST_ENS_NAME).exists():
-            raise FileNotFoundError(
-                f"Forecast ensemble data not found at {self.path / FORECAST_ENS_NAME}. "
-                "Please download the dataset first."
-            )
-
-        if not (self.path / OBSERVATIONS_NAME).exists():
-            raise FileNotFoundError(
-                f"Observations data not found at {self.path / OBSERVATIONS_NAME}. "
-                "Please download the dataset first."
-            )
-
         # Ensure flat and aggregated data exists
         if (
             not (self.path / FORECAST_ENS_FLAT_AGG_NAME).exists()
@@ -365,6 +352,20 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                 "Flattening and aggregation of ensemble members and observations is not done yet. "
                 "This will take some time..."
             )
+
+            # Check if data exists
+            if not (self.path / FORECAST_ENS_NAME).exists():
+                raise FileNotFoundError(
+                    f"Forecast ensemble data not found at {self.path / FORECAST_ENS_NAME}. "
+                    "Please download the dataset first."
+                )
+
+            if not (self.path / OBSERVATIONS_NAME).exists():
+                raise FileNotFoundError(
+                    f"Observations data not found at {self.path / OBSERVATIONS_NAME}. "
+                    "Please download the dataset first."
+                )
+
             from genpp.data.flat_and_aggr import main as preprocess_main
 
             preprocess_main(base_dir=self.path)
@@ -442,7 +443,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             if cache_metadata.get("config_hash") == config_hash:
                 # Use existing cached files (skip expensive _cache_data call)
                 self.already_prepared = True
-                print("Using cached tensor data.")
+                print(f"Using cached tensor data from {self.tensor_path}.")
                 return
 
         # Define time slices for splits
@@ -464,7 +465,6 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         # Store metadata with hash
         cache_metadata = {
             "config_hash": config_hash,
-            "tmp_path": str(self.tensor_path),
             "split_indices": split_indices,
             "feature_metadata": feature_metadata,
             "x_variables": x_da.feature.values.tolist(),
@@ -485,7 +485,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
     def setup(self, stage: str) -> None:
         """Setup datasets for the given stage."""
-        if self.metadata_path is None:
+        if self.metadata_path is None or self.tensor_path is None:
             raise RuntimeError("prepare_data() must be called before setup()")
 
         # Load cache metadata from file
@@ -493,7 +493,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             cache_metadata = pickle.load(f)
 
         # Load cached tensors
-        tmp_tensor = torch.load(cache_metadata["tmp_path"])
+        tmp_tensor = torch.load(self.tensor_path)
         x_tensor = tmp_tensor["x"]
         y_tensor = tmp_tensor["y"]
         td_tensor = tmp_tensor["prediction_timedelta"]
