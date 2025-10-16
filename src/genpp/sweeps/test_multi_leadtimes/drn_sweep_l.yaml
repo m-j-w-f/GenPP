@@ -1,5 +1,5 @@
 program: src/genpp/train.py
-name: testsweep_drn
+name: testsweep_drn_l
 metric:
   name: val_loss
   goal: minimize
