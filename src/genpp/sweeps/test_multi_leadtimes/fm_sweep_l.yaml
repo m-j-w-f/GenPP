@@ -1,0 +1,28 @@
+program: src/genpp/train.py
+name: testsweep_fm
+description: Sweep for Flow matching model model with multiple lead times
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4]
+  data.batch_size:
+    values: [8, 32, 64]
+  model.channels:
+    values: [[64, 128], [32, 64]]
+  model.num_residual_layers:
+    values: [1, 2]
+
+command:
+  - pixi
+  - run
+  - -e
+  - default
+  - python
+  - ${program}
+  - --config-name
+  - base_fmunet
+  - ${args_no_hyphens}

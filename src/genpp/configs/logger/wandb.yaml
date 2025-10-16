@@ -3,6 +3,6 @@ _target_: lightning.pytorch.loggers.WandbLogger
 project: "genpp"
 name: null  # Will be auto-generated
 save_dir: "logs/"
-log_model: false
+log_model: true
 group: null
 job_type: "train"
