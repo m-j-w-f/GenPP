@@ -10,7 +10,7 @@ from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet, _get_scale_td
-from genpp.models.utils import BaseModule
+from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
 
 
 class BaseChenModel(BaseModule, ABC):
@@ -367,7 +367,7 @@ class FcChenModel(BaseChenModel):
         return full_input_repeated_noise
 
 
-class CNNChenModel(BaseChenModel):
+class CNNChenModel(BaseChenModel, FitScaleVarianceTDMixin):
     """CNN-based Chen model.
     In this model, both the std_model and the noise_decoder are separate UNets.
     Args:
@@ -419,6 +419,10 @@ class CNNChenModel(BaseChenModel):
 
         if self.use_embedding:
             self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
+
+    def setup(self, stage):
+        if stage == "fit":
+            self._fit_scale_variance_td()
 
     @property
     def mean_model(self) -> nn.Module:

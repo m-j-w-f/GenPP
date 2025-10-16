@@ -9,7 +9,7 @@ from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder, _get_scale_td
-from genpp.models.utils import BaseModule
+from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
 
 
 class ResidualLayer(nn.Module):
@@ -334,7 +334,7 @@ class _FMUNet(ConditionalVectorField):
         return x
 
 
-class FMUNet(BaseModule):
+class FMUNet(BaseModule, FitScaleVarianceTDMixin):
     """
     NOTE that in this class the naming convention is different than in the other classes:
     - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
@@ -393,6 +393,10 @@ class FMUNet(BaseModule):
         self.register_buffer("scale_variance_td", None)  # To be fitted via callback
 
         self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
+
+    def setup(self, stage):
+        if stage == "fit":
+            self._fit_scale_variance_td()
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
         """

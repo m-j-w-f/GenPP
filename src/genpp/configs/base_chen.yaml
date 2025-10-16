@@ -8,7 +8,7 @@ defaults:
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: cnn_chen
-  - trainer: fit_scale_td
+  - trainer: default
   - logger: wandb
   - hydra: standard
   - _self_
