@@ -12,6 +12,11 @@ class AutoEncoder(L.LightningModule):
         self.save_hyperparameters()
         self.padding = padding
         self.crop = CropND(padding)
+        self.loss_l1 = F.l1_loss
+        self.grad_loss = GradientDifferenceLoss()
+        self.loss = lambda recon, orig: self.loss_l1(recon, orig) + 0.2 * self.grad_loss(
+            recon, orig
+        )
 
         # Encoder
         self.encoder = nn.Sequential(
@@ -73,7 +78,7 @@ class AutoEncoder(L.LightningModule):
         x_recon_cropped = self.crop(x_recon)
 
         # MSE loss only on valid pixels
-        loss = F.mse_loss(x_recon_cropped, x_cropped)
+        loss = self.loss(x_recon_cropped, x_cropped)
 
         self.log("train_loss", loss, prog_bar=True)
         return loss
@@ -87,7 +92,7 @@ class AutoEncoder(L.LightningModule):
         x_recon_cropped = self.crop(x_recon)
 
         # MSE loss only on valid pixels
-        loss = F.mse_loss(x_recon_cropped, x_cropped)
+        loss = self.loss(x_recon_cropped, x_cropped)
 
         self.log("val_loss", loss, prog_bar=True)
         return loss
@@ -95,3 +100,36 @@ class AutoEncoder(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
+
+
+class GradientDifferenceLoss(nn.Module):
+    def __init__(self, loss_type="l1"):
+        super().__init__()
+        self.loss_type = loss_type
+
+        # Sobel filters for x and y gradients
+        sobel_x = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]], dtype=torch.float32)
+        sobel_y = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], dtype=torch.float32)
+
+        # Shape for conv2d weight: (out_channels, in_channels, kH, kW)
+        self.sobel_x = sobel_x.view(1, 1, 3, 3)
+        self.sobel_y = sobel_y.view(1, 1, 3, 3)
+
+    def forward(self, pred, target):
+        # If multi-channel, apply per channel
+        grad_loss = 0.0
+        for c in range(pred.shape[1]):
+            gx_pred = F.conv2d(pred[:, c : c + 1], self.sobel_x.to(pred.device), padding=1)
+            gy_pred = F.conv2d(pred[:, c : c + 1], self.sobel_y.to(pred.device), padding=1)
+            gx_true = F.conv2d(target[:, c : c + 1], self.sobel_x.to(target.device), padding=1)
+            gy_true = F.conv2d(target[:, c : c + 1], self.sobel_y.to(target.device), padding=1)
+
+            grad_mag_pred = torch.sqrt(gx_pred**2 + gy_pred**2 + 1e-6)
+            grad_mag_true = torch.sqrt(gx_true**2 + gy_true**2 + 1e-6)
+
+            if self.loss_type == "l1":
+                grad_loss += torch.mean(torch.abs(grad_mag_true - grad_mag_pred))
+            else:
+                grad_loss += torch.mean((grad_mag_true - grad_mag_pred) ** 2)
+
+        return grad_loss / pred.shape[1]
