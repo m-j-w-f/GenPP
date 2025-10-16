@@ -56,7 +56,6 @@ sync = '''rsync -avzr --progress --human-readable \
   --exclude='.pixi/' \
   --exclude='__pycache__/' \
   --exclude='.DS_Store' \
-  --exclude='data/weatherbench2/cache/' \
   --exclude='data/weatherbench2/hres_t0.zarr/' \
   --exclude='data/weatherbench2/ifs_ens.zarr/' \
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
