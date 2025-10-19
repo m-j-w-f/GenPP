@@ -52,13 +52,15 @@ rsync = ">=3.4.1,<4"
 [tool.pixi.feature.dev.tasks]
 test = "pytest"
 unittest = "pytest -m unit"
-sync = '''rsync -avzr --progress --human-readable \
-  --exclude='.pixi/' \
-  --exclude='__pycache__/' \
-  --exclude='outputs/' \
-  --exclude='.DS_Store' \
-  --exclude='data/weatherbench2/hres_t0.zarr/' \
-  --exclude='data/weatherbench2/ifs_ens.zarr/' \
+sync = '''rsync -avzr --progress --human-readable
+  --exclude='.pixi/'
+  --exclude='__pycache__/'
+  --exclude='outputs/'
+  --exclude='lightning_logs/'
+  --exclude='wandb/'
+  --exclude='.DS_Store'
+  --exclude='data/weatherbench2/hres_t0.zarr/'
+  --exclude='data/weatherbench2/ifs_ens.zarr/'
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
 
 
