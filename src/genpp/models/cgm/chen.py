@@ -13,7 +13,7 @@ from genpp.models.layers import CropND, LocallyConnected2D, UNet, _get_scale_td
 from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
 
 
-class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
+class BaseChenModel(BaseModule, ABC):
     """Base class for generative models with mean, std, and noise decoder components.
 
     Args:
@@ -72,13 +72,7 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-        self.register_buffer(
-            "scale_variance_td", None
-        )  # To be fitted via callback (see setup method)
-
-    def setup(self, stage) -> None:
-        if stage == "fit":
-            self._fit_scale_variance_td()
+        self.register_buffer("scale_variance_td", None)  # To be fitted via callback
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -373,7 +367,7 @@ class FcChenModel(BaseChenModel):
         return full_input_repeated_noise
 
 
-class CNNChenModel(BaseChenModel):
+class CNNChenModel(BaseChenModel, FitScaleVarianceTDMixin):
     """CNN-based Chen model.
     In this model, both the std_model and the noise_decoder are separate UNets.
     Args:
@@ -425,6 +419,10 @@ class CNNChenModel(BaseChenModel):
 
         if self.use_embedding:
             self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
+
+    def setup(self, stage):
+        if stage == "fit":
+            self._fit_scale_variance_td()
 
     @property
     def mean_model(self) -> nn.Module:
