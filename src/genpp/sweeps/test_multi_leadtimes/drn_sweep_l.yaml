@@ -1,5 +1,6 @@
 program: src/genpp/train.py
 name: testsweep_drn_l
+description: Sweep for DRN model with multiple lead times
 metric:
   name: val_loss
   goal: minimize

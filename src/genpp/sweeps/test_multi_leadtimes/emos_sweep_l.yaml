@@ -1,5 +1,6 @@
 program: src/genpp/train.py
 name: testsweep_emos_l
+description: Sweep for EMOS model with multiple lead times
 metric:
   name: val_loss
   goal: minimize
