@@ -54,7 +54,8 @@ class BaseModule(L.LightningModule, ABC):
 
 
 class FitScaleVarianceTDMixin:
-    """Mixin class to add scale_variance_td fitting functionality to LightningModules."""
+    """Mixin class to add scale_variance_td fitting functionality to LightningModules.
+    Note: it is essential that the preds and obs are scaled the same way"""
 
     def _fit_scale_variance_td(self) -> None:
         """Fit a regression of the form absolute_prediction_error ~ LeadTime for each variable.
@@ -105,7 +106,7 @@ class FitScaleVarianceTDMixin:
                 obs = rearrange(obs, "b c h w -> c (b h w)")
                 diff = (obs - nwp).abs()
                 ones = torch.ones_like(diff)
-                X = torch.stack([ones, td], dim=1)
+                X = torch.stack([ones, td], dim=1)  # [n_vars, 2, n_samples]
                 y = diff
 
                 # The rearrange is the same as calling the transpose on the last two dims if X
