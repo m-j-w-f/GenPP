@@ -2,6 +2,7 @@ import warnings
 
 import hydra
 import lightning as L
+import torch
 from omegaconf import DictConfig, OmegaConf
 
 from genpp.configs import register_resolvers
@@ -11,7 +12,7 @@ from genpp.configs import register_resolvers
 def train(cfg: DictConfig) -> None:
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     register_resolvers()
-
+    torch.set_float32_matmul_precision("high")
     # Set seed for reproducibility
     if hasattr(cfg, "seed"):
         L.seed_everything(cfg.seed)
