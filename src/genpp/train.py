@@ -12,8 +12,7 @@ from genpp.configs import register_resolvers
 def train(cfg: DictConfig) -> None:
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     register_resolvers()
-    torch.set_float32_matmul_precision("medium")
-
+    torch.set_float32_matmul_precision("high")
     # Set seed for reproducibility
     if hasattr(cfg, "seed"):
         L.seed_everything(cfg.seed)
