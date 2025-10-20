@@ -67,9 +67,9 @@ _dataloader_template: &dataloader_template
   batch_size: ${data.batch_size} # Use the actual batch size here
   prefetch_factor: ${data.dataloader.prefetch_factor}
   num_workers: ${data.dataloader.num_workers}
-  multiprocessing_context: "forkserver"
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
   pin_memory: ${data.dataloader.pin_memory}
-  persistent_workers: true # Keep workers alive between epochs
+  persistent_workers: ${data.dataloader.persistent_workers}
 
 module:
   _target_: genpp.data.fast_dataset_simple.FastWeatherBench2DataModule
