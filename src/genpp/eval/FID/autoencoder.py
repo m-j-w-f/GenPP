@@ -2,21 +2,35 @@ import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange, reduce
+from einops.layers.torch import Rearrange
+from tqdm import tqdm
 
 from genpp.models.layers import CropND
 
 
 class AutoEncoder(L.LightningModule):
-    def __init__(self, in_channels: int, padding: tuple[int, int, int, int], latent_dim: int = 128):
+    def __init__(
+        self,
+        in_channels: int,
+        padding: tuple[int, int, int, int],
+        latent_dim: int = 128,
+        *args,
+        **kwargs,
+    ):
         super().__init__()
         self.save_hyperparameters()
-        self.padding = padding
+        self.in_channels = in_channels
+        self.padding = list(padding) if not isinstance(padding, list) else padding
         self.crop = CropND(padding)
+        self.height = 40  # Expected height after padding
+        self.width = 40  # Expected width after padding
         self.loss_l1 = F.l1_loss
         self.grad_loss = GradientDifferenceLoss()
         self.loss = lambda recon, orig: self.loss_l1(recon, orig) + 0.2 * self.grad_loss(
             recon, orig
         )
+        self.stats_computed = False
 
         # Encoder
         self.encoder = nn.Sequential(
@@ -27,20 +41,14 @@ class AutoEncoder(L.LightningModule):
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),  # -> (B, 256, H/8, W/8)
             nn.ReLU(inplace=True),
-        )
-
-        # Latent space
-        self.encoder_fc = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # -> (B, 256, 1, 1)
             nn.Flatten(),  # -> (B, 256)
             nn.Linear(256, latent_dim),  # -> (B, latent_dim)
         )
 
-        # Decoder
-        self.decoder_fc = nn.Linear(latent_dim, 256 * 5 * 5)  # -> (B, 256*5*5)
-
         self.decoder = nn.Sequential(
-            # Input: (B, 256, 5, 5)
+            nn.Linear(latent_dim, 256 * self.height // 8 * self.width // 8),
+            Rearrange("b (c h w) -> b c h w", c=256, h=self.height // 8, w=self.width // 8),
             nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # -> (B, 128, 10, 10)
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # -> (B, 64, 20, 20)
@@ -50,17 +58,57 @@ class AutoEncoder(L.LightningModule):
             ),  # -> (B, in_channels, 40, 40)
         )
 
+    def setup(self, stage: str):
+        """Compute normalization statistics from training data."""
+        if stage == "fit" and not self.stats_computed:
+            print("Computing channel statistics from training data...")
+
+            train_dataloader = self.trainer.datamodule.train_dataloader()  # type: ignore
+
+            channel_sum = torch.zeros(self.in_channels)
+            channel_sum_sq = torch.zeros(self.in_channels)
+            n_pixels = 0
+
+            # Iterate through a subset of training data (or all if dataset is small)
+            pbar = tqdm(train_dataloader, desc="Calculating stats", leave=False)
+            for batch in pbar:
+                nwp = batch["x"]["predicted_vars"]
+                # Compute statistics per channel
+                channel_sum += reduce(nwp, "b c h w -> c", "sum")
+                channel_sum_sq += reduce(nwp**2, "b c h w -> c", "sum")
+                n_pixels += nwp.shape[0] * nwp.shape[2] * nwp.shape[3]
+
+            # Calculate mean and std
+            means = channel_sum / n_pixels
+            stds = torch.sqrt(channel_sum_sq / n_pixels - means**2)
+            # Avoid division by zero
+            stds = torch.clamp(stds, min=1e-6)
+
+            self.register_buffer("channel_means", rearrange(means, "c -> c 1 1"))
+            self.register_buffer("channel_stds", rearrange(stds, "c -> c 1 1"))
+
+            self.stats_computed = True
+
+    def normalize(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize input using channel-wise mean and std."""
+        return (x - self.channel_means) / self.channel_stds  # type: ignore
+
+    def denormalize(self, x: torch.Tensor) -> torch.Tensor:
+        """Denormalize output back to original scale."""
+        return x * self.channel_stds + self.channel_means  # type: ignore
+
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode input to latent representation."""
+        x = self.normalize(x)
+        x = F.pad(x, self.padding, mode="constant", value=0)
         x = self.encoder(x)
-        x = self.encoder_fc(x)
         return x
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """Decode latent representation to reconstruction."""
-        x = self.decoder_fc(z)
-        x = x.view(-1, 256, 5, 5)
-        x = self.decoder(x)
+        x = self.decoder(z)
+        x = self.crop(x)
+        x = self.denormalize(x)
         return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -70,29 +118,21 @@ class AutoEncoder(L.LightningModule):
         return x_recon
 
     def training_step(self, batch, batch_idx):
-        x = batch
+        x = batch["x"]["predicted_vars"]
         x_recon = self(x)
 
-        # Crop both input and reconstruction to only consider valid pixels
-        x_cropped = self.crop(x)
-        x_recon_cropped = self.crop(x_recon)
-
         # MSE loss only on valid pixels
-        loss = self.loss(x_recon_cropped, x_cropped)
+        loss = self.loss(x_recon, x)
 
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = batch
+        x = batch["x"]["predicted_vars"]
         x_recon = self(x)
 
-        # Crop both input and reconstruction to only consider valid pixels
-        x_cropped = self.crop(x)
-        x_recon_cropped = self.crop(x_recon)
-
         # MSE loss only on valid pixels
-        loss = self.loss(x_recon_cropped, x_cropped)
+        loss = self.loss(x_recon, x)
 
         self.log("val_loss", loss, prog_bar=True)
         return loss
