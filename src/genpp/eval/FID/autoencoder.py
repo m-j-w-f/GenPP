@@ -1,25 +1,31 @@
-import lightning as L
+from collections.abc import Callable
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
+from omegaconf import DictConfig
 from tqdm import tqdm
 
 from genpp.models.layers import CropND
+from genpp.models.utils import BaseModule
 
 
-class AutoEncoder(L.LightningModule):
+class AutoEncoder(BaseModule):
     def __init__(
         self,
         in_channels: int,
         padding: tuple[int, int, int, int],
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
         latent_dim: int = 128,
         *args,
         **kwargs,
     ):
-        super().__init__()
+        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         self.save_hyperparameters()
+        print(f"Ignored args: {args}, kwargs: {kwargs}")
         self.in_channels = in_channels
         self.padding = list(padding) if not isinstance(padding, list) else padding
         self.crop = CropND(padding)
@@ -72,7 +78,7 @@ class AutoEncoder(L.LightningModule):
             # Iterate through a subset of training data (or all if dataset is small)
             pbar = tqdm(train_dataloader, desc="Calculating stats", leave=False)
             for batch in pbar:
-                nwp = batch["x"]["predicted_vars"]
+                nwp = batch[0]
                 # Compute statistics per channel
                 channel_sum += reduce(nwp, "b c h w -> c", "sum")
                 channel_sum_sq += reduce(nwp**2, "b c h w -> c", "sum")
@@ -118,7 +124,7 @@ class AutoEncoder(L.LightningModule):
         return x_recon
 
     def training_step(self, batch, batch_idx):
-        x = batch["x"]["predicted_vars"]
+        x = batch[0]
         x_recon = self(x)
 
         # MSE loss only on valid pixels
@@ -128,7 +134,7 @@ class AutoEncoder(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = batch["x"]["predicted_vars"]
+        x = batch[0]
         x_recon = self(x)
 
         # MSE loss only on valid pixels
@@ -136,10 +142,6 @@ class AutoEncoder(L.LightningModule):
 
         self.log("val_loss", loss, prog_bar=True)
         return loss
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
 
 
 class GradientDifferenceLoss(nn.Module):

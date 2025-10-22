@@ -1,0 +1,30 @@
+# Dataset for the AutoEncoder used in FID computation
+batch_size: 64
+
+_dataloader_template: &dataloader_template
+  batch_size: ${data.batch_size} # Use the actual batch size here
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  num_workers: ${data.dataloader.num_workers}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
+  persistent_workers: ${data.dataloader.persistent_workers}
+
+module:
+  _target_: genpp.data.zarr.ZarrDataModule
+  x_select_variables:
+    - '2m_temperature'
+    - '10m_wind_speed'
+  split:
+    train: ${data.splits.train}
+    val: ${data.splits.val}
+    test: ${data.splits.test}
+  dataloader_kwargs:
+    train:
+      <<: *dataloader_template
+      shuffle: true
+    val:
+      <<: *dataloader_template
+      shuffle: false
+    test:
+      <<: *dataloader_template
+      shuffle: false

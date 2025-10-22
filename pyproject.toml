@@ -61,7 +61,6 @@ sync = '''rsync -avzr --progress --human-readable
   --exclude='wandb/'
   --exclude='.DS_Store'
   --exclude='data/weatherbench2/hres_t0.zarr/'
-  --exclude='data/weatherbench2/ifs_ens.zarr/'
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
 
 

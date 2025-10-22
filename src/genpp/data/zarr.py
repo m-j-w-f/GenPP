@@ -1,41 +1,68 @@
-import pytorch_lightning as pl
+"""
+This dataloader is primarily used for the autoencoder training.
+There is no functionality to pre-process the data and there is no plan in adding this.
+"""
+
+from pathlib import Path
+
+import lightning as L
 import torch
-import zarr
-from torch.utils.data import DataLoader, Dataset
+import xarray as xr
+from torch.utils.data import DataLoader, TensorDataset
+
+from genpp import BASE_DIR
 
 
-class ZarrDataset(Dataset):
-    def __init__(self, zarr_file, transform=None):
-        self.zarr_file = zarr.open(zarr_file, mode="r")
-        self.transform = transform
-        self.num_samples = self.zarr_file.shape[0]  # Assuming the first dimension is samples
-
-    def __len__(self):
-        return self.num_samples
-
-    def __getitem__(self, idx):
-        sample = self.zarr_file[idx]
-        if self.transform:
-            sample = self.transform(sample)
-        return torch.tensor(sample, dtype=torch.float32)
-
-
-class ZarrDataModule(pl.LightningDataModule):
-    def __init__(self, zarr_file, batch_size: int, transform, dataloader_kwargs: dict):
+class ZarrDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        split: dict[str, slice],
+        x_select_variables: list[str],
+        dataloader_kwargs,
+        zarr_path: Path = BASE_DIR / "data" / "weatherbench2" / "ifs_ens.zarr",
+    ):
         super().__init__()
-        self.zarr_file = zarr_file
-        self.batch_size = batch_size
-        self.transform = transform
+        self.ds = xr.open_zarr(zarr_path, consolidated=True)
+        self.features = (
+            list(x_select_variables)
+            if not isinstance(x_select_variables, list)
+            else x_select_variables
+        )
+        self.ds = self.ds[self.features]
+        self.ds = (
+            self.ds.stack(sample=("time", "prediction_timedelta", "number"))
+            .to_dataarray("feature")
+            .transpose("sample", "feature", "longitude", "latitude")
+        )
+        # Filter out all samples with NaNs
+        valid_samples = ~self.ds.isnull().any(dim=("feature", "longitude", "latitude"))
+        self.ds = self.ds.sel(sample=valid_samples.compute())
+
+        self.split = split
         self.dataloader_kwargs = dataloader_kwargs
 
     def setup(self, stage=None):
-        self.dataset = ZarrDataset(self.zarr_file, transform=self.transform)
+        if stage == "fit" or stage is None:
+            self.train_dataset = self.ds.sel(time=self.split["train"])
+        if stage == "validate" or stage == "fit" or stage is None:
+            self.val_dataset = self.ds.sel(time=self.split["val"])
+        if stage == "test" or stage is None:
+            self.test_dataset = self.ds.sel(time=self.split["test"])
 
     def train_dataloader(self):
-        return DataLoader(self.dataset, **self.dataloader_kwargs)
+        t = torch.tensor(self.train_dataset.values)
+        dataset = TensorDataset(t)
+        return DataLoader(dataset, **self.dataloader_kwargs.train)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset, **self.dataloader_kwargs)
+        t = torch.tensor(self.val_dataset.values)
+        dataset = TensorDataset(t)
+        return DataLoader(dataset, **self.dataloader_kwargs.val)
 
     def test_dataloader(self):
-        return DataLoader(self.dataset, **self.dataloader_kwargs)
+        t = torch.tensor(self.test_dataset.values)
+        dataset = TensorDataset(t)
+        return DataLoader(dataset, **self.dataloader_kwargs.test)
+
+    def cleanup(self) -> None:
+        pass
