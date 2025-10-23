@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -24,7 +25,7 @@ class AutoEncoder(BaseModule):
         **kwargs,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["args", "kwargs"])
         print(f"Ignored args: {args}, kwargs: {kwargs}")
         self.in_channels = in_channels
         self.padding = list(padding) if not isinstance(padding, list) else padding
@@ -142,6 +143,15 @@ class AutoEncoder(BaseModule):
 
         self.log("val_loss", loss, prog_bar=True)
         return loss
+
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        # If buffer exists in checkpoint, load it
+        if "channel_means" in checkpoint["state_dict"]:
+            print("Loading channel_means from checkpoint")
+            self.register_buffer("channel_means", checkpoint["state_dict"]["channel_means"])
+        if "channel_stds" in checkpoint["state_dict"]:
+            print("Loading channel_stds from checkpoint")
+            self.register_buffer("channel_stds", checkpoint["state_dict"]["channel_stds"])
 
 
 class GradientDifferenceLoss(nn.Module):
