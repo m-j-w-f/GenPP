@@ -241,6 +241,12 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
         loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
         return loss
 
+    def on_load_checkpoint(self, checkpoint):
+        # If buffer exists in checkpoint, load it
+        if "scale_variance_td" in checkpoint["state_dict"]:
+            print("Loading scale_variance_td from checkpoint")
+            self.register_buffer("scale_variance_td", checkpoint["state_dict"]["scale_variance_td"])
+
 
 class FcChenModel(BaseChenModel):
     """Model from GENERATIVE MACHINE LEARNING METHODS FOR MULTIVARIATE ENSEMBLE POSTPROCESSING by J. Chen et al. (2024).
@@ -383,7 +389,7 @@ class CNNChenModel(BaseChenModel):
     """
 
     def __init__(self, *args, padding: tuple[int, int, int, int], **kwargs) -> None:
-        self.save_hyperparameters(ignore=["final_activation", "loss_fn"])
+        self.save_hyperparameters()
         super().__init__(*args, **kwargs)
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude

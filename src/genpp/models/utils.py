@@ -91,7 +91,7 @@ class FitScaleVarianceTDMixin:
                     b = torch.zeros((nwp.shape[1], 2)).to(nwp)
 
                 if crop_layer is not None:
-                    nwp = crop_layer(nwp)
+                    nwp = crop_layer(nwp)  # type: ignore
 
                 # If shapes don't match, crop obs as well
                 if nwp.shape != obs.shape:

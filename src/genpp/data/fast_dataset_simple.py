@@ -490,7 +490,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         # Load cache metadata from file
         with open(self.metadata_path, "rb") as f:
-            cache_metadata = pickle.load(f)
+            self.cache_metadata = pickle.load(f)
 
         # Load cached tensors
         tmp_tensor = torch.load(self.tensor_path)
@@ -499,7 +499,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         td_tensor = tmp_tensor["prediction_timedelta"]
 
         # Get feature metadata
-        feature_metadata = cache_metadata["feature_metadata"]
+        feature_metadata = self.cache_metadata["feature_metadata"]
 
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
@@ -507,7 +507,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "fit":
             # Create training dataset
-            train_indices = cache_metadata["split_indices"]["train"]
+            train_indices = self.cache_metadata["split_indices"]["train"]
             self.train_dataset = TransformTensorDataset(
                 x_tensor[train_indices],
                 y_tensor[train_indices],
@@ -519,7 +519,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage in ("fit", "validate"):
             # Create validation dataset
-            val_indices = cache_metadata["split_indices"]["val"]
+            val_indices = self.cache_metadata["split_indices"]["val"]
             self.val_dataset = TransformTensorDataset(
                 x_tensor[val_indices],
                 y_tensor[val_indices],
@@ -531,7 +531,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "test":
             # Create test datasets grouped by unique lead times
-            test_indices = cache_metadata["split_indices"]["test"]
+            test_indices = self.cache_metadata["split_indices"]["test"]
             x_test = x_tensor[test_indices]
             y_test = y_tensor[test_indices]
             td_test = td_tensor[test_indices]
