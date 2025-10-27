@@ -61,12 +61,31 @@ class DistributionRegression(BaseModule, ABC):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def test_step(self, batch) -> torch.Tensor:
+    def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
         x, y, time_delta = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, time_delta)
-        loss = self.out_distribution.compute_loss(res, y)
-        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        return loss
+        loss_u = self.out_distribution.compute_loss(res, y)
+        loss = reduce(loss_u, "b c h w -> c", "mean")
+        # Log the loss for each variable separately
+        for i, l_value in enumerate(loss):
+            self.log(
+                f"test_loss_var_{i}",
+                l_value,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
+        loss_mean = reduce(loss_u, "b c h w -> 1", "mean")
+        self.log(
+            "test_loss",
+            loss_mean,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        return loss_mean
 
     def predict_step(self, batch) -> torch.Tensor:
         x, time_delta = batch["x"], batch["timedelta"]

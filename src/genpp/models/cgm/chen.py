@@ -218,7 +218,7 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def test_step(self, batch) -> torch.Tensor:
+    def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
         x, y, td = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
@@ -239,6 +239,7 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
         res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
         loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def on_load_checkpoint(self, checkpoint):

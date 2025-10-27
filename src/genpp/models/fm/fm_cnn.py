@@ -499,7 +499,7 @@ class FMUNet(BaseModule, FitScaleVarianceTDMixin):
         self.log("val_loss", loss)
         return loss
 
-    def test_step(self, batch) -> torch.Tensor:
+    def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
         loss = self._calc_loss(batch)
         loss = reduce(loss, "b c h w -> c", "mean")  # How good are we per channel
         for i, lo in enumerate(loss):
@@ -512,7 +512,7 @@ class FMUNet(BaseModule, FitScaleVarianceTDMixin):
                 sync_dist=True,
             )
         loss = torch.mean(loss)
-        self.log("test_loss", loss)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def on_load_checkpoint(self, checkpoint):
