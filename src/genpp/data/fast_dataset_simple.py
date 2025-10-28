@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import lightning as L
+import numpy as np
 import torch
 import xarray as xr
 import xbatcher
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
 from xbatcher.loaders.torch import to_tensor
 
 from genpp.data import (
@@ -80,8 +80,9 @@ def _cache_data(
     y_da: xr.DataArray,
     time_slices: dict[str, slice],
     tensor_save_path: Path,
-    batch_kwargs: dict,
-) -> tuple[dict[str, list[int]], dict[str, Any]]:
+    x_batch_kwargs: dict,
+    y_batch_kwargs: dict,
+) -> dict[str, Any]:
     """
     Pre-process xarray data and save as PyTorch tensor files.
 
@@ -95,11 +96,12 @@ def _cache_data(
         batch_kwargs: Batching configuration from xbatcher
 
     Returns:
-        A tuple containing:
-        - The split indices indicating the train, val and test sets.
-        - Feature categorization metadata (predicted, auxiliary, meta variable info)
+        Feature categorization metadata (predicted, auxiliary, meta variable info)
     """
-    assert x_da.feature.shape[0] == batch_kwargs["input_dims"]["feature"], (
+    assert x_da.feature.shape[0] == x_batch_kwargs["input_dims"]["feature"], (
+        "Feature dimension mismatch, slicing features is not permitted here."
+    )
+    assert y_da.feature.shape[0] == y_batch_kwargs["input_dims"]["feature"], (
         "Feature dimension mismatch, slicing features is not permitted here."
     )
     # Categorize features
@@ -132,64 +134,99 @@ def _cache_data(
         "meta_var_names": meta_var_names,
         "meta_var_indices": meta_var_indices,
         "pixel_idx_index": pixel_idx_index,
+        "time": {},
+        "prediction_timedelta": {},
     }
-
-    all_x, all_y, all_td = [], [], []
-    split_indices: dict[str, list[int]] = {}
-    current_idx = 0
-
+    all_tensors = {}
     for split_name, time_slice in time_slices.items():
         # We split both datasets right here to prevent leaking data
-        x_split = x_da.sel(time=time_slice)
-        y_split = y_da.sel(time=time_slice)
+        x_split = (
+            x_da.sel(time=time_slice)
+            .stack(prediction=["time", "prediction_timedelta"])
+            .transpose("prediction", ...)
+        )
+        y_split = y_da.sel(time=time_slice).rename({"time": "predicted_time"})
 
-        # These batch kwargs are fixed so that the batches are random
-        batch_kwargs["batch_dims"]["time"] = 1
-        batch_kwargs["batch_dims"]["prediction_timedelta"] = 1
+        # For which times do we need observations?
+        times = x_split.time + x_split.prediction_timedelta
+        times = times.compute().values
+
+        # Now only select the times for which we have observations
+        predicted_times_mask = np.isin(times, y_split.predicted_time.values)
+        predicted_times = times[predicted_times_mask]
+
+        # For y simply index on the predicted_time dimension
+        y_split = y_split.sel(predicted_time=predicted_times)
+
+        # For x use the mask on the prediction dimension
+        x_split = x_split.isel(prediction=predicted_times_mask)
+
+        # Quick sanity check that times match
+        y_time = y_split.predicted_time.values
+        x_time = x_split.time.values + x_split.prediction_timedelta.values
+        assert np.array_equal(y_time, x_time)
+
+        # Use the same name in both datasets for clarity
+        x_split = x_split.rename({"prediction": "sample"})
+        y_split = y_split.rename({"predicted_time": "sample"})
+
+        # We load all times at once for speed
+        # Keep in mind that there might be some cutting spatially in the dataset
+        if "batch_dims" not in x_batch_kwargs:
+            x_batch_kwargs["batch_dims"] = {}
+        x_batch_kwargs["batch_dims"]["sample"] = x_split.sample.shape[0]
+
+        if "batch_dims" not in y_batch_kwargs:
+            y_batch_kwargs["batch_dims"] = {}
+        y_batch_kwargs["batch_dims"]["sample"] = y_split.sample.shape[0]
 
         # TODO instead of doing this sequentially we can do this for all lead times at once
-        gen = xbatcher.BatchGenerator(x_split, **batch_kwargs)
+        x_gen = xbatcher.BatchGenerator(x_split, **x_batch_kwargs)
+        y_gen = xbatcher.BatchGenerator(y_split, **y_batch_kwargs)
 
-        split_batch_indices = []
-        for x_batch in tqdm(gen):
+        max_td = 0
+        all_x_split, all_y_split, all_td_split = [], [], []
+        times_np, predicted_timedeltas_np = [], []
+        for x_batch, y_batch in zip(x_gen, y_gen):
             x_tensor = to_tensor(x_batch)
-            t0 = x_batch.time.values[0]
-            td = x_batch.prediction_timedelta.values[0]
-            y_t = t0 + td
-            if y_t not in y_split.time.values:
-                # This data is not includeded as it would be in another split
-                # thus leaking data
-                continue
-            y_batch = y_split.sel(time=y_t, longitude=x_batch.longitude, latitude=x_batch.latitude)
-            y_tensor = to_tensor(y_batch.compute())
+            y_tensor = to_tensor(y_batch)
+            tensor_td = torch.tensor(
+                x_batch.prediction_timedelta.values.astype(np.float32), dtype=torch.float32
+            )
 
-            # Ensure y_tensor has the same number of dimensions as x_tensor by
-            # prepending singleton dimensions as needed.
-            y_tensor = y_tensor.unsqueeze(0)
+            all_x_split.append(x_tensor)
+            all_y_split.append(y_tensor)
+            all_td_split.append(tensor_td)
 
-            tensor_td = torch.tensor([td], dtype=torch.float32)
+            times_np.append(x_batch.time.values)
+            predicted_timedeltas_np.append(x_batch.prediction_timedelta.values)
+            # Track this to normalize later
+            max_td = max(max_td, tensor_td.max().item())
 
-            all_x.append(x_tensor)
-            all_y.append(y_tensor)
-            all_td.append(tensor_td)
+        all_tensors[split_name] = {
+            "x": torch.cat(all_x_split, dim=0),
+            "y": torch.cat(all_y_split, dim=0),
+            "prediction_timedelta": torch.cat(all_td_split, dim=0),
+        }
+        feature_metadata["time"][split_name] = np.concatenate(times_np, axis=0)  # type: ignore
+        feature_metadata["prediction_timedelta"][split_name] = np.concatenate(  # type: ignore
+            predicted_timedeltas_np, axis=0
+        )
 
-            split_batch_indices.append(current_idx)
-            current_idx += 1
-
-        split_indices[split_name] = split_batch_indices
-
-    if not all_x:
+    if not all_tensors:
         raise ValueError("No batches generated from the data")
 
-    x_tensor = torch.cat(all_x, dim=0)
-    y_tensor = torch.cat(all_y, dim=0)
-    td_tensor = torch.cat(all_td, dim=0)
+    # Normalize td to have max value of 1
+    if max_td != 0:  # type: ignore
+        for split in all_tensors:
+            all_tensors[split]["prediction_timedelta"] = (
+                all_tensors[split]["prediction_timedelta"] / max_td  # type: ignore
+            )
+    else:
+        raise ValueError("Maximum prediction_timedelta is zero, cannot normalize.")
 
-    # Normalize td_tensor to have max value of 1
-    td_tensor = td_tensor / td_tensor.max()
-
-    torch.save({"x": x_tensor, "y": y_tensor, "prediction_timedelta": td_tensor}, tensor_save_path)
-    return split_indices, feature_metadata
+    torch.save(all_tensors, tensor_save_path)
+    return feature_metadata
 
 
 class TransformTensorDataset(Dataset):
@@ -454,18 +491,18 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
         }
 
         # Cache is not found - run the expensive _cache_data function
-        split_indices, feature_metadata = _cache_data(
+        feature_metadata = _cache_data(
             x_da,
             y_da,
             time_slice,
             self.tensor_path,
-            batch_kwargs=self.dataset_config.train.x_kwargs,
+            x_batch_kwargs=self.dataset_config.train.x_kwargs,
+            y_batch_kwargs=self.dataset_config.train.y_kwargs,
         )
 
         # Store metadata with hash
         cache_metadata = {
             "config_hash": config_hash,
-            "split_indices": split_indices,
             "feature_metadata": feature_metadata,
             "x_variables": x_da.feature.values.tolist(),
             "y_variables": y_da.feature.values.tolist(),
@@ -493,13 +530,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             self.cache_metadata = pickle.load(f)
 
         # Load cached tensors
-        tmp_tensor = torch.load(self.tensor_path)
-        x_tensor = tmp_tensor["x"]
-        y_tensor = tmp_tensor["y"]
-        td_tensor = tmp_tensor["prediction_timedelta"]
-
-        # Get feature metadata
-        feature_metadata = self.cache_metadata["feature_metadata"]
+        all_tensors = torch.load(self.tensor_path)
 
         # Get transforms from metadata
         x_transform = self.dataset_config.train.x_transform
@@ -507,34 +538,31 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "fit":
             # Create training dataset
-            train_indices = self.cache_metadata["split_indices"]["train"]
             self.train_dataset = TransformTensorDataset(
-                x_tensor[train_indices],
-                y_tensor[train_indices],
-                td_tensor[train_indices],
-                feature_metadata=feature_metadata,
+                all_tensors["train"]["x"],
+                all_tensors["train"]["y"],
+                all_tensors["train"]["prediction_timedelta"],
+                feature_metadata=self.cache_metadata["feature_metadata"],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
 
         if stage in ("fit", "validate"):
             # Create validation dataset
-            val_indices = self.cache_metadata["split_indices"]["val"]
             self.val_dataset = TransformTensorDataset(
-                x_tensor[val_indices],
-                y_tensor[val_indices],
-                td_tensor[val_indices],
-                feature_metadata=feature_metadata,
+                all_tensors["val"]["x"],
+                all_tensors["val"]["y"],
+                all_tensors["val"]["prediction_timedelta"],
+                feature_metadata=self.cache_metadata["feature_metadata"],
                 x_transform=x_transform,
                 y_transform=y_transform,
             )
 
         if stage == "test":
             # Create test datasets grouped by unique lead times
-            test_indices = self.cache_metadata["split_indices"]["test"]
-            x_test = x_tensor[test_indices]
-            y_test = y_tensor[test_indices]
-            td_test = td_tensor[test_indices]
+            x_test = all_tensors["test"]["x"]
+            y_test = all_tensors["test"]["y"]
+            td_test = all_tensors["test"]["prediction_timedelta"]
             unique_tds = torch.sort(torch.unique(td_test))[0]
             self.test_datasets = []
             for td in unique_tds:
@@ -546,7 +574,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                     x_subset,
                     y_subset,
                     td_subset,
-                    feature_metadata=feature_metadata,
+                    feature_metadata=self.cache_metadata["feature_metadata"],
                     x_transform=x_transform,
                     y_transform=y_transform,
                 )

@@ -53,13 +53,16 @@ _split_template: &split_template
       feature: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${count_meta_features:${data.preprocess.x_preprocessing},true}'}
       longitude: ${data.spatial.original.longitude}
       latitude: ${data.spatial.original.latitude}
-    batch_dims:
-    # These dims are set to 1 so that the batching works correctly
-      time: 1
-      prediction_timedelta: 1
+    #batch_dims:
+      # No batch dims set here as they are set in the dataloader
+      # If we want to create spatial patches, we can set them here
   x_transform: ${data.spatial.x_transform}
   # Y data is not batched with xbatcher anymore,
-  # the correct data is selected automatically using x_kwards
+  y_kwargs:
+    input_dims:
+      feature: ${data.features.output} # TODO check if this is correct
+      longitude: ${data.spatial.original.longitude}
+      latitude: ${data.spatial.original.latitude}
   y_transform: ${data.spatial.y_transform}
 
 # Optimized dataloader template for faster loading
