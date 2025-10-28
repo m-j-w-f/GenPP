@@ -144,6 +144,19 @@ class AutoEncoder(BaseModule):
         self.log("val_loss", loss, prog_bar=True)
         return loss
 
+    def predict_step(self, batch: list[torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """Return the latent representations
+
+        Args:
+            batch (list[torch.Tensor]): The input batch of tensors.
+            batch_idx (int): The index of the batch.
+
+        Returns:
+            Any: The latent representations of the input batch.
+        """
+        x = batch[0]
+        return self.encode(x)
+
     def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
         # If buffer exists in checkpoint, load it
         if "channel_means" in checkpoint["state_dict"]:

@@ -1,3 +1,5 @@
+import numpy as np
+import scipy.linalg
 import torch
 
 
@@ -9,7 +11,7 @@ def fid(
     sigma1: torch.Tensor | None = None,
     sigma2: torch.Tensor | None = None,
     eps: float = 0.0,
-) -> torch.Tensor:
+) -> float:
     """
     Compute the Fréchet Inception Distance (FID) between two distributions.
 
@@ -28,7 +30,7 @@ def fid(
         eps (float): Small value for numerical stability (default: 0.0)
 
     Returns:
-        fid_score (torch.Tensor): the FID score between the two distributions
+        fid_score (float): the FID score between the two distributions
 
     Raises:
         ValueError: If insufficient arguments are provided for either distribution
@@ -94,9 +96,10 @@ def _fid(
     sigma1: torch.Tensor,
     sigma2: torch.Tensor,
     eps: float = 0.0,
-) -> torch.Tensor:
+) -> float:
     """
     Compute the Fréchet Inception Distance (FID) between two distributions.
+    Implementation adapted from: https://github.com/mseitzer/pytorch-fid
 
     Args:
         mu1 (torch.Tensor): Mean vector of the first distribution, shape [vector_size]
@@ -106,29 +109,31 @@ def _fid(
         eps (float): Small value for numerical stability (default: 0.0)
 
     Returns:
-        fid_score (torch.Tensor): the FID score between the two distributions
+        fid_score (float): the FID score between the two distributions
 
     The FID is computed as:
         FID = ||mu1 - mu2||^2 + Tr(sigma1 + sigma2 - 2*sqrt(sigma1*sigma2))
     where mu1, mu2 are the means and sigma1, sigma2 are the covariance matrices.
     """
-    # Compute the squared L2 norm of the difference between means
-    mean_diff = torch.sum((mu1 - mu2) ** 2)
+    mu1, mu2 = mu1.detach().cpu(), mu2.detach().cpu()
+    sigma1, sigma2 = sigma1.detach().cpu(), sigma2.detach().cpu()
 
-    # Compute sqrt(sigma1 @ sigma2) using eigendecomposition
-    # Add small diagonal term for numerical stability
-    product = sigma1 @ sigma2
-    product = product + eps * torch.eye(product.shape[0]).to(product)
+    diff = mu1 - mu2
 
-    # Note: product should be positive semidefinite, so eigh is appropriate
-    eigvals, _ = torch.linalg.eigh(product)
+    # Product might be almost singular
+    covmean, _ = scipy.linalg.sqrtm(sigma1.mm(sigma2).numpy(), disp=False)
+    # Numerical error might give slight imaginary component
+    if np.iscomplexobj(covmean):
+        if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):  # type: ignore
+            m = np.max(np.abs(covmean.imag))
+            raise ValueError(f"Imaginary component {m}")
+        covmean = covmean.real
 
-    # The sum of eigenvalues is the trace of the matrix, so no need to compute full matrix sqrt
-    # Clamp negative eigenvalues to zero for numerical stability
-    trace_sqrt = torch.clamp(eigvals, min=0).sqrt().sum()
+    tr_covmean = np.trace(covmean)
 
-    # Compute FID score
-    trace_term = torch.trace(sigma1) + torch.trace(sigma2) - 2 * trace_sqrt
-    fid_score = mean_diff + trace_term
+    if not np.isfinite(covmean).all():
+        tr_covmean = np.sum(
+            np.sqrt(((np.diag(sigma1) * eps) * (np.diag(sigma2) * eps)) / (eps * eps))
+        )
 
-    return fid_score
+    return float(diff.dot(diff).item() + torch.trace(sigma1) + torch.trace(sigma2) - 2 * tr_covmean)
