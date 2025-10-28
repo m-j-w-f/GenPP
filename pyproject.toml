@@ -41,6 +41,8 @@ omegaconf = ">=2.3.0,<3"
 wandb = ">=0.21.0,<0.22"
 bottleneck = ">=1.5.0,<2"
 cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
+polars = ">=1.35.0,<2"
+seaborn = ">=0.13.2,<0.14"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=8.4.1,<9"
