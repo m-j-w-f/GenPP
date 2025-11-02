@@ -43,6 +43,7 @@ bottleneck = ">=1.5.0,<2"
 cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
 polars = ">=1.35.0,<2"
 seaborn = ">=0.13.2,<0.14"
+hvplot = ">=0.12.1,<0.13"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=8.4.1,<9"
