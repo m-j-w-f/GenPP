@@ -194,6 +194,20 @@ class AutoEncoder(BaseEncoder):
 
 
 class ClassifierEncoder(BaseEncoder):
+    """Classifier model for distinguishing between single member and mean ensemble forecasts.
+
+    This model uses the same encoder architecture as the AutoEncoder but adds a classification
+    head for binary classification. Used for training a discriminator in FID computation.
+
+    Args:
+        in_channels (int): Number of input channels.
+        padding (tuple[int, int, int, int]): Padding to apply to input (left, right, top, bottom).
+        optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory function.
+        lr_scheduler (DictConfig): Learning rate scheduler configuration.
+        num_classes (int): Number of output classes. Defaults to 2.
+        latent_dim (int): Dimension of the latent representation. If 0, uses 256 directly and does not add the intermediate linear layer. Defaults to 128.
+    """
+
     def __init__(
         self,
         in_channels: int,
@@ -201,6 +215,7 @@ class ClassifierEncoder(BaseEncoder):
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         num_classes: int = 2,
+        latent_dim: int = 128,
         *args,
         **kwargs,
     ):
@@ -214,12 +229,19 @@ class ClassifierEncoder(BaseEncoder):
         )
         self.num_classes = num_classes
         self.loss_fn = nn.CrossEntropyLoss()
+        self.latent_dim = latent_dim
 
         # Encoder (base encoder)
-        self.encoder = self.encoder_base
+        # Checked latent dim is used to handle case when latent_dim=0
+        # where we skip the last linear layer and just use 256 as the latent dim
+        if self.latent_dim != 0:
+            self.encoder = nn.Sequential(self.encoder_base, nn.Linear(256, self.latent_dim))
+        else:
+            self.encoder = self.encoder_base
+            self.latent_dim = 256
 
         # Classifier head
-        self.classifier = nn.Linear(256, num_classes)
+        self.classifier = nn.Linear(self.latent_dim, num_classes)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode input to latent representation."""
