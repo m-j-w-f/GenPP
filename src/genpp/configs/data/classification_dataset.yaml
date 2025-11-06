@@ -1,0 +1,6 @@
+# Dataset for the Classifier used in FID computation
+defaults:
+ - ae_dataset
+
+module:
+  _target_: genpp.data.zarr_dataset.ZarrClassificationDataModule

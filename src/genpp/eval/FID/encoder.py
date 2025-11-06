@@ -13,14 +13,13 @@ from genpp.models.layers import CropND
 from genpp.models.utils import BaseModule
 
 
-class AutoEncoder(BaseModule):
+class BaseEncoder(BaseModule):
     def __init__(
         self,
         in_channels: int,
         padding: tuple[int, int, int, int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        latent_dim: int = 128,
         *args,
         **kwargs,
     ):
@@ -32,15 +31,10 @@ class AutoEncoder(BaseModule):
         self.crop = CropND(padding)
         self.height = 40  # Expected height after padding
         self.width = 40  # Expected width after padding
-        self.loss_l1 = F.l1_loss
-        self.grad_loss = GradientDifferenceLoss()
-        self.loss = lambda recon, orig: self.loss_l1(recon, orig) + 0.2 * self.grad_loss(
-            recon, orig
-        )
         self.stats_computed = False
 
-        # Encoder
-        self.encoder = nn.Sequential(
+        # Base encoder (convolutional layers)
+        self.encoder_base = nn.Sequential(
             # Input: (B, in_channels, H, W)
             nn.Conv2d(in_channels, 64, kernel_size=4, stride=2, padding=1),  # -> (B, 64, H/2, W/2)
             nn.ReLU(inplace=True),
@@ -50,19 +44,6 @@ class AutoEncoder(BaseModule):
             nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d(1),  # -> (B, 256, 1, 1)
             nn.Flatten(),  # -> (B, 256)
-            nn.Linear(256, latent_dim),  # -> (B, latent_dim)
-        )
-
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 256 * self.height // 8 * self.width // 8),
-            Rearrange("b (c h w) -> b c h w", c=256, h=self.height // 8, w=self.width // 8),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # -> (B, 128, 10, 10)
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # -> (B, 64, 20, 20)
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(
-                64, in_channels, kernel_size=4, stride=2, padding=1
-            ),  # -> (B, in_channels, 40, 40)
         )
 
     def setup(self, stage: str):
@@ -103,6 +84,60 @@ class AutoEncoder(BaseModule):
     def denormalize(self, x: torch.Tensor) -> torch.Tensor:
         """Denormalize output back to original scale."""
         return x * self.channel_stds + self.channel_means  # type: ignore
+
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        # If buffer exists in checkpoint, load it
+        if "channel_means" in checkpoint["state_dict"]:
+            print("Loading channel_means from checkpoint")
+            self.register_buffer("channel_means", checkpoint["state_dict"]["channel_means"])
+        if "channel_stds" in checkpoint["state_dict"]:
+            print("Loading channel_stds from checkpoint")
+            self.register_buffer("channel_stds", checkpoint["state_dict"]["channel_stds"])
+
+
+class AutoEncoder(BaseEncoder):
+    def __init__(
+        self,
+        in_channels: int,
+        padding: tuple[int, int, int, int],
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
+        latent_dim: int = 128,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels=in_channels,
+            padding=padding,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            *args,
+            **kwargs,
+        )
+        self.latent_dim = latent_dim
+        self.loss_l1 = F.l1_loss
+        self.grad_loss = GradientDifferenceLoss()
+        self.loss = lambda recon, orig: self.loss_l1(recon, orig) + 0.2 * self.grad_loss(
+            recon, orig
+        )
+
+        # Encoder (extends base encoder with latent projection)
+        self.encoder = nn.Sequential(
+            self.encoder_base,
+            nn.Linear(256, latent_dim),  # -> (B, latent_dim)
+        )
+
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 256 * self.height // 8 * self.width // 8),
+            Rearrange("b (c h w) -> b c h w", c=256, h=self.height // 8, w=self.width // 8),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # -> (B, 128, 10, 10)
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # -> (B, 64, 20, 20)
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(
+                64, self.in_channels, kernel_size=4, stride=2, padding=1
+            ),  # -> (B, in_channels, 40, 40)
+        )
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode input to latent representation."""
@@ -157,14 +192,85 @@ class AutoEncoder(BaseModule):
         x = batch[0]
         return self.encode(x)
 
-    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
-        # If buffer exists in checkpoint, load it
-        if "channel_means" in checkpoint["state_dict"]:
-            print("Loading channel_means from checkpoint")
-            self.register_buffer("channel_means", checkpoint["state_dict"]["channel_means"])
-        if "channel_stds" in checkpoint["state_dict"]:
-            print("Loading channel_stds from checkpoint")
-            self.register_buffer("channel_stds", checkpoint["state_dict"]["channel_stds"])
+
+class ClassifierEncoder(BaseEncoder):
+    def __init__(
+        self,
+        in_channels: int,
+        padding: tuple[int, int, int, int],
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
+        num_classes: int = 2,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels=in_channels,
+            padding=padding,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            *args,
+            **kwargs,
+        )
+        self.num_classes = num_classes
+        self.loss_fn = nn.CrossEntropyLoss()
+
+        # Encoder (base encoder)
+        self.encoder = self.encoder_base
+
+        # Classifier head
+        self.classifier = nn.Linear(256, num_classes)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode input to latent representation."""
+        x = self.normalize(x)
+        x = F.pad(x, self.padding, mode="constant", value=0)
+        x = self.encoder(x)
+        return x
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through encoder and classifier."""
+        features = self.encode(x)
+        logits = self.classifier(features)
+        return logits
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self.forward(x)
+        loss = self.loss_fn(logits, y)
+
+        preds = torch.argmax(logits, dim=1)
+        acc = (preds == y).float().mean()
+
+        self.log("train_loss", loss, prog_bar=True)
+        self.log("train_acc", acc, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self.forward(x)
+        loss = self.loss_fn(logits, y)
+
+        preds = torch.argmax(logits, dim=1)
+        acc = (preds == y).float().mean()
+
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_acc", acc, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch: list[torch.Tensor], batch_idx: int) -> torch.Tensor:
+        """Return the hidden representations after the encoder.
+
+        Args:
+            batch (list[torch.Tensor]): The input batch of tensors.
+            batch_idx (int): The index of the batch.
+
+        Returns:
+            torch.Tensor: The hidden representations of the input batch.
+        """
+        x, _ = batch
+        features = self.encode(x)
+        return features
 
 
 class GradientDifferenceLoss(nn.Module):
