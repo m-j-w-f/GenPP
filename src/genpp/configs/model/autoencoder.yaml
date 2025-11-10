@@ -1,5 +1,5 @@
 # Model hyperparameters
-_target_: genpp.eval.FID.autoencoder.AutoEncoder
+_target_: genpp.eval.FID.encoder.AutoEncoder
 in_channels: 2   # Number of input channels
 padding: [4, 5, 2, 1]  # Pad so that the size is 40 x 40
 latent_dim: 128  # Latent dimension for the autoencoder

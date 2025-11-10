@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+import xarray as xr
 from einops import reduce
 
 try:
@@ -62,14 +63,14 @@ def log_scores(
         new_df.to_csv(file, index=False)
 
 
-def update_wandb_run(run_id: str, updates: dict[str, Any]) -> None:
+def update_wandb_run(run_path: str, updates: dict[str, Any]) -> None:
     """Update a Weights & Biases run with new summary metrics.
 
     Updates the summary statistics of an existing W&B run with the provided
     key-value pairs. If W&B is not available, prints a warning and returns.
 
     Args:
-        run_id (str): The unique identifier of the W&B run to update.
+        run_path (str): The unique identifier of the W&B run to update.
         updates (dict[str, Any]): Dictionary of key-value pairs to add or update
             in the run's summary.
     """
@@ -78,11 +79,30 @@ def update_wandb_run(run_id: str, updates: dict[str, Any]) -> None:
         return
     api = wandb.Api()
     # Locate the run
-    run = api.run(run_id)
+    run = api.run(run_path)
 
     for key, value in updates.items():
         run.summary[key] = value
     run.summary.update()
+
+
+def save_scores_df(df: pd.DataFrame, run_path: str) -> None:
+    if wandb is None:
+        print("WandB not available, skipping update.")
+        return
+    short_run_id = run_path.split("/")[-1]
+
+    # Initialize a new wandb run context to log the artifact
+    api = wandb.Api()
+    run = api.run(run_path)
+
+    # Create and log artifact within a run context
+    with wandb.init(
+        entity=run.entity, project=run.project, id=short_run_id, resume="allow"
+    ) as active_run:
+        artifact = wandb.Artifact(f"scores_{short_run_id}", type="results")
+        artifact.add(wandb.Table(dataframe=df), f"evaluation_scores_{short_run_id}")
+        active_run.log_artifact(artifact)
 
 
 def compute_scores_per_leadtime(
@@ -174,3 +194,39 @@ def compute_scores_per_leadtime(
     if method is None:
         return scores_delta[None]
     return scores_delta
+
+
+def save_predictions_dataarray(
+    predictions: xr.DataArray, save_path: Path, overwrite: bool = False
+) -> None:
+    """Save predictions as an xarray DataArray in Zarr format.
+
+    Args:
+        predictions (xr.DataArray): Predictions with shape
+            (time, prediction_timedelta, feature, lat, lon).
+        save_path (Path): Path to save the Zarr file.
+    """
+    # Reset index, otherwise xarray will complain when saving
+    predictions = predictions.reset_index("prediction")
+    if not save_path.exists():
+        predictions.to_zarr(save_path, consolidated=True)
+        print(f"Saved predictions to {save_path}.")
+    else:
+        if overwrite:
+            predictions.to_zarr(save_path, mode="w", consolidated=True)
+            print(f"Overwritten existing file at {save_path}.")
+        else:
+            print(f"File {save_path} already exists.")
+
+
+def load_predictions_dataarray(save_path: Path) -> xr.DataArray:
+    """Load predictions from a Zarr file as an xarray DataArray.
+
+    Args:
+        save_path (Path): Path to the Zarr file.
+    Returns:
+        xr.DataArray: Loaded predictions with shape
+    """
+    predictions = xr.load_dataarray(save_path)
+    predictions = predictions.set_index(prediction=["time", "prediction_timedelta"])
+    return predictions
