@@ -8,6 +8,7 @@
 *.zarr
 
 # Log files
+outputs
 outputs/
 logs/
 wandb/
