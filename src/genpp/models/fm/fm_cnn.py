@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 
 import torch
@@ -8,6 +7,7 @@ from flow_matching.path import CondOTProbPath
 from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
+from genpp.models.fm.helpers import ConditionalVectorField
 from genpp.models.layers import CropND, FourierEncoder, PixelEmbedder, _get_scale_td
 from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
 
@@ -200,24 +200,6 @@ class Decoder(nn.Module):
             x = block(x, t_embed, y)
 
         return x
-
-
-class ConditionalVectorField(nn.Module, ABC):
-    """
-    MLP-parameterization of the learned vector field u_t^theta(x)
-    """
-
-    @abstractmethod
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]) -> torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): [bs, c, h, w]
-            t (torch.Tensor): [bs, 1, 1, 1]
-            y (dict[str, torch.Tensor]): [bs,...]
-        Returns:
-            torch.Tensor: u_t^theta(x|y) [bs, c, h, w]
-        """
-        pass
 
 
 class _FMUNet(ConditionalVectorField):
