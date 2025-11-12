@@ -1,0 +1,7 @@
+# Simple DataLoader configuration
+# batch_size: Determined by the batch size of the generators found in data.batch size
+num_workers: 4
+pin_memory: true
+persistent_workers: true # Keep workers alive between epochs
+prefetch_factor: null
+multiprocessing_context: null

@@ -390,10 +390,6 @@ class FMUNet(BaseModule, FitScaleVarianceTDMixin):
         self.solver = ODESolver(self.model)
         self.step_size = 1 / solver_iter
 
-        self.register_buffer("scale_variance_td", None)  # To be fitted via callback
-
-        self.num_predicted_vars = 2  # TODO in the PR for the improved dataloader fix this
-
     def setup(self, stage):
         if stage == "fit":
             self._fit_scale_variance_td()
@@ -503,7 +499,7 @@ class FMUNet(BaseModule, FitScaleVarianceTDMixin):
         self.log("val_loss", loss)
         return loss
 
-    def test_step(self, batch) -> torch.Tensor:
+    def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
         loss = self._calc_loss(batch)
         loss = reduce(loss, "b c h w -> c", "mean")  # How good are we per channel
         for i, lo in enumerate(loss):
@@ -516,5 +512,11 @@ class FMUNet(BaseModule, FitScaleVarianceTDMixin):
                 sync_dist=True,
             )
         loss = torch.mean(loss)
-        self.log("test_loss", loss)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
+
+    def on_load_checkpoint(self, checkpoint):
+        # If buffer exists in checkpoint, load it
+        if "scale_variance_td" in checkpoint["state_dict"]:
+            print("Loading scale_variance_td from checkpoint")
+            self.register_buffer("scale_variance_td", checkpoint["state_dict"]["scale_variance_td"])

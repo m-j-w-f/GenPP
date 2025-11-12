@@ -54,3 +54,25 @@ def register_resolvers() -> None:
     OmegaConf.register_new_resolver("class", class_resolver)
     OmegaConf.register_new_resolver("tuple", lambda *args: tuple(args))
     OmegaConf.register_new_resolver("count_meta_features", count_meta_features)
+
+
+def add_y_kwargs(cfg, y_kwargs):
+    # If there are no y_kwargs, then add them
+    # NOTE: This is here only for compatibility with older configs
+    y_kwargs_oc = OmegaConf.create({"y_kwargs": y_kwargs})
+
+    if "y_kwargs" not in cfg.data.module.dataset_config.train:
+        print("Adding y_kwargs to dataset_config.train")
+        OmegaConf.set_struct(cfg, False)
+        cfg.data.module.dataset_config.train = OmegaConf.merge(
+            cfg.data.module.dataset_config.train, y_kwargs_oc
+        )
+        OmegaConf.set_struct(cfg, True)
+
+
+def del_key(cfg, key):
+    """Delete a key from the OmegaConf config given its dot-separated path."""
+    OmegaConf.set_struct(cfg, False)
+    del cfg[key]
+    print(f"Deleted key '{key}' from config.")
+    OmegaConf.set_struct(cfg, True)

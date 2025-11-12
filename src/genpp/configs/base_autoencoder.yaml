@@ -1,0 +1,21 @@
+# Main configuration file for AutoEncoder training (FID)
+defaults:
+  - data/dataloader: simple
+  - data/splits: standard
+  - data: ae_dataset
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
+  - model: autoencoder
+  - trainer: fast
+  - logger: wandb
+  - hydra: standard
+  - _self_
+
+name: AUTOENCODER(FID)
+seed: 42
+
+logger:
+  tags:
+    - "test"
+    - "fid"
+    - "autoencoder"

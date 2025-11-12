@@ -1,3 +1,4 @@
+import pickle
 from datetime import timedelta
 from enum import Enum
 
@@ -105,3 +106,14 @@ class MetadataVars(Enum):
     LONGITUDE = "longitude"
     SIN_PREDICTION_TIME = "sin_prediction_time"
     COS_PREDICTION_TIME = "cos_prediction_time"
+
+
+_save_path = BASE_DIR / "data" / "standard_split" / "weatherbench2_standard_split.pkl"
+with open(_save_path, "rb") as f:
+    _metadata = pickle.load(f)
+
+TRAIN_PREDICTIONS = _metadata["train_predictions"]
+VAL_PREDICTIONS = _metadata["val_predictions"]
+TEST_PREDICTIONS = _metadata["test_predictions"]
+
+del _metadata, _save_path
