@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import scipy.linalg
 import torch
@@ -121,13 +123,13 @@ def _fid(
     diff = mu1 - mu2
 
     # Product might be almost singular
-    covmean, _ = scipy.linalg.sqrtm(sigma1.mm(sigma2).numpy(), disp=False)
+    covmean: np.typing.NDArray[Any] = scipy.linalg.sqrtm(sigma1.mm(sigma2).numpy())  # pyright: ignore[reportAssignmentType]
     # Numerical error might give slight imaginary component
     if np.iscomplexobj(covmean):
         if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):  # type: ignore
-            m = np.max(np.abs(covmean.imag))
+            m = np.max(np.abs(covmean.imag))  # pyright: ignore[reportAttributeAccessIssue]
             raise ValueError(f"Imaginary component {m}")
-        covmean = covmean.real
+        covmean = covmean.real  # pyright: ignore[reportAttributeAccessIssue]
 
     tr_covmean = np.trace(covmean)
 

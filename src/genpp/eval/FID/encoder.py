@@ -179,7 +179,9 @@ class AutoEncoder(BaseEncoder):
         self.log("val_loss", loss, prog_bar=True)
         return loss
 
-    def predict_step(self, batch: list[torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def predict_step(
+        self, batch: list[torch.Tensor], batch_idx: int, dataloader_idx: int = 0
+    ) -> torch.Tensor:
         """Return the latent representations
 
         Args:
@@ -280,7 +282,9 @@ class ClassifierEncoder(BaseEncoder):
         self.log("val_acc", acc, prog_bar=True)
         return loss
 
-    def predict_step(self, batch: list[torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def predict_step(
+        self, batch: list[torch.Tensor], batch_idx: int, dataloader_idx: int = 0
+    ) -> torch.Tensor:
         """Return the hidden representations after the encoder.
 
         Args:
@@ -290,7 +294,7 @@ class ClassifierEncoder(BaseEncoder):
         Returns:
             torch.Tensor: The hidden representations of the input batch.
         """
-        x, _ = batch
+        x = batch[0]
         features = self.encode(x)
         return features
 
