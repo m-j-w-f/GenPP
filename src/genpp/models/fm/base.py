@@ -58,16 +58,16 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         if stage == "fit":
             self._fit_scale_variance_td()
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         """
         Args:
             x (torch.Tensor): the (noisy) input [bs, 2, 48, 32]
             t (torch.Tensor): the timestep [bs, 1, 1, 1]
-            y (dict[str, torch.Tensor]): the conditioning dict with tensors of shape [bs, ...]
+            conditioning (dict[str, torch.Tensor]): the conditioning dict with tensors of shape [bs, ...]
         Returns:
             torch.Tensor: [bs, 2, 48, 32], h and w dim might be cropped
         """
-        res = self.backbone(x, t, y)
+        res = self.backbone(x, t, conditioning)
         return self.crop(res)
 
     def _calc_loss(self, batch) -> torch.Tensor:
@@ -95,7 +95,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         # Get the probability path
         path_sample = self.path.sample(t=t, x_0=x_0, x_1=x_1)
 
-        u_t_theta = self.backbone(x=path_sample.x_t, t=path_sample.t, y=nwp_fc)
+        u_t_theta = self.backbone(x=path_sample.x_t, t=path_sample.t, conditioning=nwp_fc)
         u_t_ref = path_sample.dx_t
 
         # Calc the l2 loss
@@ -116,20 +116,20 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         return loss
 
     def predict_step(self, batch) -> torch.Tensor:
-        y, x_1, td = batch["x"], batch["y"], batch["timedelta"]
+        nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
-        ens_mean = rearrange(y["predicted_vars"], "b c h w -> b 1 c h w")
+        ens_mean = rearrange(nwp_fc["predicted_vars"], "b c h w -> b 1 c h w")
 
         # repeat shapes to be able to generate 50 different samples
-        for k, v in y.items():
-            y[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+        for k, v in nwp_fc.items():
+            nwp_fc[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
 
         # Sample n_samples * batch size random images. Keep the other dimensions as x_1
-        x_init = torch.randn(y["predicted_vars"].size(0), *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(nwp_fc["predicted_vars"].size(0), *x_1.shape[1:]).to(x_1)
 
         sol = self.solver.sample(
             x_init=x_init,
-            y=y,
+            conditioning=nwp_fc,
             method="midpoint",
             step_size=self.step_size,
         )

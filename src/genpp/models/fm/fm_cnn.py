@@ -11,7 +11,7 @@ from genpp.models.layers import FourierEncoder, PixelEmbedder
 
 
 class ResidualLayer(nn.Module):
-    def __init__(self, channels: int, channels_y: int, time_embed_dim: int, depth: int):
+    def __init__(self, channels: int, channels_conditioning: int, time_embed_dim: int, depth: int):
         super().__init__()
         self.block1 = nn.Sequential(
             nn.SiLU(),
@@ -29,29 +29,29 @@ class ResidualLayer(nn.Module):
             nn.SiLU(),
             nn.Linear(time_embed_dim, channels),
         )
-        self.y_adapter = (
-            nn.Sequential(  # the y adapter should put y in the same shape as x in terms of c, h, w
-                nn.Conv2d(channels_y, channels, kernel_size=1),
-                nn.BatchNorm2d(channels),
-                nn.SiLU(),
-                # Add downsampling layers based on depth
-                *[
-                    nn.Sequential(
-                        nn.Conv2d(channels, channels, kernel_size=3, stride=2, padding=1),
-                        nn.BatchNorm2d(channels),
-                        nn.SiLU(),
-                    )
-                    for _ in range(depth)
-                ],
-            )
+        self.conditioning_adapter = nn.Sequential(  # the context adapter should put context in the same shape as x in terms of c, h, w
+            nn.Conv2d(channels_conditioning, channels, kernel_size=1),
+            nn.BatchNorm2d(channels),
+            nn.SiLU(),
+            # Add downsampling layers based on depth
+            *[
+                nn.Sequential(
+                    nn.Conv2d(channels, channels, kernel_size=3, stride=2, padding=1),
+                    nn.BatchNorm2d(channels),
+                    nn.SiLU(),
+                )
+                for _ in range(depth)
+            ],
         )
 
-    def forward(self, x: torch.Tensor, t_embed: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t_embed: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): The sampled noise [bs, c, h, w]
             t_embed (torch.Tensor): [bs, t_embed_dim]
-            y (torch.Tensor): The conditioning tensor [bs, cy, h, w]
+            conditioning (torch.Tensor): The conditioning tensor [bs, cy, h, w]
         Returns:
             torch.Tensor: [bs, c, h, w]
         """
@@ -65,9 +65,9 @@ class ResidualLayer(nn.Module):
         t_embed = rearrange(t_embed, "bs c -> bs c 1 1")
         x = x + t_embed
 
-        # Add y (conditioning)
-        y_embed = self.y_adapter(y)  # [bs, c, h, w]
-        x = x + y_embed
+        # Add conditioning
+        conditioning_embed = self.conditioning_adapter(conditioning)  # [bs, c, h, w]
+        x = x + conditioning_embed
 
         # Second conv block
         x = self.block2(x)  # [bs, c, h, w]
@@ -83,7 +83,7 @@ class Encoder(nn.Module):
         self,
         channels_in: int,
         channels_out: int,
-        channels_y: int,
+        channels_conditioning: int,
         num_residual_layers: int,
         t_embed_dim: int,
         depth: int,
@@ -93,7 +93,7 @@ class Encoder(nn.Module):
             [
                 ResidualLayer(
                     channels=channels_in,
-                    channels_y=channels_y,
+                    channels_conditioning=channels_conditioning,
                     time_embed_dim=t_embed_dim,
                     depth=depth,
                 )
@@ -102,18 +102,20 @@ class Encoder(nn.Module):
         )
         self.downsample = nn.Conv2d(channels_in, channels_out, kernel_size=3, stride=2, padding=1)
 
-    def forward(self, x: torch.Tensor, t_embed: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t_embed: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): [bs, c_in, h, w]
             t_embed (torch.Tensor): [bs, t_embed_dim]
-            y (torch.Tensor): Conditioning tensor [bs, cy, h, w]
+            conditioning (torch.Tensor): Conditioning tensor [bs, cy, h, w]
         Returns:
             torch.Tensor: [bs, c_out, h // 2, w // 2]
         """
         # Pass through residual blocks: [bs, c_in, h, w] -> [bs, c_in, h, w]
         for block in self.res_blocks:
-            x = block(x, t_embed, y)
+            x = block(x, t_embed, conditioning)
 
         # Downsample: [bs, c_in, h, w] -> [bs, c_out, h // 2, w // 2]
         x = self.downsample(x)
@@ -123,14 +125,19 @@ class Encoder(nn.Module):
 
 class Midcoder(nn.Module):
     def __init__(
-        self, channels: int, num_residual_layers: int, t_embed_dim: int, channels_y: int, depth: int
+        self,
+        channels: int,
+        num_residual_layers: int,
+        t_embed_dim: int,
+        channels_conditioning: int,
+        depth: int,
     ):
         super().__init__()
         self.res_blocks = nn.ModuleList(
             [
                 ResidualLayer(
                     channels=channels,
-                    channels_y=channels_y,
+                    channels_conditioning=channels_conditioning,
                     time_embed_dim=t_embed_dim,
                     depth=depth,
                 )
@@ -138,18 +145,20 @@ class Midcoder(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, t_embed: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t_embed: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): [bs, c, h, w]
             t_embed (torch.Tensor): [bs, t_embed_dim]
-            y (torch.Tensor): Conditioning tensor [bs, cy, h, w]
+            conditioning (torch.Tensor): Conditioning tensor [bs, cy, h, w]
         Returns:
             torch.Tensor: [bs, c, h, w]
         """
         # Pass through residual blocks: [bs, c, h, w] -> [bs, c, h, w]
         for block in self.res_blocks:
-            x = block(x, t_embed, y)
+            x = block(x, t_embed, conditioning)
 
         return x
 
@@ -159,7 +168,7 @@ class Decoder(nn.Module):
         self,
         channels_in: int,
         channels_out: int,
-        channels_y: int,
+        channels_conditioning: int,
         num_residual_layers: int,
         t_embed_dim: int,
         depth: int,
@@ -173,7 +182,7 @@ class Decoder(nn.Module):
             [
                 ResidualLayer(
                     channels=channels_out,
-                    channels_y=channels_y,
+                    channels_conditioning=channels_conditioning,
                     time_embed_dim=t_embed_dim,
                     depth=depth,
                 )
@@ -181,12 +190,14 @@ class Decoder(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, t_embed: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t_embed: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): [bs, c, h, w]
             t_embed (torch.Tensor): [bs, t_embed_dim]
-            y (torch.Tensor): [bs, cy, h, w]
+            conditioning (torch.Tensor): [bs, cy, h, w]
         Returns:
             torch.Tensor: [bs, c_out, 2 * h, 2 * w]
         """
@@ -195,7 +206,7 @@ class Decoder(nn.Module):
 
         # Pass through residual blocks: [bs, c_out, h, w] -> [bs, c_out, 2 * h, 2 * w]
         for block in self.res_blocks:
-            x = block(x, t_embed, y)
+            x = block(x, t_embed, conditioning)
 
         return x
 
@@ -209,7 +220,7 @@ class _FMUNet(ConditionalVectorField):
         embedding_dim: int,
         height: int,
         width: int,
-        channels_y: int,
+        channels_conditioning: int,
         channels_x: int = 2,
     ):
         super().__init__()
@@ -224,10 +235,12 @@ class _FMUNet(ConditionalVectorField):
         self.time_embedder = FourierEncoder(t_embed_dim)
 
         # Embed the Pixel IDX
-        # Note that y now has the channels channels_y + pixel_embed_dim
-        self.y_embedder = PixelEmbedder(num_embeddings=height * width, embedding_dim=embedding_dim)
-        # Adjust channels_y to account for pixel embedding
-        channels_y += embedding_dim
+        # Note that conditioning now has the channels channels_conditioning + pixel_embed_dim
+        self.conditioning_embedder = PixelEmbedder(
+            num_embeddings=height * width, embedding_dim=embedding_dim
+        )
+        # Adjust channels_conditioning to account for pixel embedding
+        channels_conditioning += embedding_dim
 
         # Encoders, Midcoders, and Decoders
         encoders = []
@@ -238,7 +251,7 @@ class _FMUNet(ConditionalVectorField):
                 Encoder(
                     channels_in=curr_c,
                     channels_out=next_c,
-                    channels_y=channels_y,
+                    channels_conditioning=channels_conditioning,
                     num_residual_layers=num_residual_layers,
                     t_embed_dim=t_embed_dim,
                     depth=depth,
@@ -248,7 +261,7 @@ class _FMUNet(ConditionalVectorField):
                 Decoder(
                     channels_in=next_c,
                     channels_out=curr_c,
-                    channels_y=channels_y,
+                    channels_conditioning=channels_conditioning,
                     num_residual_layers=num_residual_layers,
                     t_embed_dim=t_embed_dim,
                     depth=depth,
@@ -261,33 +274,33 @@ class _FMUNet(ConditionalVectorField):
             channels=channels[-1],
             num_residual_layers=num_residual_layers,
             t_embed_dim=t_embed_dim,
-            channels_y=channels_y,
+            channels_conditioning=channels_conditioning,
             depth=depth + 1,
         )
 
         # Final convolution
         self.final_conv = nn.Conv2d(channels[0], channels_x, kernel_size=3, padding=1)
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         """
         Args:
             x (torch.Tensor): [bs, 2, 48, 32]
             t (torch.Tensor): [bs, 1, 1, 1]
-            y (torch.Tensor): [bs, 50, 48, 32]
+            conditioning (torch.Tensor): [bs, 50, 48, 32]
         Returns:
-            torch.Tensor: u_t^theta(x|y) [bs, 2, 48, 32]
+            torch.Tensor: u_t^theta(x|conditioning) [bs, 2, 48, 32]
         """
-        # Embed t and y
+        # Embed t and conditioning
         t_embed = self.time_embedder(t)  # [bs, time_embed_dim]
-        y_embed = torch.cat(
+        conditioning_embed = torch.cat(
             [
-                y["predicted_vars"],
-                y["auxiliary_vars"],
-                y["meta_vars"],
-                self.y_embedder(y["pixel_idx"]),
+                conditioning["predicted_vars"],
+                conditioning["auxiliary_vars"],
+                conditioning["meta_vars"],
+                self.conditioning_embedder(conditioning["pixel_idx"]),
             ],
             dim=1,
-        )  # [bs, c_y, 48, 32] most likely c_y = 2 + 56 + 4 + 5 = 67
+        )  # [bs, c_conditioning, 48, 32] most likely c_conditioning = 2 + 56 + 4 + 5 = 67
 
         # Initial convolution
         x = self.init_conv(x)  # [bs, c_0, 48, 32]
@@ -296,17 +309,21 @@ class _FMUNet(ConditionalVectorField):
 
         # Encoders
         for encoder in self.encoders:
-            x = encoder(x, t_embed, y_embed)  # [bs, c_i, h, w] -> [bs, c_{i+1}, h // 2, w //2]
+            x = encoder(
+                x, t_embed, conditioning_embed
+            )  # [bs, c_i, h, w] -> [bs, c_{i+1}, h // 2, w //2]
             residuals.append(x.clone())
 
         # Midcoder
-        x = self.midcoder(x, t_embed, y_embed)
+        x = self.midcoder(x, t_embed, conditioning_embed)
 
         # Decoders
         for decoder in self.decoders:
             res = residuals.pop()  # [bs, c_i, h, w]
             x = x + res
-            x = decoder(x, t_embed, y_embed)  # [bs, c_i, h, w] -> [bs, c_{i-1}, 2 * h, 2 * w]
+            x = decoder(
+                x, t_embed, conditioning_embed
+            )  # [bs, c_i, h, w] -> [bs, c_{i-1}, 2 * h, 2 * w]
 
         # Final convolution
         x = self.final_conv(x)  # [bs, 1, 48, 32]
@@ -321,7 +338,7 @@ def FMUNet(
     embedding_dim: int,
     height: int,
     width: int,
-    channels_y: int,
+    channels_conditioning: int,
     channels_x: int,
     n_samples: int,
     solver_iter: int,
@@ -334,13 +351,21 @@ def FMUNet(
     """
     Factory function to create a FlowMatchingModel with a UNet backbone.
     
-    This function creates the _FMUNet backbone and wraps it in a FlowMatchingModel.
+    NOTE that in this class the naming convention is different than in the other classes:
+    - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
+    - the conditioning is the nwp forecast(s)
+    - td is the lead time (between 0 and 1) for which the prediction is made
+
+    How the prediction works:
+    - Instead of generating samples similar to the ground truth directly, we want to sample the deviation (x_1 - nwp_fc)
+    - Then these sampled deviations are added to the nwp forecasts to get the final samples
+    - Also the deviations are scaled according to the lead time. The scaling factor is learned via linear regression.
     """
     backbone = _FMUNet(
         channels=channels,
         num_residual_layers=num_residual_layers,
         t_embed_dim=t_embed_dim,
-        channels_y=channels_y,
+        channels_conditioning=channels_conditioning,
         channels_x=channels_x,
         height=height,
         width=width,
