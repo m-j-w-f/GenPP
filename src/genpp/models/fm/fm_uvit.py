@@ -8,7 +8,7 @@ import einops
 import torch
 import torch.nn as nn
 
-from genpp.models.fm.helpers import Mlp, trunc_normal_
+from genpp.models.fm.helpers import ConditionalVectorField, Mlp, trunc_normal_
 from genpp.models.layers import FourierEncoder
 
 if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
@@ -150,7 +150,7 @@ class PatchEmbed(nn.Module):
         return x
 
 
-class UViT(nn.Module):
+class UViT(ConditionalVectorField):
     def __init__(
         self,
         img_size=40,
@@ -177,7 +177,7 @@ class UViT(nn.Module):
         self.time_embed = FourierEncoder(dim=embed_dim)
 
         # images can be used as conditional tokens
-        self.context_embed = PatchEmbed(
+        self.conditioning_embed = PatchEmbed(
             patch_size=patch_size, in_channels=in_channels, embed_dim=embed_dim
         )
 
@@ -188,7 +188,7 @@ class UViT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, self.extras + num_patches, embed_dim))
 
         # TODO add an embedding to indicat where the current patch is located in the image
-        # this might be helpful for the x aswell as for the context
+        # this might be helpful for the x aswell as for the conditioning
         # we also need to remove this from the x later on
 
         self.in_blocks = nn.ModuleList(
@@ -255,14 +255,14 @@ class UViT(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x, timesteps, context):
+    def forward(self, x, t, conditioning):
         x = self.patch_embed(x)
         B, L, D = x.shape  # TODO check L is number of patches
 
-        time_token = self.time_embed(timesteps)
+        time_token = self.time_embed(t)
         time_token = time_token.unsqueeze(dim=1)
-        context_token = self.context_embed(context)
-        x = torch.cat((time_token, context_token, x), dim=1)
+        conditioning_token = self.conditioning_embed(conditioning)
+        x = torch.cat((time_token, conditioning_token, x), dim=1)
         x = x + self.pos_embed
 
         skips = []  # skip connections
@@ -278,7 +278,7 @@ class UViT(nn.Module):
         x = self.norm(x)
         x = self.decoder_pred(x)
         assert x.size(1) == self.extras + L
-        x = x[:, self.extras :, :]  # throw away the extra tokens (time + context)
+        x = x[:, self.extras :, :]  # throw away the extra tokens (time + conditioning)
         x = unpatchify(x, self.in_channels)
         x = self.final_layer(x)
         return x

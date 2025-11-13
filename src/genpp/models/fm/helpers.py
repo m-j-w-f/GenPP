@@ -16,14 +16,17 @@ class ConditionalVectorField(nn.Module, ABC):
     """
 
     @abstractmethod
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): [bs, c, h, w]
             t (torch.Tensor): [bs, 1, 1, 1]
-            y (dict[str, torch.Tensor]): [bs,...]
+            conditioning (dict[str, torch.Tensor]): [bs,...] previously refered to as 'y' in the paper
+            however this was confusing as the ground truth forecast is also refered to as 'y'
         Returns:
-            torch.Tensor: u_t^theta(x|y) [bs, c, h, w]
+            torch.Tensor: u_t^theta(x|conditioning) [bs, c, h, w]
         """
         pass
 
