@@ -211,7 +211,7 @@ class Decoder(nn.Module):
         return x
 
 
-class _FMUNet(ConditionalVectorField):
+class UNetCVF(ConditionalVectorField):
     def __init__(
         self,
         channels: Sequence[int],
@@ -350,18 +350,9 @@ def FMUNet(
 ) -> FlowMatchingModel:
     """
     Factory function to create a FlowMatchingModel with a UNet backbone.
-    
-    NOTE that in this class the naming convention is different than in the other classes:
-    - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
-    - the conditioning is the nwp forecast(s)
-    - td is the lead time (between 0 and 1) for which the prediction is made
-
-    How the prediction works:
-    - Instead of generating samples similar to the ground truth directly, we want to sample the deviation (x_1 - nwp_fc)
-    - Then these sampled deviations are added to the nwp forecasts to get the final samples
-    - Also the deviations are scaled according to the lead time. The scaling factor is learned via linear regression.
+    TODO remove this in the future as the hydra config should be able to handle this
     """
-    backbone = _FMUNet(
+    backbone = UNetCVF(
         channels=channels,
         num_residual_layers=num_residual_layers,
         t_embed_dim=t_embed_dim,
@@ -371,7 +362,7 @@ def FMUNet(
         width=width,
         embedding_dim=embedding_dim,
     )
-    
+
     return FlowMatchingModel(
         backbone=backbone,
         n_samples=n_samples,

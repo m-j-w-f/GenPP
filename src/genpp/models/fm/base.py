@@ -15,15 +15,15 @@ from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
 class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
     """
     Generic Flow Matching Model that works with different backbone architectures.
-    
+
     NOTE that in this class the naming convention is different than in the other classes:
     - x_1 is the target (i.e. the ground truth forecasts, for which we want to generate samples that are similar to)
-    - y is the conditioning (i.e. the nwp forecasts)
+    - the nwp forecast is the conditioning
     - td is the lead time (between 0 and 1) for which the prediction is made
 
     How the prediction works:
-    - Instead of generating samples similar to the ground truth directly, we want to sample the deviation (x_1 - y)
-    - Then these sampled deviations are added to the nwp forecasts y to get the final samples
+    - Instead of generating samples similar to the ground truth directly, we want to sample the deviation (x_1 - nwp-fc)
+    - Then these sampled deviations are added to the nwp forecasts to get the final samples
     - Also the deviations are scaled according to the lead time. The scaling factor is learned via linear regression.
     """
 
@@ -39,7 +39,8 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
-        # Loss FN is a nn.module so it does not need to be saved explicitly
+        # backbone is a nn.module so it does not need to be saved explicitly
+        # TODO check this
         self.save_hyperparameters(ignore=["backbone"])
         if use_rescaler:
             # TODO implement rescaling
@@ -54,7 +55,13 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
 
-    def setup(self, stage):
+    # TODO add a parameter to choose which kind of normalization we will use
+    def setup(self, stage: str | None = None):
+        """This fits the submodel to predict the size of the standard deviation so that the final modle only has to learn one scale.
+
+        Args:
+            stage (str | None): The stage of setup, e.g., "fit"
+        """
         if stage == "fit":
             self._fit_scale_variance_td()
 
@@ -180,6 +187,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         return loss
 
     def on_load_checkpoint(self, checkpoint):
+        # TODO modify this to be able to handle muliple kinds of normalization
         # If buffer exists in checkpoint, load it
         if "scale_variance_td" in checkpoint["state_dict"]:
             print("Loading scale_variance_td from checkpoint")
