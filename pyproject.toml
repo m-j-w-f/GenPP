@@ -53,6 +53,7 @@ scoringrules = ">=0.8.0,<0.9"
 pre-commit = ">=4.2.0,<5"
 ipykernel = ">=6.29.5,<7"
 rsync = ">=3.4.1,<4"
+gh = ">=2.83.0,<3"
 
 
 [tool.pixi.feature.dev.tasks]
