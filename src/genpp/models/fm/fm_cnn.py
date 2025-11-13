@@ -356,4 +356,13 @@ def FMUNet(
         lr_scheduler=lr_scheduler,
         use_rescaler=use_rescaler,
         rescaler=rescaler,
+        # Pass backbone-specific parameters to be saved as hyperparameters
+        channels=channels,
+        num_residual_layers=num_residual_layers,
+        t_embed_dim=t_embed_dim,
+        embedding_dim=embedding_dim,
+        height=height,
+        width=width,
+        channels_y=channels_y,
+        channels_x=channels_x,
     )

@@ -37,10 +37,12 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         lr_scheduler: DictConfig,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        **backbone_kwargs,
     ):
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         # Loss FN is a nn.module so it does not need to be saved explicitly
-        self.save_hyperparameters(ignore=["backbone"])
+        # Save all parameters including backbone_kwargs for proper checkpoint loading
+        self.save_hyperparameters(ignore=["backbone", "rescaler"])
         if use_rescaler:
             # TODO implement rescaling
             if isinstance(rescaler, Sequence):
