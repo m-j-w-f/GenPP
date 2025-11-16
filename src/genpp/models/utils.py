@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 import lightning as L
@@ -53,32 +53,53 @@ class BaseModule(L.LightningModule, ABC):
         }
 
 
-class FitScaleVarianceTDMixin:
-    """Mixin class to add scale_variance_td fitting functionality to LightningModules.
-    Note: it is essential that the preds and obs are scaled the same way"""
+class BaseInternalTDScaling(torch.nn.Module, ABC):
+    def __init__(self) -> None:
+        super().__init__()
+        self.is_fitted = False
 
-    def _fit_scale_variance_td(self) -> None:
-        """Fit a regression of the form absolute_prediction_error ~ LeadTime for each variable.
-        The regression coefficients are stored as a buffer called 'scale_variance_td'.
+    @abstractmethod
+    def fit(self, model: L.LightningModule) -> None:
+        """Fit the TD Scaling.
+
+        Args:
+            model (L.LightningModule): The outer model to fit the scaling for.
+            This is needed to access the training data loader.
         """
-        # If already fitted, skip
-        if (
-            hasattr(self, "scale_variance_td") and self.scale_variance_td is not None  # type: ignore
-        ):
-            print("scale_variance_td already fitted, skipping.")
-            return
+        pass
 
-        # Access the training dataloader
-        train_loader = self.trainer.datamodule.train_dataloader()  # type: ignore
+    @abstractmethod
+    def get_scale(self, td: torch.Tensor) -> torch.Tensor:
+        pass
+
+
+class LinearTDScaling(BaseInternalTDScaling):
+    def __init__(self, mode: str) -> None:
+        """Module used for scaling the predicted noise of the model so that the model has to only learn one scale.
+        The linear model utilizes a linear regression of
+        abs(err) ~ lead time in case of mode == "abs" and
+        std(err) ~ lead time in case of mode == "std".
+
+        Args:
+            mode (str): The mode of scaling, either "abs" or "std".
+        """
+        super().__init__()
+        if mode not in ["abs", "std"]:
+            raise ValueError(f"Unsupported mode: {mode}")
+        self.mode = mode
+
+    def fit(self, model: torch.nn.Module) -> None:
+        train_loader = model.trainer.datamodule.train_dataloader()  # type: ignore
         if train_loader is None:
             raise ValueError("Training dataloader is not available.")
 
-        crop_layer = self.crop if hasattr(self, "crop") else None  # type: ignore
+        crop_layer = model.crop if hasattr(model, "crop") else None  # type: ignore
         A = None
         b = None
 
         with torch.no_grad():
-            pbar = tqdm(train_loader, desc="Fitting scale_variance~TD")
+            regressand = "abs(err)" if self.mode == "abs" else "std(err)"
+            pbar = tqdm(train_loader, desc=f"Fitting {regressand}~TD")
             for batch in pbar:
                 nwp, obs, td = batch["x"], batch["y"], batch["timedelta"]
                 # The NWP vars we need are the first n_vars
@@ -104,7 +125,14 @@ class FitScaleVarianceTDMixin:
                 td = rearrange(td, "b c h w -> c (b h w)")
                 nwp = rearrange(nwp, "b c h w -> c (b h w)")
                 obs = rearrange(obs, "b c h w -> c (b h w)")
-                diff = (obs - nwp).abs()
+
+                if self.mode == "abs":
+                    diff = (obs - nwp).abs()
+                elif self.mode == "std":
+                    diff = (obs - nwp).std(dim=1)
+                else:
+                    raise ValueError(f"Unsupported mode: {self.mode}")
+
                 ones = torch.ones_like(diff)
                 X = torch.stack([ones, td], dim=1)  # [n_vars, 2, n_samples]
                 y = diff
@@ -116,4 +144,39 @@ class FitScaleVarianceTDMixin:
         betas = torch.linalg.solve(A, b)
         # The first dimension is the variable dimension
         # The second dimension is the intercept and slope
-        self.register_buffer("scale_variance_td", betas)  # Shape [n_vars, 2] # type: ignore
+        self.scale_variance_td = betas  # Shape [n_vars, 2] # type: ignore
+        self.is_fitted = True
+
+    def get_scale(self, td: torch.Tensor) -> torch.Tensor:
+        """Return the per-sample, per-variable scale for a batch of lead times.
+
+        The scale is computed with the linear model fitted in `fit`:
+            scale = intercept + slope * td
+        where intercept and slope are learned independently for each variable.
+
+        Args:
+            td (torch.Tensor): 1D tensor of lead times with shape [batch]. Values must be float.
+
+        Raises:
+            ValueError: If the scaling model has not been fitted via `fit`.
+
+        Returns:
+            torch.Tensor: A tensor with shape [batch, n_vars, 1, 1]. The scale is broadcastable to
+                match model prediction shapes (batch, n_vars, height, width). The returned tensor
+                is placed on the same device as `td`.
+
+        Notes:
+            - If the instance was fitted in mode "abs", the scale is an estimate of E[|err|] per variable.
+            - If the instance was fitted in mode "std", the scale is an estimate of std(err) per variable.
+        """
+        if not self.is_fitted:
+            raise ValueError("TD Scaling is not fitted yet.")
+        # Ensure betas is on the same device as td
+        self.scale_variance_td.to(td)
+        intercepts_scale_variance_td = self.scale_variance_td[:, 0]  # Shape [n_vars]
+        betas_scale_variance_td = self.scale_variance_td[:, 1]  # Shape [n_vars]
+        scale = rearrange(intercepts_scale_variance_td, "c -> 1 c") + rearrange(
+            betas_scale_variance_td, "c -> 1 c"
+        ) * rearrange(td, "b -> b 1")  # Shape [b, n_vars]
+        scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
+        return scale

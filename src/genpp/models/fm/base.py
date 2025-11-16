@@ -8,11 +8,11 @@ from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
 from genpp.models.fm.helpers import ConditionalVectorField
-from genpp.models.layers import CropND, _get_scale_td
-from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
+from genpp.models.layers import CropND
+from genpp.models.utils import BaseInternalTDScaling, BaseModule
 
 
-class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
+class FlowMatchingModel(BaseModule):
     """
     Generic Flow Matching Model that works with different backbone architectures.
 
@@ -35,13 +35,25 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
+        internal_td_scaling: BaseInternalTDScaling,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ):
+        """_summary_
+
+        Args:
+            backbone (ConditionalVectorField): _description_
+            n_samples (int): _description_
+            solver_iter (int): _description_
+            padding (Sequence[int]): _description_
+            optimizer (Callable[..., torch.optim.Optimizer]): _description_
+            lr_scheduler (DictConfig): _description_
+            internal_td_scaling (str): _description_
+            use_rescaler (bool): _description_
+            rescaler (Sequence[nn.Module  |  None] | nn.Module | None, optional): _description_. Defaults to None.
+        """
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
-        # backbone is a nn.module so it does not need to be saved explicitly
-        # TODO check this
-        self.save_hyperparameters(ignore=["backbone"])
+        self.save_hyperparameters()
         if use_rescaler:
             # TODO implement rescaling
             if isinstance(rescaler, Sequence):
@@ -54,6 +66,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
+        self.internal_td_scaling = internal_td_scaling
 
     # TODO add a parameter to choose which kind of normalization we will use
     def setup(self, stage: str | None = None):
@@ -63,7 +76,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
             stage (str | None): The stage of setup, e.g., "fit"
         """
         if stage == "fit":
-            self._fit_scale_variance_td()
+            self.internal_td_scaling.fit(self)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         """
@@ -84,10 +97,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         # Now x_1 contains the errors
         x_1 = ground_truth - nwp_fc["predicted_vars"]
         # x_1 should always have roughly the same magnitude, independent of the lead time
-        scale = _get_scale_td(
-            td=td,
-            betas=self.scale_variance_td,  # type: ignore
-        )  # Shape [b, n_vars, 1, 1]
+        scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
         # Now x_1 contains the scaled errors, the model has to learn only one scale
         # NOTE the predicted noise needs to be scaled back during inference
         # to get the actual noise that is added to the NWP forecasts
@@ -144,10 +154,7 @@ class FlowMatchingModel(BaseModule, FitScaleVarianceTDMixin):
         sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
 
         # Calculate the scale factor based on the lead time
-        scale = _get_scale_td(
-            td=td,
-            betas=self.scale_variance_td,  # type: ignore
-        )  # Shape [b, n_vars, 1, 1]
+        scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
         sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples

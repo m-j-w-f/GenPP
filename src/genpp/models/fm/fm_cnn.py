@@ -1,11 +1,9 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
 from einops import rearrange
-from omegaconf import DictConfig
 
-from genpp.models.fm.base import FlowMatchingModel
 from genpp.models.fm.helpers import ConditionalVectorField
 from genpp.models.layers import FourierEncoder, PixelEmbedder
 
@@ -329,47 +327,3 @@ class UNetCVF(ConditionalVectorField):
         x = self.final_conv(x)  # [bs, 1, 48, 32]
 
         return x
-
-
-def FMUNet(
-    channels: list[int],
-    num_residual_layers: int,
-    t_embed_dim: int,
-    embedding_dim: int,
-    height: int,
-    width: int,
-    channels_conditioning: int,
-    channels_x: int,
-    n_samples: int,
-    solver_iter: int,
-    padding: Sequence[int],
-    optimizer: Callable[..., torch.optim.Optimizer],
-    lr_scheduler: DictConfig,
-    use_rescaler: bool,
-    rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
-) -> FlowMatchingModel:
-    """
-    Factory function to create a FlowMatchingModel with a UNet backbone.
-    TODO remove this in the future as the hydra config should be able to handle this
-    """
-    backbone = UNetCVF(
-        channels=channels,
-        num_residual_layers=num_residual_layers,
-        t_embed_dim=t_embed_dim,
-        channels_conditioning=channels_conditioning,
-        channels_x=channels_x,
-        height=height,
-        width=width,
-        embedding_dim=embedding_dim,
-    )
-
-    return FlowMatchingModel(
-        backbone=backbone,
-        n_samples=n_samples,
-        solver_iter=solver_iter,
-        padding=padding,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
-        use_rescaler=use_rescaler,
-        rescaler=rescaler,
-    )

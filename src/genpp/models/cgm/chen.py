@@ -9,11 +9,11 @@ from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
-from genpp.models.layers import CropND, LocallyConnected2D, UNet, _get_scale_td
-from genpp.models.utils import BaseModule, FitScaleVarianceTDMixin
+from genpp.models.layers import CropND, LocallyConnected2D, UNet
+from genpp.models.utils import BaseModule, LinearAbsTDScaling
 
 
-class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
+class BaseChenModel(BaseModule, ABC):
     """Base class for generative models with mean, std, and noise decoder components.
 
     Args:
@@ -72,13 +72,11 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-        self.register_buffer(
-            "scale_variance_td", None
-        )  # To be fitted via callback (see setup method)
+        self.interal_scaler = LinearAbsTDScaling()
 
     def setup(self, stage) -> None:
         if stage == "fit":
-            self._fit_scale_variance_td()
+            self.interal_scaler.fit(self)
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -172,7 +170,7 @@ class BaseChenModel(BaseModule, ABC, FitScaleVarianceTDMixin):
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         scales = rearrange(
-            _get_scale_td(td=td, betas=self.scale_variance_td),  # type: ignore
+            self.interal_scaler.get_scale(td=td),
             "b c h w -> b 1 c h w",
         )
         res = (
