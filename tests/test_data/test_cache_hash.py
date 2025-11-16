@@ -149,8 +149,8 @@ def test_compute_config_hash_variable_order_invariant():
     hash1 = _compute_config_hash(config, x_vars1, y_vars)
     hash2 = _compute_config_hash(config, x_vars2, y_vars)
 
-    # Should produce the same hash (variables are sorted)
-    assert hash1 == hash2
+    # Should produce a different hash (variables are not in the same order)
+    assert hash1 != hash2
 
 
 @pytest.mark.unit

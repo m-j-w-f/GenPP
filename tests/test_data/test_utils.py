@@ -189,6 +189,9 @@ class TestFlattenLevels:
         assert len(var_names) == 1
 
 
+@pytest.mark.skip(
+    reason="TestGetTimeIntersection tests are deprecated along with get_time_intersection function"
+)
 class TestGetTimeIntersection:
     """Test suite for get_time_intersection function."""
 
