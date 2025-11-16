@@ -46,19 +46,19 @@ def timestep_embedding(timesteps, dim, max_period=10000):
 
 
 # This is never called
-def patchify(imgs, patch_size):
+def patchify(imgs, patch_size: tuple[int, int]):
     x = einops.rearrange(
-        imgs, "B C (h p1) (w p2) -> B (h w) (p1 p2 C)", p1=patch_size, p2=patch_size
+        imgs, "B C (h p1) (w p2) -> B (h w) (p1 p2 C)", p1=patch_size[0], p2=patch_size[1]
     )
     return x
 
 
-def unpatchify(x, channels=3):
-    patch_size = int((x.shape[2] // channels) ** 0.5)
-    h = w = int(x.shape[1] ** 0.5)
-    assert h * w == x.shape[1] and patch_size**2 * channels == x.shape[2]
+def unpatchify(x, patch_size: tuple[int, int], image_size: tuple[int, int], channels: int = 2):
+    h, w = image_size
+    p1, p2 = patch_size
+    assert h * w == x.shape[1] and p1 * p2 * channels == x.shape[2]
     x = einops.rearrange(
-        x, "B (h w) (p1 p2 C) -> B C (h p1) (w p2)", h=h, p1=patch_size, p2=patch_size
+        x, "B (h w) (p1 p2 C) -> B C (h p1) (w p2)", h=h, w=w, p1=p1, p2=p2, C=channels
     )
     return x
 
@@ -144,7 +144,7 @@ class PatchEmbed(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
-        assert H % self.patch_size == 0 and W % self.patch_size == 0
+        assert H % self.patch_size[0] == 0 and W % self.patch_size[1] == 0
         x = self.proj(x)
         x = einops.rearrange(x, "B C H W -> B (H W) C")
         return x
@@ -153,8 +153,10 @@ class PatchEmbed(nn.Module):
 class UViT(ConditionalVectorField):
     def __init__(
         self,
-        img_size=40,
-        patch_size=4,
+        img_height=40,
+        img_width=40,
+        patch_size_height=4,
+        patch_size_width=4,
         in_channels=2,
         embed_dim=4 * 4 * 2,
         depth=2,
@@ -168,17 +170,23 @@ class UViT(ConditionalVectorField):
     ):
         super().__init__()
         self.in_channels = in_channels
+        self.image_size = (img_height, img_width)
+        self.patch_size = (patch_size_height, patch_size_width)
 
         self.patch_embed = PatchEmbed(
-            patch_size=patch_size, in_channels=in_channels, embed_dim=embed_dim
+            patch_size=self.patch_size,
+            in_channels=in_channels,
+            embed_dim=embed_dim,
         )
-        num_patches = (img_size // patch_size) ** 2
+        num_patches = (img_height // patch_size_height) * (img_width // patch_size_width)
 
         self.time_embed = FourierEncoder(dim=embed_dim)
 
         # images can be used as conditional tokens
         self.conditioning_embed = PatchEmbed(
-            patch_size=patch_size, in_channels=in_channels, embed_dim=embed_dim
+            patch_size=self.patch_size,
+            in_channels=in_channels,
+            embed_dim=embed_dim,
         )
 
         # the conditioning image has the same shape as the input image -> same number of patches
@@ -230,7 +238,7 @@ class UViT(ConditionalVectorField):
         )
 
         self.norm = norm_layer(embed_dim)
-        self.patch_dim = patch_size**2 * in_channels
+        self.patch_dim = patch_size_height * patch_size_width * in_channels
         self.decoder_pred = nn.Linear(embed_dim, self.patch_dim, bias=True)
         self.final_layer = (
             nn.Conv2d(
@@ -279,6 +287,8 @@ class UViT(ConditionalVectorField):
         x = self.decoder_pred(x)
         assert x.size(1) == self.extras + L
         x = x[:, self.extras :, :]  # throw away the extra tokens (time + conditioning)
-        x = unpatchify(x, self.in_channels)
+        x = unpatchify(
+            x, patch_size=self.patch_size, image_size=self.image_size, channels=self.in_channels
+        )
         x = self.final_layer(x)
         return x
