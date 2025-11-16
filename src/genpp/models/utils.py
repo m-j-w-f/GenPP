@@ -141,10 +141,11 @@ class LinearTDScaling(BaseInternalTDScaling):
                 A += torch.bmm(X, rearrange(X, "c a b -> c b a"))
                 b += torch.bmm(X, y.unsqueeze(-1)).squeeze(-1)
 
-        betas = torch.linalg.solve(A, b)
+        betas = torch.linalg.solve(A, b)  # Shape [n_vars, 2]
         # The first dimension is the variable dimension
         # The second dimension is the intercept and slope
-        self.scale_variance_td = betas  # Shape [n_vars, 2] # type: ignore
+        self.intercepts = betas[:, 0]
+        self.slopes = betas[:, 1]
         self.is_fitted = True
 
     def get_scale(self, td: torch.Tensor) -> torch.Tensor:
@@ -172,11 +173,10 @@ class LinearTDScaling(BaseInternalTDScaling):
         if not self.is_fitted:
             raise ValueError("TD Scaling is not fitted yet.")
         # Ensure betas is on the same device as td
-        self.scale_variance_td.to(td)
-        intercepts_scale_variance_td = self.scale_variance_td[:, 0]  # Shape [n_vars]
-        betas_scale_variance_td = self.scale_variance_td[:, 1]  # Shape [n_vars]
-        scale = rearrange(intercepts_scale_variance_td, "c -> 1 c") + rearrange(
-            betas_scale_variance_td, "c -> 1 c"
+        self.intercepts = self.intercepts.to(td)  # Shape [n_vars]
+        self.slopes = self.slopes.to(td)  # Shape [n_vars]
+        scale = rearrange(self.intercepts, "c -> 1 c") + rearrange(
+            self.slopes, "c -> 1 c"
         ) * rearrange(td, "b -> b 1")  # Shape [b, n_vars]
         scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
         return scale
