@@ -4,31 +4,9 @@ Adapted from https://github.com/baofff/U-ViT/blob/main/libs/timm.py
 
 import math
 import warnings
-from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
-
-
-class ConditionalVectorField(nn.Module, ABC):
-    """
-    MLP-parameterization of the learned vector field u_t^theta(x)
-    """
-
-    @abstractmethod
-    def forward(
-        self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): [bs, c, h, w]
-            t (torch.Tensor): [bs, 1, 1, 1]
-            conditioning (dict[str, torch.Tensor]): [bs,...] previously refered to as 'y' in the paper
-            however this was confusing as the ground truth forecast is also refered to as 'y'
-        Returns:
-            torch.Tensor: u_t^theta(x|conditioning) [bs, c, h, w]
-        """
-        pass
 
 
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):

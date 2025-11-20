@@ -10,7 +10,7 @@ from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
-from genpp.models.utils import BaseModule, LinearAbsTDScaling
+from genpp.models.utils import BaseModule, LearnedTDScaling, LinearTDScaling
 
 
 class BaseChenModel(BaseModule, ABC):
@@ -46,6 +46,7 @@ class BaseChenModel(BaseModule, ABC):
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
+        internal_td_scaling: str = "abs",
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | None = None,
         **kwargs: Any,
@@ -72,11 +73,18 @@ class BaseChenModel(BaseModule, ABC):
             self.embedding = nn.Embedding(
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
-        self.interal_scaler = LinearAbsTDScaling()
+        if internal_td_scaling == "abs":
+            self.internal_td_scaling = LinearTDScaling(mode="abs")
+        elif internal_td_scaling == "std":
+            self.internal_td_scaling = LinearTDScaling(mode="std")
+        elif internal_td_scaling == "learned":
+            self.internal_td_scaling = LearnedTDScaling()
+        else:
+            raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
 
     def setup(self, stage) -> None:
         if stage == "fit":
-            self.interal_scaler.fit(self)
+            self.internal_td_scaling.fit(self)
 
     # Abstract components - to be implemented by subclasses
     @property
@@ -170,7 +178,7 @@ class BaseChenModel(BaseModule, ABC):
             full_input_repeated_noise
         )  # Shape [batch_size, n_samples_train, out_features, lon, lat]
         scales = rearrange(
-            self.interal_scaler.get_scale(td=td),
+            self.internal_td_scaling.get_scale(td=td),
             "b c h w -> b 1 c h w",
         )
         res = (

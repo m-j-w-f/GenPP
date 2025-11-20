@@ -8,7 +8,8 @@ import einops
 import torch
 import torch.nn as nn
 
-from genpp.models.fm.helpers import ConditionalVectorField, Mlp, trunc_normal_
+from genpp.models.fm.base import ConditionalVectorField
+from genpp.models.fm.helpers import Mlp, trunc_normal_
 from genpp.models.layers import FourierEncoder
 
 if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
@@ -192,7 +193,7 @@ class UViT(ConditionalVectorField):
         # the conditioning image has the same shape as the input image -> same number of patches
         self.extras = 1 + num_patches
 
-        # this tellt the token at which position it is in the sequence
+        # this tells the token at which position it is in the sequence
         self.pos_embed = nn.Parameter(torch.zeros(1, self.extras + num_patches, embed_dim))
 
         # TODO add an embedding to indicat where the current patch is located in the image
@@ -265,7 +266,7 @@ class UViT(ConditionalVectorField):
 
     def forward(self, x, t, conditioning):
         x = self.patch_embed(x)
-        B, L, D = x.shape  # TODO check L is number of patches
+        B, L, D = x.shape  # L is number of patches
 
         time_token = self.time_embed(t)
         time_token = time_token.unsqueeze(dim=1)

@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 
 import torch
@@ -7,9 +8,29 @@ from flow_matching.path import CondOTProbPath
 from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
-from genpp.models.fm.helpers import ConditionalVectorField
 from genpp.models.layers import CropND
-from genpp.models.utils import BaseInternalTDScaling, BaseModule
+from genpp.models.utils import BaseModule, LearnedTDScaling, LinearTDScaling
+
+
+class ConditionalVectorField(nn.Module, ABC):
+    """
+    MLP-parameterization of the learned vector field u_t^theta(x)
+    """
+
+    @abstractmethod
+    def forward(
+        self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): [bs, c, h, w]
+            t (torch.Tensor): [bs, 1, 1, 1]
+            conditioning (dict[str, torch.Tensor]): [bs,...] previously refered to as 'y' in the paper
+            however this was confusing as the ground truth forecast is also refered to as 'y'
+        Returns:
+            torch.Tensor: u_t^theta(x|conditioning) [bs, c, h, w]
+        """
+        pass
 
 
 class FlowMatchingModel(BaseModule):
@@ -35,26 +56,32 @@ class FlowMatchingModel(BaseModule):
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        internal_td_scaling: BaseInternalTDScaling,
+        internal_td_scaling: str,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
     ):
-        """_summary_
+        """Initialize the Flow Matching Model.
 
         Args:
-            backbone (ConditionalVectorField): _description_
-            n_samples (int): _description_
-            solver_iter (int): _description_
-            padding (Sequence[int]): _description_
-            optimizer (Callable[..., torch.optim.Optimizer]): _description_
-            lr_scheduler (DictConfig): _description_
-            internal_td_scaling (str): _description_
-            use_rescaler (bool): _description_
-            rescaler (Sequence[nn.Module  |  None] | nn.Module | None, optional): _description_. Defaults to None.
+            backbone (ConditionalVectorField): The neural network backbone that parameterizes the
+                conditional vector field u_t^theta(x|conditioning).
+            n_samples (int): Number of ensemble samples to generate during prediction.
+            solver_iter (int): Number of ODE solver iterations. The step size is computed as 1/solver_iter.
+            padding (Sequence[int]): Padding values to crop from the output. If empty, no cropping is applied.
+            optimizer (Callable[..., torch.optim.Optimizer]): Factory function to create the optimizer.
+            lr_scheduler (DictConfig): Configuration for the learning rate scheduler.
+            internal_td_scaling (str): Scaling strategy to normalize deviations based on
+                lead time, ensuring the model learns a single scale across different forecast horizons.
+                Can be "abs", "str" or "learned".
+            use_rescaler (bool): Whether to use rescaling modules for the outputs.
+            rescaler (Sequence[nn.Module  |  None] | nn.Module | None, optional): Rescaling module(s) to
+                apply if use_rescaler is True. Can be a single module, a sequence of modules, or None.
+                Defaults to None.
         """
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         self.save_hyperparameters()
         if use_rescaler:
+            raise NotImplementedError("Rescaling is not implemented yet.")
             # TODO implement rescaling
             if isinstance(rescaler, Sequence):
                 filtered = [m for m in rescaler if m is not None]
@@ -66,9 +93,15 @@ class FlowMatchingModel(BaseModule):
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
-        self.internal_td_scaling = internal_td_scaling
+        if internal_td_scaling == "abs":
+            self.internal_td_scaling = LinearTDScaling(mode="abs")
+        elif internal_td_scaling == "std":
+            self.internal_td_scaling = LinearTDScaling(mode="std")
+        elif internal_td_scaling == "learned":
+            self.internal_td_scaling = LearnedTDScaling()
+        else:
+            raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
 
-    # TODO add a parameter to choose which kind of normalization we will use
     def setup(self, stage: str | None = None):
         """This fits the submodel to predict the size of the standard deviation so that the final modle only has to learn one scale.
 
@@ -192,10 +225,3 @@ class FlowMatchingModel(BaseModule):
         loss = torch.mean(loss)
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
-
-    def on_load_checkpoint(self, checkpoint):
-        # TODO modify this to be able to handle muliple kinds of normalization
-        # If buffer exists in checkpoint, load it
-        if "scale_variance_td" in checkpoint["state_dict"]:
-            print("Loading scale_variance_td from checkpoint")
-            self.register_buffer("scale_variance_td", checkpoint["state_dict"]["scale_variance_td"])

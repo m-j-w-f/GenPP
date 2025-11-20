@@ -12,6 +12,7 @@ embedding_dim: 5
 n_samples_train: 50
 padding: ${data.spatial.padding_list}
 use_rescaler: false  # Whether to use rescalers from the datamodule
+internal_td_scaling: abs
 
 # Activation function
 final_activation:

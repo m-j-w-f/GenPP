@@ -4,9 +4,7 @@ n_samples: 50
 solver_iter: 10
 padding: ${data.spatial.padding_list}
 use_rescaler: false  # Whether to use rescalers from the datamodule
-internal_td_scaling:
-  _target_: genpp.models.utils.LinearTDScaling
-  mode: abs
+internal_td_scaling: abs
 
 # Model backbone parameters
 backbone:

@@ -33,6 +33,10 @@ def _instantiate_partial_scheduler(
 
 
 class BaseModule(L.LightningModule, ABC):
+    """Base Module for all Lightning Modules in GenPP.
+    This class handles the optimizer and learning rate scheduler configuration.
+    """
+
     def __init__(
         self, optimizer: Callable[..., torch.optim.Optimizer], lr_scheduler: DictConfig
     ) -> None:
@@ -70,6 +74,7 @@ class BaseInternalTDScaling(torch.nn.Module, ABC):
 
     @abstractmethod
     def get_scale(self, td: torch.Tensor) -> torch.Tensor:
+        """Return the scaling for a batch of lead times of shape [b, n_vars, 1, 1]"""
         pass
 
 
@@ -178,5 +183,39 @@ class LinearTDScaling(BaseInternalTDScaling):
         scale = rearrange(self.intercepts, "c -> 1 c") + rearrange(
             self.slopes, "c -> 1 c"
         ) * rearrange(td, "b -> b 1")  # Shape [b, n_vars]
+        scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
+        return scale
+
+
+class LearnedTDScaling(BaseInternalTDScaling):
+    def __init__(self) -> None:
+        """Module used for scaling the predicted noise of the model so that the model has to only learn one scale.
+        The learned model utilizes a small neural network that takes the lead time as input and outputs
+        a scale per variable.
+
+        Args:
+            n_vars (int): Number of variables to scale.
+        """
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(1, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, 1),  # Output one scale per time delta
+            torch.nn.Softplus(),  # Ensure positivity
+        )
+        self.is_fitted = True  # No fitting needed for learned scaling
+
+    def fit(self, model: L.LightningModule) -> None:
+        # No fitting needed for learned scaling
+        pass
+
+    def get_scale(self, td: torch.Tensor) -> torch.Tensor:
+        """Return the per-sample, per-variable scale for a batch of lead times.
+
+        Args:
+            td (torch.Tensor): 1D tensor of lead times with shape [batch]. Values must be float.
+        """
+        td = rearrange(td, "b -> b 1")  # Shape [b, 1]
+        scale = self.model(td)  # Shape [b, n_vars]
         scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
         return scale
