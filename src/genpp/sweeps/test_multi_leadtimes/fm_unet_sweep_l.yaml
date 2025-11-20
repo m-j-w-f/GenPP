@@ -1,5 +1,5 @@
 program: src/genpp/train.py
-name: testsweep_fm
+name: testsweep_fm_unet2
 description: Sweep for Flow matching model model with a unet backbone with multiple lead times
 metric:
   name: val_loss
@@ -10,13 +10,15 @@ parameters:
   model.optimizer.lr:
     values: [!!float 1e-3, !!float  1e-4]
   data.batch_size:
-    values: [8, 32, 64]
+    values: [8, 32]
   model.channels:
-    values: [[64, 128], [32, 64]]
+    values: [[64, 128]]
   model.num_residual_layers:
-    values: [1, 2]
+    values: [2]
   model.internal_td_scaling:
     values: ['abs', 'std', 'learned']
+  logger.tags:
+    values: [["fm", "unet", "test", "multi leadtime"]]
 
 command:
   - pixi
