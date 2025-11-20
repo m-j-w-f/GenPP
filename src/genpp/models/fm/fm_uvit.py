@@ -10,7 +10,7 @@ import torch.nn as nn
 
 from genpp.models.fm.base import ConditionalVectorField
 from genpp.models.fm.helpers import Mlp, trunc_normal_
-from genpp.models.layers import FourierEncoder
+from genpp.models.layers import FourierEncoder, PixelEmbedder
 
 if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
     ATTENTION_MODE = "flash"
@@ -57,6 +57,8 @@ def patchify(imgs, patch_size: tuple[int, int]):
 def unpatchify(x, patch_size: tuple[int, int], image_size: tuple[int, int], channels: int = 2):
     h, w = image_size
     p1, p2 = patch_size
+    h = h // p1
+    w = w // p2
     assert h * w == x.shape[1] and p1 * p2 * channels == x.shape[2]
     x = einops.rearrange(
         x, "B (h w) (p1 p2 C) -> B C (h p1) (w p2)", h=h, w=w, p1=p1, p2=p2, C=channels
@@ -159,7 +161,9 @@ class UViT(ConditionalVectorField):
         patch_size_height=4,
         patch_size_width=4,
         in_channels=2,
+        channels_conditioning=62,  # 62 features
         embed_dim=4 * 4 * 2,
+        pixel_embed_dim=5,
         depth=2,
         num_heads=4,
         mlp_ratio=4.0,
@@ -171,6 +175,7 @@ class UViT(ConditionalVectorField):
     ):
         super().__init__()
         self.in_channels = in_channels
+        self.channels_conditioning = channels_conditioning + pixel_embed_dim
         self.image_size = (img_height, img_width)
         self.patch_size = (patch_size_height, patch_size_width)
 
@@ -183,10 +188,14 @@ class UViT(ConditionalVectorField):
 
         self.time_embed = FourierEncoder(dim=embed_dim)
 
+        self.pixel_embedder = PixelEmbedder(
+            num_embeddings=img_height * img_width, embedding_dim=pixel_embed_dim
+        )
+
         # images can be used as conditional tokens
         self.conditioning_embed = PatchEmbed(
             patch_size=self.patch_size,
-            in_channels=in_channels,
+            in_channels=self.channels_conditioning,
             embed_dim=embed_dim,
         )
 
@@ -264,13 +273,25 @@ class UViT(ConditionalVectorField):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x, t, conditioning):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         x = self.patch_embed(x)
         B, L, D = x.shape  # L is number of patches
-
+        # Get the time token to the shape [B], the solver only supplies a single number as t,
+        # while in training this is a tensor of size [B]
+        t = t.expand(B)
         time_token = self.time_embed(t)
         time_token = time_token.unsqueeze(dim=1)
-        conditioning_token = self.conditioning_embed(conditioning)
+
+        conditioning_cat = torch.cat(
+            [
+                conditioning["predicted_vars"],
+                conditioning["auxiliary_vars"],
+                conditioning["meta_vars"],
+                self.pixel_embedder(conditioning["pixel_idx"]),
+            ],
+            dim=1,
+        )
+        conditioning_token = self.conditioning_embed(conditioning_cat)
         x = torch.cat((time_token, conditioning_token, x), dim=1)
         x = x + self.pos_embed
 

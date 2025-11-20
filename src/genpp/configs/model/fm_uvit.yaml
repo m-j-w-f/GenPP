@@ -14,16 +14,16 @@ backbone:
   patch_size_height: 4
   patch_size_width: 4
   in_channels: ${data.features.output} # this is x, the variable to be predicted
-  embed_dim: 4 * 4 * 2
+  channels_conditioning: ${data.features.input_concat} # y is the conditioning variable here
+  embed_dim: ${eval:'4 * 4 * 2'}
+  pixel_embed_dim: 5
   depth: 2
   num_heads: 4
   mlp_ratio: 4.0
   qkv_bias: False
   qk_scale: None
-  norm_layer: nn.LayerNorm
   conv: True
   skip: True
 
-  channels_conditioning: ${data.features.input_concat} # y is the conditioning variable here
 
 # Optimizer and learning rate scheduler are imported automatically due to the folder structure

@@ -230,6 +230,10 @@ class FourierEncoder(nn.Module):
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """
+        NOTE: when t is only a number (i.e. of shape []) then this number will first be transformed
+              to a tensor of shape [1] before being passed to this function.
+              The result will then have shape [1, dim] instead of the expected shape [dim].
+              However this works perfectly well as the first dimension in used to broadcast later.
         Args:
             t (torch.Tensor): [...], typically [bs]
         Returns:

@@ -144,7 +144,6 @@ class FlowMatchingModel(BaseModule):
 
         # Get the probability path
         path_sample = self.path.sample(t=t, x_0=x_0, x_1=x_1)
-
         u_t_theta = self.backbone(x=path_sample.x_t, t=path_sample.t, conditioning=nwp_fc)
         u_t_ref = path_sample.dx_t
 
@@ -168,18 +167,16 @@ class FlowMatchingModel(BaseModule):
     def predict_step(self, batch) -> torch.Tensor:
         nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
-        ens_mean = rearrange(nwp_fc["predicted_vars"], "b c h w -> b 1 c h w")
-
         # repeat shapes to be able to generate 50 different samples
+        nwp_fc_expanded = {}
         for k, v in nwp_fc.items():
-            nwp_fc[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
 
-        # Sample n_samples * batch size random images. Keep the other dimensions as x_1
-        x_init = torch.randn(nwp_fc["predicted_vars"].size(0), *x_1.shape[1:]).to(x_1)
-
+        # Sample batch_size * n_samples random images. Keep the other dimensions as x_1
+        x_init = torch.randn(x_1.size(0) * self.n_samples, *x_1.shape[1:]).to(x_1)
         sol = self.solver.sample(
             x_init=x_init,
-            conditioning=nwp_fc,
+            conditioning=nwp_fc_expanded,
             method="midpoint",
             step_size=self.step_size,
         )
@@ -190,6 +187,7 @@ class FlowMatchingModel(BaseModule):
         scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
         sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
+        ens_mean = rearrange(nwp_fc["predicted_vars"], "b c h w -> b 1 c h w")
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
         res_cropped = self.crop(res)
         return res_cropped
