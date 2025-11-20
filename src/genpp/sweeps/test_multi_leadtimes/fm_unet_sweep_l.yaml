@@ -1,6 +1,6 @@
 program: src/genpp/train.py
 name: testsweep_fm
-description: Sweep for Flow matching model model with multiple lead times
+description: Sweep for Flow matching model model with a unet backbone with multiple lead times
 metric:
   name: val_loss
   goal: minimize
@@ -15,6 +15,8 @@ parameters:
     values: [[64, 128], [32, 64]]
   model.num_residual_layers:
     values: [1, 2]
+  model.internal_td_scaling:
+    values: ['abs', 'std', 'learned']
 
 command:
   - pixi
