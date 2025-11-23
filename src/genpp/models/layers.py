@@ -230,6 +230,10 @@ class FourierEncoder(nn.Module):
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """
+        NOTE: when t is only a number (i.e. of shape []) then this number will first be transformed
+              to a tensor of shape [1] before being passed to this function.
+              The result will then have shape [1, dim] instead of the expected shape [dim].
+              However this works perfectly well as the first dimension in used to broadcast later.
         Args:
             t (torch.Tensor): [...], typically [bs]
         Returns:
@@ -240,31 +244,3 @@ class FourierEncoder(nn.Module):
         sin_embed = torch.sin(freqs)  # [..., half_dim]
         cos_embed = torch.cos(freqs)  # [..., half_dim]
         return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # [..., dim]
-
-
-def _get_scale_td(td: torch.Tensor, betas: torch.Tensor) -> torch.Tensor:
-    """Get the scale tensor based on the the time delta.
-
-    Args:
-        td (torch.Tensor): The time delta input tensor of shape [batch_size].
-        betas (torch.Tensor | None): The beta parameters of shape [n_vars, 2] or None.
-
-    Raises:
-        ValueError: If betas is None. This is placed inside this function to make the model code cleaner.
-
-    Returns:
-        torch.Tensor: The scale tensor of shape [b, n_vars, 1, 1].
-    """
-    if betas is None:
-        raise ValueError(
-            "scale_variance_td is not fitted yet. Please run the 'fit_scale_variance_td' callback first."
-        )
-    # Ensure betas is on the same device as td
-    betas = betas.to(td)
-    intercepts_scale_variance_td = betas[:, 0]  # Shape [n_vars]
-    betas_scale_variance_td = betas[:, 1]  # Shape [n_vars]
-    scale = rearrange(intercepts_scale_variance_td, "c -> 1 c") + rearrange(
-        betas_scale_variance_td, "c -> 1 c"
-    ) * rearrange(td, "b -> b 1")  # Shape [b, n_vars]
-    scale = rearrange(scale, "b c -> b c 1 1")  # Shape [b, n_vars, 1, 1]
-    return scale

@@ -1,24 +1,24 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/spatial: padded_x
+  - data/spatial: padded_xy
   - data/splits: standard
   - data/preprocess: standard
   - data: weatherbench2_full_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
-  - model: cnn_chen
+  - model: fm_uvit
   - trainer: default
   - logger: wandb
   - hydra: standard
   - _self_
 
-name: CHEN
+name: FM_UVIT
 seed: 42
 
 logger:
   tags:
     - "test"
-    - "cnn"
-    - "chen"
+    - "uvit"
+    - "fm"
     - "multi leadtime"
