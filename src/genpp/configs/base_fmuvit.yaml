@@ -21,3 +21,4 @@ logger:
     - "test"
     - "uvit"
     - "fm"
+    - "multi leadtime"

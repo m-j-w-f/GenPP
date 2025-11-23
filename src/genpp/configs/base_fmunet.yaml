@@ -21,3 +21,4 @@ logger:
     - "test"
     - "unet"
     - "fm"
+    - "multi leadtime"
