@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import lightning as L
 import torch
@@ -78,20 +79,15 @@ class BaseInternalTDScaling(torch.nn.Module, ABC):
         pass
 
 
-class LinearTDScaling(BaseInternalTDScaling):
-    def __init__(self, mode: str) -> None:
+class LinearAbsTDScaling(BaseInternalTDScaling):
+    def __init__(self) -> None:
         """Module used for scaling the predicted noise of the model so that the model has to only learn one scale.
-        The linear model utilizes a linear regression of
-        abs(err) ~ lead time in case of mode == "abs" and
-        std(err) ~ lead time in case of mode == "std".
+        The linear model utilizes a linear regression of abs(err) ~ lead time.
 
         Args:
             mode (str): The mode of scaling, either "abs" or "std".
         """
         super().__init__()
-        if mode not in ["abs", "std"]:
-            raise ValueError(f"Unsupported mode: {mode}")
-        self.mode = mode
 
     def fit(self, model: torch.nn.Module) -> None:
         train_loader = model.trainer.datamodule.train_dataloader()  # type: ignore
@@ -103,12 +99,10 @@ class LinearTDScaling(BaseInternalTDScaling):
         b = None
 
         with torch.no_grad():
-            regressand = "abs(err)" if self.mode == "abs" else "std(err)"
-            pbar = tqdm(train_loader, desc=f"Fitting {regressand}~TD")
+            pbar = tqdm(train_loader, desc="Fitting abs(err)~TD")
             for batch in pbar:
                 nwp, obs, td = batch["x"], batch["y"], batch["timedelta"]
-                # The NWP vars we need are the first n_vars
-                nwp = nwp["predicted_vars"]
+                nwp = nwp["predicted_vars"]  # We only need these vars
 
                 # Initialize A and b
                 if A is None:
@@ -131,12 +125,7 @@ class LinearTDScaling(BaseInternalTDScaling):
                 nwp = rearrange(nwp, "b c h w -> c (b h w)")
                 obs = rearrange(obs, "b c h w -> c (b h w)")
 
-                if self.mode == "abs":
-                    diff = (obs - nwp).abs()
-                elif self.mode == "std":
-                    diff = (obs - nwp).std(dim=1)
-                else:
-                    raise ValueError(f"Unsupported mode: {self.mode}")
+                diff = (obs - nwp).abs()
 
                 ones = torch.ones_like(diff)
                 X = torch.stack([ones, td], dim=1)  # [n_vars, 2, n_samples]
@@ -187,8 +176,160 @@ class LinearTDScaling(BaseInternalTDScaling):
         return scale
 
 
+@dataclass
+class AbsStats:
+    sum_abs: torch.Tensor
+    count: int = 0
+
+
+@dataclass
+class StdStats:
+    mean: torch.Tensor
+    M2: torch.Tensor
+    count: int = 0
+
+
+class FixedTDScaling(LinearAbsTDScaling):
+    def __init__(self, mode: str, n_vars: int = 2, n_leadtimes: int = 5) -> None:
+        """Per-timedelta lookup table for absolute error or std scaling."""
+        super().__init__()
+        valid_modes = {"abs", "std"}
+        if mode not in valid_modes:
+            raise ValueError(f"Mode must be one of {valid_modes}, got '{mode}'.")
+        self.mode = mode
+        self.n_vars: int | None = None
+        self.register_buffer("lead_times", torch.zeros(n_leadtimes))
+        self.register_buffer("lookup_table", torch.zeros((n_leadtimes, n_vars)))
+
+    def fit(self, model: torch.nn.Module) -> None:
+        train_loader = model.trainer.datamodule.train_dataloader()  # type: ignore
+        if train_loader is None:
+            raise ValueError("Training dataloader is not available.")
+
+        crop_layer = model.crop if hasattr(model, "crop") else None  # type: ignore
+        stats: dict[float, AbsStats | StdStats] = {}
+
+        with torch.no_grad():
+            pbar = tqdm(train_loader, desc="Fitting fixed TD scaling")
+            for batch in pbar:
+                nwp, obs, td = batch["x"], batch["y"], batch["timedelta"]
+                nwp = nwp["predicted_vars"]
+
+                if crop_layer is not None:
+                    nwp = crop_layer(nwp)  # type: ignore
+                if nwp.shape != obs.shape:
+                    obs = crop_layer(obs)  # type: ignore
+
+                diff = obs - nwp
+                if self.n_vars is None:
+                    self.n_vars = diff.shape[1]
+
+                unique_td = torch.unique(td)
+                for lead in unique_td:
+                    mask = td == lead
+                    if not mask.any():
+                        continue
+
+                    lead_diff = diff[mask]
+                    if lead_diff.numel() == 0:
+                        continue
+
+                    lead_key = self._td_to_key(lead)
+                    if lead_key not in stats:
+                        stats[lead_key] = self._init_stats(lead_diff)
+
+                    self._update_stats(stats[lead_key], lead_diff)
+
+        if not stats:
+            raise ValueError("No timedelta values were observed during fitting.")
+
+        sorted_leads = sorted(stats.keys())
+        lookup_rows = [self._finalize_stats(stats[lead]) for lead in sorted_leads]
+        lookup_tensor = torch.stack(lookup_rows, dim=0)
+        self.lead_times = torch.tensor(
+            sorted_leads,
+            dtype=lookup_tensor.dtype,
+            device=lookup_tensor.device,
+        )
+        self.lookup_table = lookup_tensor
+        self.is_fitted = True
+
+    def get_scale(self, td: torch.Tensor) -> torch.Tensor:
+        if not self.is_fitted:
+            raise ValueError("TD Scaling is not fitted yet.")
+        if self.n_vars is None:
+            raise ValueError("Number of variables is unknown. Did you call fit()?")
+
+        if self.lead_times.numel() == 0 or self.lookup_table.numel() == 0:
+            raise ValueError("Lookup table is empty. Did you call fit()?")
+
+        lead_times = self.lead_times.to(td)
+        lookup = self.lookup_table.to(td)
+        distances = torch.abs(lead_times.unsqueeze(0) - td.unsqueeze(1))
+        indices = torch.argmin(distances, dim=1)
+        scales = lookup[indices]
+        scales = rearrange(scales, "b c -> b c 1 1")
+        return scales
+
+    def _td_to_key(self, value: torch.Tensor | float | int) -> float:
+        if isinstance(value, torch.Tensor):
+            return float(value.item())
+        return float(value)
+
+    def _init_stats(self, reference: torch.Tensor) -> AbsStats | StdStats:
+        if self.n_vars is None:
+            raise ValueError("Number of variables must be set before initializing stats.")
+        device = reference.device
+        dtype = reference.dtype
+        if self.mode == "abs":
+            zeros = torch.zeros(self.n_vars, device=device, dtype=dtype)
+            return AbsStats(sum_abs=zeros, count=0)
+
+        mean = torch.zeros(self.n_vars, device=device, dtype=dtype)
+        M2 = torch.zeros(self.n_vars, device=device, dtype=dtype)
+        return StdStats(mean=mean, M2=M2, count=0)
+
+    def _update_stats(self, stat: AbsStats | StdStats, lead_diff: torch.Tensor) -> None:
+        if isinstance(stat, AbsStats):
+            abs_vals = lead_diff.abs()
+            stat.sum_abs = stat.sum_abs + abs_vals.sum(dim=(0, 2, 3))
+            batch_count = lead_diff.shape[0] * lead_diff.shape[2] * lead_diff.shape[3]
+            stat.count += batch_count
+            return
+
+        flat = rearrange(lead_diff, "b c h w -> c (b h w)")
+        batch_count = flat.shape[1]
+        if batch_count == 0:
+            return
+
+        batch_mean = flat.mean(dim=1)
+        batch_M2 = ((flat - batch_mean[:, None]) ** 2).sum(dim=1)
+
+        if stat.count == 0:
+            stat.mean = batch_mean
+            stat.M2 = batch_M2
+            stat.count = batch_count
+            return
+
+        total_count = stat.count + batch_count
+        delta = batch_mean - stat.mean
+        stat.mean = stat.mean + delta * (batch_count / total_count)
+        stat.M2 = stat.M2 + batch_M2 + (delta**2) * stat.count * batch_count / total_count
+        stat.count = total_count
+
+    def _finalize_stats(self, stat: AbsStats | StdStats) -> torch.Tensor:
+        if stat.count == 0:
+            raise ValueError("Encountered timedelta with zero samples during fitting.")
+        if isinstance(stat, AbsStats):
+            return stat.sum_abs / stat.count
+
+        variance = stat.M2 / max(stat.count, 1)
+        variance = torch.clamp(variance, min=1e-12)
+        return torch.sqrt(variance)
+
+
 class LearnedTDScaling(BaseInternalTDScaling):
-    def __init__(self) -> None:
+    def __init__(self, n_vars: int = 2) -> None:
         """Module used for scaling the predicted noise of the model so that the model has to only learn one scale.
         The learned model utilizes a small neural network that takes the lead time as input and outputs
         a scale per variable.
@@ -200,7 +341,7 @@ class LearnedTDScaling(BaseInternalTDScaling):
         self.model = torch.nn.Sequential(
             torch.nn.Linear(1, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, 1),  # Output one scale per time delta
+            torch.nn.Linear(32, n_vars),  # Output one scale per time delta per variable
             torch.nn.Softplus(),  # Ensure positivity
         )
         self.is_fitted = True  # No fitting needed for learned scaling

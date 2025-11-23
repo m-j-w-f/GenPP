@@ -11,14 +11,12 @@ parameters:
     values: [!!float 1e-3, !!float  1e-4]
   data.batch_size:
     values: [8, 32]
-  model.embed_dim:
+  model.backbone.embed_dim:
     values: [32, 64, 128]
-  model.depth:
+  model.backbone.depth:
     values: [1, 2]
   model.internal_td_scaling:
-    values: ['abs', 'std', 'learned']
-  logger.tags:
-    values: [["fm", "uvit", "test", "multi leadtime"]]
+    values: ['abs', 'std']
 
 command:
   - pixi

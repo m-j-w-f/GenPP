@@ -9,7 +9,7 @@ from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND
-from genpp.models.utils import BaseModule, LearnedTDScaling, LinearTDScaling
+from genpp.models.utils import BaseModule, FixedTDScaling, LearnedTDScaling, LinearAbsTDScaling
 
 
 class ConditionalVectorField(nn.Module, ABC):
@@ -94,11 +94,13 @@ class FlowMatchingModel(BaseModule):
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
         if internal_td_scaling == "abs":
-            self.internal_td_scaling = LinearTDScaling(mode="abs")
+            self.internal_td_scaling = FixedTDScaling(mode="abs")
         elif internal_td_scaling == "std":
-            self.internal_td_scaling = LinearTDScaling(mode="std")
+            self.internal_td_scaling = FixedTDScaling(mode="std")
         elif internal_td_scaling == "learned":
             self.internal_td_scaling = LearnedTDScaling()
+        elif internal_td_scaling == "linear_abs":
+            self.internal_td_scaling = LinearAbsTDScaling()
         else:
             raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
 
@@ -130,6 +132,8 @@ class FlowMatchingModel(BaseModule):
         # Now x_1 contains the errors
         x_1 = ground_truth - nwp_fc["predicted_vars"]
         # x_1 should always have roughly the same magnitude, independent of the lead time
+        # NOTE a larger scale leads to smaller loss values, as the model has to predict smaller deviations
+        # this effect should be counteracted by the internal_td_scaling that is learned beforehand
         scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
         # Now x_1 contains the scaled errors, the model has to learn only one scale
         # NOTE the predicted noise needs to be scaled back during inference

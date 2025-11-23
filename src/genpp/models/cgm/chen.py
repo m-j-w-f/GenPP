@@ -10,7 +10,7 @@ from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
-from genpp.models.utils import BaseModule, LearnedTDScaling, LinearTDScaling
+from genpp.models.utils import BaseModule, FixedTDScaling, LearnedTDScaling, LinearAbsTDScaling
 
 
 class BaseChenModel(BaseModule, ABC):
@@ -74,11 +74,13 @@ class BaseChenModel(BaseModule, ABC):
                 num_embeddings=self.gridpoints, embedding_dim=embedding_dim
             )
         if internal_td_scaling == "abs":
-            self.internal_td_scaling = LinearTDScaling(mode="abs")
+            self.internal_td_scaling = FixedTDScaling(mode="abs")
         elif internal_td_scaling == "std":
-            self.internal_td_scaling = LinearTDScaling(mode="std")
+            self.internal_td_scaling = FixedTDScaling(mode="std")
         elif internal_td_scaling == "learned":
             self.internal_td_scaling = LearnedTDScaling()
+        elif internal_td_scaling == "linear_abs":
+            self.internal_td_scaling = LinearAbsTDScaling()
         else:
             raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
 

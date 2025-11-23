@@ -12,9 +12,7 @@ parameters:
   data.batch_size:
     values: [8, 64, 128]
   model.internal_td_scaling:
-    values: ['abs', 'std', 'learned']
-  logger.tags:
-    values: [["chen", "cnn", "test", "multi leadtime"]]
+    values: ['abs', 'std']
 
 command:
   - pixi
