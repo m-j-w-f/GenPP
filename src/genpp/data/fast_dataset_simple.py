@@ -1,7 +1,7 @@
 """
 Optimized dataset implementation using PyTorch's native tensor saving for fast data loading.
 As long as the data fits into memory this is the fastest way to load it.
-TODO if we need it we could extend this to use numpy's memory mapping for larger-than-memory datasets.
+If we need it we could extend this to use numpy's memory mapping for larger-than-memory datasets.
 For huge cloud datasets, xbatcher seems like the best option.
 """
 
@@ -180,7 +180,6 @@ def _cache_data(
             y_batch_kwargs["batch_dims"] = {}
         y_batch_kwargs["batch_dims"]["sample"] = y_split.sample.shape[0]
 
-        # TODO instead of doing this sequentially we can do this for all lead times at once
         x_gen = xbatcher.BatchGenerator(x_split, **x_batch_kwargs)
         y_gen = xbatcher.BatchGenerator(y_split, **y_batch_kwargs)
 

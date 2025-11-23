@@ -29,7 +29,7 @@ x_select_variables:
   - 'wind_speed_lev500'
   - 'wind_speed_lev700'
   - 'wind_speed_lev850'
-y_select_variables: # TODO check the order
+y_select_variables:
   - '2m_temperature'
   - '10m_wind_speed'
 

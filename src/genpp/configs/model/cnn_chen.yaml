@@ -18,7 +18,6 @@ internal_td_scaling: abs
 final_activation:
   _target_: genpp.models.layers.FinalActivation
   activations:
-    # TODO we might want to force this to be positive -> Or not since the values are standardized
     # Fix use min max normalization for Wind speed -> Use softplus/relu then
     - _target_: torch.nn.Identity # Temperature (standardized)
     - _target_: torch.nn.Identity # Wind speed (standardized)

@@ -164,9 +164,9 @@ class BaseChenModel(BaseModule, ABC):
         else:
             emb = None
 
-        # NOTE it would make sense to use a residual connection here, but the original paper does not use it.
+        # TODO it would make sense to use a residual connection here, but the original paper does not use it.
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
-        # TODO this is easy with the improved data loading
+        # This is easy with the improved data loading
         pred_mean = self.mean_model(mean)  # Shape [batch_size, out_features, lon, lat]
         delta = self.std_model(std)
         z = self.get_noise(batch_size).to(delta)  # Must be on the same device as delta
