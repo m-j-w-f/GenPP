@@ -72,7 +72,7 @@ class FlowMatchingModel(BaseModule):
             lr_scheduler (DictConfig): Configuration for the learning rate scheduler.
             internal_td_scaling (str): Scaling strategy to normalize deviations based on
                 lead time, ensuring the model learns a single scale across different forecast horizons.
-                Can be "abs", "str" or "learned".
+                Can be "abs", "std" or "learned".
             use_rescaler (bool): Whether to use rescaling modules for the outputs.
             rescaler (Sequence[nn.Module  |  None] | nn.Module | None, optional): Rescaling module(s) to
                 apply if use_rescaler is True. Can be a single module, a sequence of modules, or None.

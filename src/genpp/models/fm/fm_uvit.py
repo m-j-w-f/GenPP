@@ -46,7 +46,6 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     return embedding
 
 
-# This is never called
 def patchify(imgs, patch_size: tuple[int, int]):
     x = einops.rearrange(
         imgs, "B C (h p1) (w p2) -> B (h w) (p1 p2 C)", p1=patch_size[0], p2=patch_size[1]
@@ -205,8 +204,8 @@ class UViT(ConditionalVectorField):
         # this tells the token at which position it is in the sequence
         self.pos_embed = nn.Parameter(torch.zeros(1, self.extras + num_patches, embed_dim))
 
-        # TODO add an embedding to indicat where the current patch is located in the image
-        # this might be helpful for the x aswell as for the conditioning
+        # TODO add an embedding to indicate where the current patch is located in the image
+        # this might be helpful for the x as well as for the conditioning
         # we also need to remove this from the x later on
 
         self.in_blocks = nn.ModuleList(

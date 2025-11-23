@@ -1,6 +1,6 @@
 program: src/genpp/train.py
 name: testsweep_fm_unet2
-description: Sweep for Flow matching model model with a unet backbone with multiple lead times
+description: Sweep for Flow matching model with a unet backbone with multiple lead times
 metric:
   name: val_loss
   goal: minimize

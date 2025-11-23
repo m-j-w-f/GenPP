@@ -83,9 +83,6 @@ class LinearAbsTDScaling(BaseInternalTDScaling):
     def __init__(self) -> None:
         """Module used for scaling the predicted noise of the model so that the model has to only learn one scale.
         The linear model utilizes a linear regression of abs(err) ~ lead time.
-
-        Args:
-            mode (str): The mode of scaling, either "abs" or "std".
         """
         super().__init__()
 
@@ -161,8 +158,7 @@ class LinearAbsTDScaling(BaseInternalTDScaling):
                 is placed on the same device as `td`.
 
         Notes:
-            - If the instance was fitted in mode "abs", the scale is an estimate of E[|err|] per variable.
-            - If the instance was fitted in mode "std", the scale is an estimate of std(err) per variable.
+            - The scale is an estimate of E[|err|] per variable.
         """
         if not self.is_fitted:
             raise ValueError("TD Scaling is not fitted yet.")
