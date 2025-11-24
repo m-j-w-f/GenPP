@@ -11,9 +11,11 @@ class EnergyScore(nn.Module):
     Args:
         beta (float): The beta parameter for the energy score.
         clamp (bool): Whether to clamp the values to avoid numerical issues.
+        *args: Additional positional arguments are ignored.
+        **kwargs: Additional keyword arguments are ignored.
     """
 
-    def __init__(self, beta: float = 1.0, clamp: bool = True) -> None:
+    def __init__(self, beta: float = 1.0, clamp: bool = True, *args, **kwargs) -> None:
         super().__init__()
         self.beta = beta
         self.clamp = clamp
@@ -63,6 +65,85 @@ class EnergyScore(nn.Module):
         es_22 = reduce(torch.sqrt(distances_22), "... n1 n2 -> ...", reduction="mean")  # [..., ]
         es = es_12 - 0.5 * es_22
         return es
+
+
+class PatchwiseEnergyScore(EnergyScore):
+    def __init__(
+        self,
+        beta: float = 1.0,
+        clamp: bool = True,
+        patch_size: int = 3,
+        height: int = 37,
+        width: int = 31,
+    ) -> None:
+        super().__init__(beta=beta, clamp=clamp)
+        self.patch_size = (patch_size, patch_size)
+        self.height = height
+        self.width = width
+        self.padding = tuple(
+            [(k - 1) // 2 for k in self.patch_size]
+        )  # ensure that every pixel is covered the same number of times
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
+        """Computes the spatial energy score between predicted and true values.
+
+        Args:
+            x (torch.Tensor): Predicted values with shape [batch, n_samples, (variables, height, width)] in case of mode "complete".
+                If mode is "per_var", shape is [batch, variables, n_samples, (height, width)].
+            y (torch.Tensor): True values with shape [batch, (variables, height, width)].
+                If mode is "per_var", shape is [batch, variables, (height, width)].
+            mode (str): Mode of input data, either "complete" or "per_var".
+        Note:
+            In this implementations c refers to the number of channels/variables.
+        Returns:
+            torch.Tensor: The computed energy score with shape [batch, num_patches] in case of mode "complete".
+                If mode is "per_var", shape is [batch, variables].
+        """
+        if mode == "complete":
+            # F.unfold only works with tensors of shape [b, c, *]
+            *B, N, _ = x.shape
+            x = rearrange(x, "b n (c h w) -> (b n) c h w", h=self.height, w=self.width)
+            x_patchwise = torch.nn.functional.unfold(
+                x, kernel_size=self.patch_size, stride=1
+            )  # [(b, n), patchsize, num_patches]
+            x_patchwise = rearrange(
+                x_patchwise, "(b n) patchsize num_patches -> b num_patches n patchsize", n=N
+            )  # [b, num_patches, n, patchsize]
+
+            y = rearrange(y, "... (c h w) -> (...) c h w", h=self.height, w=self.width)
+            y_patchwise = torch.nn.functional.unfold(
+                y, kernel_size=self.patch_size, stride=1
+            )  # [B, patchsize, num_patches]
+            y_patchwise = rearrange(
+                y_patchwise, "b patchsize num_patches -> b num_patches patchsize"
+            )  # [b, num_patches, patchsize]
+            es = super().forward(x_patchwise, y_patchwise)  # [b, num_patches]
+            return reduce(es, "b num_patches -> b", "mean")  # [b]
+        elif mode == "per_var":
+            *B, C, N, _ = x.shape
+            x = rearrange(x, "b c n (h w) -> (b c n) 1 h w", h=self.height, w=self.width)
+            x_patchwise = torch.nn.functional.unfold(
+                x, kernel_size=self.patch_size, stride=1
+            )  # [(b, c, n), patchsize, num_patches]
+            x_patchwise = rearrange(
+                x_patchwise,
+                "(b c n) patchsize num_patches -> b c num_patches n patchsize",
+                c=C,
+                n=N,
+            )
+
+            y = rearrange(y, "b c (h w) -> (b c) 1 h w", h=self.height, w=self.width)
+            y_patchwise = torch.nn.functional.unfold(
+                y, kernel_size=self.patch_size, stride=1
+            )  # [(b, c), patchsize, num_patches]
+            y_patchwise = rearrange(
+                y_patchwise, "(b c) patchsize num_patches -> b c num_patches patchsize", c=C
+            )
+            es = super().forward(x_patchwise, y_patchwise)  # [b, c, num_patches]
+            return reduce(es, "b c num_patches -> b c", "mean")  # [b, c]
+
+        else:
+            raise ValueError(f"Mode {mode} not recognized. Use 'complete' or 'per_var'.")
 
 
 class VariogramScore(nn.Module):

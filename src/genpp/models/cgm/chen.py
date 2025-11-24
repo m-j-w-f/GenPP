@@ -197,7 +197,7 @@ class BaseChenModel(BaseModule, ABC):
         res = self.forward(x, td)  # shape [b, n_samples, out_features, lon, lat]
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape = rearrange(y, "b c h w -> b (c h w)")
-        loss = self.loss_fn(res_reshape, y_reshape)
+        loss = self.loss_fn(res_reshape, y_reshape, mode="complete")  # shape [b]
         loss = torch.mean(loss)  # Take mean across batches
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
@@ -207,7 +207,7 @@ class BaseChenModel(BaseModule, ABC):
         res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
+        loss_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
         loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
         # Log the loss for each variable separately
         for i in range(self.out_features):
@@ -231,7 +231,7 @@ class BaseChenModel(BaseModule, ABC):
         res = self.forward(x, td)
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        loss_per_var = self.loss_fn(res_reshape, y_reshape)  # shape [b, c]
+        loss_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
         loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
         # Log the loss for each variable separately
         for i in range(self.out_features):
@@ -246,7 +246,7 @@ class BaseChenModel(BaseModule, ABC):
         # Log the overall loss
         res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
-        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
+        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))  # shape [b]
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
@@ -275,6 +275,11 @@ class FcChenModel(BaseChenModel):
         hidden_dim_decoder: int,
         **kwargs,
     ) -> None:
+        warn(
+            "FcChenModel is deprecated and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.save_hyperparameters()
         super().__init__(*args, **kwargs)
 
@@ -486,11 +491,3 @@ class CNNChenModel(BaseChenModel):
             full_stoch, "b n c h w -> (b n) c h w"
         )  # Can be processed in parallel now.
         return full_stoch  # Shape [batch_size * n_samples_train, (2 * var + meta_var + embedding_dim + noise_dim), height, width]
-
-
-class PatchwiseChenModel(BaseChenModel):
-    """Patchwise Chen model. This is a placeholder for a patchwise implementation."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        self.save_hyperparameters()
-        super().__init__(*args, **kwargs)
