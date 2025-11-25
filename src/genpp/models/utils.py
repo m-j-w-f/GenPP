@@ -61,7 +61,7 @@ class BaseModule(L.LightningModule, ABC):
 class BaseInternalTDScaling(torch.nn.Module, ABC):
     def __init__(self) -> None:
         super().__init__()
-        self.is_fitted = False
+        self.register_buffer("is_fitted", torch.tensor(False))
 
     @abstractmethod
     def fit(self, model: L.LightningModule) -> None:
@@ -137,7 +137,7 @@ class LinearAbsTDScaling(BaseInternalTDScaling):
         # The second dimension is the intercept and slope
         self.intercepts = betas[:, 0]
         self.slopes = betas[:, 1]
-        self.is_fitted = True
+        self.is_fitted = torch.tensor(True)
 
     def get_scale(self, td: torch.Tensor) -> torch.Tensor:
         """Return the per-sample, per-variable scale for a batch of lead times.
@@ -248,13 +248,11 @@ class FixedTDScaling(LinearAbsTDScaling):
             device=lookup_tensor.device,
         )
         self.lookup_table = lookup_tensor
-        self.is_fitted = True
+        self.is_fitted = torch.tensor(True)
 
     def get_scale(self, td: torch.Tensor) -> torch.Tensor:
         if not self.is_fitted:
             raise ValueError("TD Scaling is not fitted yet.")
-        if self.n_vars is None:
-            raise ValueError("Number of variables is unknown. Did you call fit()?")
 
         if self.lead_times.numel() == 0 or self.lookup_table.numel() == 0:
             raise ValueError("Lookup table is empty. Did you call fit()?")
@@ -340,7 +338,7 @@ class LearnedTDScaling(BaseInternalTDScaling):
             torch.nn.Linear(32, n_vars),  # Output one scale per time delta per variable
             torch.nn.Softplus(),  # Ensure positivity
         )
-        self.is_fitted = True  # No fitting needed for learned scaling
+        self.is_fitted = torch.tensor(True)  # No fitting needed for learned scaling
 
     def fit(self, model: L.LightningModule) -> None:
         # No fitting needed for learned scaling
