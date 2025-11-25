@@ -14,12 +14,7 @@ from omegaconf import DictConfig
 
 from genpp.models.layers import CropND
 from genpp.models.loss import EnergyScore
-from genpp.models.utils import (
-    BaseModule,
-    FixedTDScaling,
-    LearnedTDScaling,
-    LinearAbsTDScaling,
-)
+from genpp.models.utils import BaseGenerativeModule
 
 
 class StochasticLayer2D(nn.Module):
@@ -202,7 +197,7 @@ class StochasticBackbone(nn.Module, ABC):
         pass
 
 
-class EngressionModel(BaseModule, ABC):
+class EngressionModel(BaseGenerativeModule, ABC):
     """Base engression model for grid-based weather forecast post-processing.
 
     This model uses a stochastic neural network that injects noise at each layer,
@@ -233,13 +228,17 @@ class EngressionModel(BaseModule, ABC):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module | None = None,
     ) -> None:
-        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        super().__init__(
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            internal_td_scaling=internal_td_scaling,
+            n_samples=n_samples,
+        )
         self.save_hyperparameters(ignore=["backbone", "loss_fn", "rescaler"])
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
 
         self.backbone = backbone
-        self.n_samples = n_samples
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
 
@@ -248,29 +247,6 @@ class EngressionModel(BaseModule, ABC):
         self.loss_is_energy_score = type(self.loss_fn) is EnergyScore
         if not self.loss_is_energy_score:
             self.es = EnergyScore()
-
-        # TD scaling
-        if internal_td_scaling == "abs":
-            self.internal_td_scaling = FixedTDScaling(mode="abs")
-        elif internal_td_scaling == "std":
-            self.internal_td_scaling = FixedTDScaling(mode="std")
-        elif internal_td_scaling == "learned":
-            self.internal_td_scaling = LearnedTDScaling()
-        elif internal_td_scaling == "linear_abs":
-            self.internal_td_scaling = LinearAbsTDScaling()
-        else:
-            raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
-
-    def setup(self, stage: str | None = None) -> None:
-        """Setup method called before training/validation/testing.
-
-        Fits the TD scaling on training data.
-
-        Args:
-            stage (str | None): Stage of setup.
-        """
-        if stage == "fit":
-            self.internal_td_scaling.fit(self)
 
     @abstractmethod
     def prepare_input(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
