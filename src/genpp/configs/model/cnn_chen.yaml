@@ -9,7 +9,7 @@ height: ${data.spatial.padded.longitude}
 width: ${data.spatial.padded.latitude}
 noise_dim: 5 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
-n_samples_train: 50
+n_samples: 50
 internal_td_scaling: abs
 use_rescaler: false  # Whether to use rescalers from the datamodule
 

@@ -9,7 +9,7 @@ from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND
-from genpp.models.utils import BaseModule, FixedTDScaling, LearnedTDScaling, LinearAbsTDScaling
+from genpp.models.utils import BaseGenerativeModule
 
 
 class ConditionalVectorField(nn.Module, ABC):
@@ -33,7 +33,7 @@ class ConditionalVectorField(nn.Module, ABC):
         pass
 
 
-class FlowMatchingModel(BaseModule):
+class FlowMatchingModel(BaseGenerativeModule):
     """
     Generic Flow Matching Model that works with different backbone architectures.
 
@@ -78,7 +78,12 @@ class FlowMatchingModel(BaseModule):
                 apply if use_rescaler is True. Can be a single module, a sequence of modules, or None.
                 Defaults to None.
         """
-        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
+        super().__init__(
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            internal_td_scaling=internal_td_scaling,
+            n_samples=n_samples,
+        )
         self.save_hyperparameters()
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
@@ -87,31 +92,11 @@ class FlowMatchingModel(BaseModule):
                 filtered = [m for m in rescaler if m is not None]
                 self.rescaler = nn.ModuleList(filtered) if filtered else None
         self.backbone = backbone
-        self.n_samples = n_samples
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
-        if internal_td_scaling == "abs":
-            self.internal_td_scaling = FixedTDScaling(mode="abs")
-        elif internal_td_scaling == "std":
-            self.internal_td_scaling = FixedTDScaling(mode="std")
-        elif internal_td_scaling == "learned":
-            self.internal_td_scaling = LearnedTDScaling()
-        elif internal_td_scaling == "linear_abs":
-            self.internal_td_scaling = LinearAbsTDScaling()
-        else:
-            raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
-
-    def setup(self, stage: str | None = None):
-        """This fits the submodel to predict the size of the standard deviation so that the final modle only has to learn one scale.
-
-        Args:
-            stage (str | None): The stage of setup, e.g., "fit"
-        """
-        if stage == "fit":
-            self.internal_td_scaling.fit(self)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         """
