@@ -238,8 +238,10 @@ class StochasticUNet(StochasticBackbone):
         for i in range(len(decoder_channels) - 1):
             # Input to decoder comes from previous decoder/bottleneck
             # Skip connection comes from corresponding encoder level
-            # Skip channels correspond to encoder output at that level
-            skip_ch = decoder_channels[i + 1]  # Skip from encoder with same output size
+            # Skip channels = encoder output at that level = decoder_channels[i] (in reversed order)
+            # But the first decoder gets skip from last encoder, which has channels[-1] = decoder_channels[0]
+            # After that, decoder[i] gets skip from encoder with decoder_channels[i] channels
+            skip_ch = decoder_channels[i]  # Skip from encoder at this level
             self.decoders.append(
                 StochasticDecoder(
                     in_channels=decoder_channels[i],
@@ -280,8 +282,11 @@ class StochasticUNet(StochasticBackbone):
         x = self.bottleneck(x)
 
         # Decoder path
-        skips = list(reversed(skips[:-1]))  # Remove last and reverse
-        for decoder, skip in zip(self.decoders, skips):
+        # skips[0] is from init_conv (not used for decoders in standard UNet)
+        # skips[1:] are from encoders in order [encoder[0] output, encoder[1] output, ...]
+        # We need them in reverse order for decoders
+        encoder_skips = list(reversed(skips[1:]))  # [encoder[-1] output, ..., encoder[0] output]
+        for decoder, skip in zip(self.decoders, encoder_skips):
             x = decoder(x, skip)
 
         # Output

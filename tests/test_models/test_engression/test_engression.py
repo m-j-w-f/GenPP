@@ -131,8 +131,8 @@ class TestStochasticDecoder:
     @pytest.mark.parametrize(
         "batch_size,in_channels,skip_channels,out_channels,height,width",
         [
-            (2, 64, 32, 32, 16, 16),
-            (1, 32, 16, 16, 24, 24),
+            (2, 64, 64, 32, 16, 16),  # skip_channels = in_channels (typical UNet)
+            (1, 128, 128, 64, 8, 8),
         ],
     )
     def test_output_shape(
