@@ -47,7 +47,7 @@ class TestPatchifyUnpatchify:
         """Test that unpatchify correctly inverts patchify."""
         imgs = torch.randn(batch_size, channels, height, width)
         patch_size = (patch_h, patch_w)
-        image_size = (height // patch_h, width // patch_w)
+        image_size = (height, width)
 
         # Apply patchify then unpatchify
         patches = patchify(imgs, patch_size)
@@ -75,7 +75,7 @@ class TestPatchifyUnpatchify:
         patches = torch.randn(batch_size, num_patches, patch_dim)
 
         patch_size = (patch_h, patch_w)
-        image_size = (height // patch_h, width // patch_w)
+        image_size = (height, width)
 
         imgs = unpatchify(patches, patch_size, image_size, channels)
 
