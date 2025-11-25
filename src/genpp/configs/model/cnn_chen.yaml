@@ -10,9 +10,13 @@ width: ${data.spatial.padded.latitude}
 noise_dim: 5 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
 n_samples_train: 50
-padding: ${data.spatial.padding_list}
-use_rescaler: false  # Whether to use rescalers from the datamodule
 internal_td_scaling: abs
+use_rescaler: false  # Whether to use rescalers from the datamodule
+
+padding: ${data.spatial.padding_list}
+
+std_unet_channels: [32, 64, 64]
+decoder_unet_channels: [32, 64, 64]
 
 # Activation function
 final_activation:

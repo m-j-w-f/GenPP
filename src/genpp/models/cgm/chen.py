@@ -10,6 +10,7 @@ from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.layers import CropND, LocallyConnected2D, UNet
+from genpp.models.loss import EnergyScore
 from genpp.models.utils import BaseModule, FixedTDScaling, LearnedTDScaling, LinearAbsTDScaling
 
 
@@ -30,7 +31,17 @@ class BaseChenModel(BaseModule, ABC):
         lr (float): Learning rate for the optimizer. Defaults to 3e-4.
         optimizer (Type[torch.optim.Optimizer]): Optimizer class to use. Defaults to torch.optim.AdamW.
         **kwargs: Any additional keyword arguments. These are here for compatibility and are ignored.
+
+    Attributes:
+        mean_model (nn.Module): Model to compute the mean of the input features. Must be set by subclasses.
+        std_model (nn.Module): Model to compute the standard deviation of the input features. Must be set by subclasses.
+        noise_decoder (nn.Module): Model to decode the noise and generate samples. Must be set by subclasses.
     """
+
+    # Required attributes - must be set by subclasses in __init__
+    mean_model: nn.Module
+    std_model: nn.Module
+    noise_decoder: nn.Module
 
     def __init__(
         self,
@@ -68,6 +79,11 @@ class BaseChenModel(BaseModule, ABC):
         self.final_activation = final_activation
         self.use_embedding = embedding_dim > 0
         self.loss_fn = loss_fn
+        # We need this for the validation step where we always use Energy Score
+        # and if a different loss is used for training we want to record that too
+        self.loss_is_energy_score = type(self.loss_fn) is EnergyScore
+        if not self.loss_is_energy_score:
+            self.es = EnergyScore()
 
         if self.use_embedding:
             self.embedding = nn.Embedding(
@@ -87,26 +103,6 @@ class BaseChenModel(BaseModule, ABC):
     def setup(self, stage) -> None:
         if stage == "fit":
             self.internal_td_scaling.fit(self)
-
-    # Abstract components - to be implemented by subclasses
-    @property
-    @abstractmethod
-    def mean_model(self) -> nn.Module:
-        """Model to compute the mean of the input features."""
-        pass
-
-    @property
-    @abstractmethod
-    def std_model(self) -> nn.Module:
-        """Model to compute the standard deviation of the input features."""
-        pass
-
-    @property
-    @abstractmethod
-    def noise_decoder(self) -> nn.Module:
-        """Model to decode the noise and generate samples.
-        Expected output shape [batch_size, n_samples_train, height, width, out_features]"""
-        pass
 
     @abstractmethod
     def concat_noise_decoder_input(
@@ -202,53 +198,81 @@ class BaseChenModel(BaseModule, ABC):
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
-    def validation_step(self, batch) -> torch.Tensor:
+    # New unified scoring step for validation & testing.
+    def score_step(self, batch: dict, stage: str) -> torch.Tensor:
+        """Unified scoring step used by validation_step and test_step.
+
+        Computes ensemble predictions, calculates per-variable loss and overall loss,
+        and logs metrics prefixed with the provided `stage` (e.g., "val" or "test").
+
+        Args:
+            batch (dict): The input batch with keys 'x', 'y', 'timedelta'.
+            stage (str): Log prefix/prefix for metrics.
+        """
         x, y, td = batch["x"], batch["y"], batch["timedelta"]
         res = self.forward(x, td)
+
+        # Reshape for per-variable and overall loss computation
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
         y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        loss_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
-        loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
-        # Log the loss for each variable separately
+        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
+        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
+
+        # Compute energy score (always logged as {stage}_loss)
+        if self.loss_is_energy_score:
+            es_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
+            es_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+        else:
+            es_per_var = self.es(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
+            es_overall = torch.mean(self.es(res_reshape2, y_reshape2, mode="complete"))
+
+        # Log per-variable energy score
+        es_per_var_mean = reduce(es_per_var, "b c -> c", "mean")
         for i in range(self.out_features):
             self.log(
-                f"val_loss_var_{i}",
-                loss_per_var[i],
+                f"{stage}_loss_var_{i}",
+                es_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
                 sync_dist=True,
             )
-        # Log the overall loss
-        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
-        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
-        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2))
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        return loss
+
+        # Log overall energy score as {stage}_loss
+        self.log(
+            f"{stage}_loss", es_overall, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True
+        )
+
+        # If using a different loss function, also log it and return it
+        if not self.loss_is_energy_score:
+            loss_fn_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
+            loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
+            for i in range(self.out_features):
+                self.log(
+                    f"{stage}_loss_fn_var_{i}",
+                    loss_fn_per_var_mean[i],
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=True,
+                    sync_dist=True,
+                )
+            loss_fn_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+            self.log(
+                f"{stage}_loss_fn",
+                loss_fn_overall,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
+
+        return es_overall
+
+    def validation_step(self, batch) -> torch.Tensor:
+        return self.score_step(batch, stage="val")
 
     def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
-        x, y, td = batch["x"], batch["y"], batch["timedelta"]
-        res = self.forward(x, td)
-        res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        loss_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
-        loss_per_var = reduce(loss_per_var, "b c -> c", "mean")
-        # Log the loss for each variable separately
-        for i in range(self.out_features):
-            self.log(
-                f"test_loss_var_{i}",
-                loss_per_var[i],
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                sync_dist=True,
-            )
-        # Log the overall loss
-        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
-        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
-        loss = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))  # shape [b]
-        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        return loss
+        return self.score_step(batch, stage="test")
 
     def on_load_checkpoint(self, checkpoint):
         # If buffer exists in checkpoint, load it
@@ -286,7 +310,7 @@ class FcChenModel(BaseChenModel):
         self.hidden_dim_std = hidden_dim_std
         self.hidden_dim_decoder = hidden_dim_decoder
 
-        self._mean_model = nn.Sequential(
+        self.mean_model = nn.Sequential(
             LocallyConnected2D(
                 height=self.height,
                 width=self.width,
@@ -296,7 +320,7 @@ class FcChenModel(BaseChenModel):
             Rearrange("b c h w -> b 1 c h w"),
         )
 
-        self._std_model = nn.Sequential(
+        self.std_model = nn.Sequential(
             nn.Flatten(start_dim=1),
             nn.Linear(
                 in_features=self.in_features * self.gridpoints,
@@ -308,7 +332,7 @@ class FcChenModel(BaseChenModel):
             Rearrange("b noise_dim -> b 1 noise_dim"),
         )
 
-        self._noise_decoder = nn.Sequential(
+        self.noise_decoder = nn.Sequential(
             nn.Flatten(start_dim=1),
             # Here the input is the concatenation of the mean and std model outputs with the embeddings, a doy feature and the latent noise
             nn.Linear(
@@ -330,21 +354,6 @@ class FcChenModel(BaseChenModel):
                 c=self.out_features,
             ),
         )
-
-    @property
-    def mean_model(self) -> nn.Module:
-        """Model to compute the mean of the input features."""
-        return self._mean_model
-
-    @property
-    def std_model(self) -> nn.Module:
-        """Model to compute the standard deviation of the input features."""
-        return self._std_model
-
-    @property
-    def noise_decoder(self) -> nn.Module:
-        """Model to decode the noise and generate samples."""
-        return self._noise_decoder
 
     def get_noise(self, batch_size: int) -> torch.Tensor:
         return torch.randn(size=(batch_size, self.n_samples_train, self.noise_dim))
@@ -396,22 +405,91 @@ class FcChenModel(BaseChenModel):
 class CNNChenModel(BaseChenModel):
     """CNN-based Chen model.
     In this model, both the std_model and the noise_decoder are separate UNets.
-    Args:
-        padding (Tuple[int, int, int, int]): Padding already applied to the input tensor.
-        This is used as a final step to crop the output tensor to the original size so it can be compared with y to calculate the loss.
 
+    Args:
+        in_features (int): Number of input features. Passed to BaseChenModel.
+        meta_features (int): Number of metadata features. Passed to BaseChenModel.
+        out_features (int): Number of output features. Passed to BaseChenModel.
+        width (int): Width of the input feature map. Passed to BaseChenModel.
+        height (int): Height of the input feature map. Passed to BaseChenModel.
+        noise_dim (int): Dimensionality of the latent space. Passed to BaseChenModel.
+        embedding_dim (int): Dimensionality of the embeddings. Passed to BaseChenModel.
+        n_samples_train (int): Number of samples to generate during training. Passed to BaseChenModel.
+        final_activation (nn.Module): Activation function to apply at the end. Passed to BaseChenModel.
+        loss_fn (nn.Module): Loss function to use for training. Passed to BaseChenModel.
+        optimizer (Callable[..., torch.optim.Optimizer]): Optimizer class. Passed to BaseChenModel.
+        lr_scheduler (DictConfig): Learning rate scheduler config. Passed to BaseChenModel.
+        internal_td_scaling (str): TD scaling mode. Passed to BaseChenModel. Default is "abs".
+        padding (Tuple[int, int, int, int]): Padding already applied to the input tensor.
+            This is used as a final step to crop the output tensor to the original size
+            so it can be compared with y to calculate the loss.
+        std_unet_channels (Sequence[int]): Number of channels at each encoder level for the std_model UNet.
+            Default is (32, 64, 64).
+        std_unet_kernel_size (int): Kernel size for convolutions in std_model UNet. Default is 3.
+        std_unet_use_batchnorm (bool): Whether to use batch normalization in std_model UNet. Default is False.
+        std_unet_pool_type (str): Type of pooling for std_model UNet ("max" or "avg"). Default is "max".
+        decoder_unet_channels (Sequence[int]): Number of channels at each encoder level for the noise_decoder UNet.
+            Default is (32, 64, 64).
+        decoder_unet_kernel_size (int): Kernel size for convolutions in noise_decoder UNet. Default is 3.
+        decoder_unet_use_batchnorm (bool): Whether to use batch normalization in noise_decoder UNet. Default is False.
+        decoder_unet_pool_type (str): Type of pooling for noise_decoder UNet ("max" or "avg"). Default is "max".
     """
 
-    def __init__(self, *args, padding: tuple[int, int, int, int], **kwargs) -> None:
+    def __init__(
+        self,
+        # BaseChenModel parameters
+        in_features: int,
+        meta_features: int,
+        out_features: int,
+        width: int,
+        height: int,
+        noise_dim: int,
+        embedding_dim: int,
+        n_samples_train: int,
+        final_activation: nn.Module,
+        loss_fn: nn.Module,
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
+        internal_td_scaling: str,
+        # For compatibility with other models
+        use_rescaler: bool,
+        rescaler: Sequence[nn.Module | None] | None,
+        # CNNChenModel-specific parameters
+        padding: tuple[int, int, int, int],
+        # UNet parameters for std_model
+        std_unet_channels: Sequence[int] = (32, 64, 64),
+        std_unet_kernel_size: int = 3,
+        std_unet_use_batchnorm: bool = False,
+        std_unet_pool_type: str = "max",
+        # UNet parameters for noise_decoder
+        decoder_unet_channels: Sequence[int] = (32, 64, 64),
+        decoder_unet_kernel_size: int = 3,
+        decoder_unet_use_batchnorm: bool = False,
+        decoder_unet_pool_type: str = "max",
+    ) -> None:
         self.save_hyperparameters()
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            in_features=in_features,
+            meta_features=meta_features,
+            out_features=out_features,
+            width=width,
+            height=height,
+            noise_dim=noise_dim,
+            embedding_dim=embedding_dim,
+            n_samples_train=n_samples_train,
+            final_activation=final_activation,
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            internal_td_scaling=internal_td_scaling,
+        )
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
         self.width_no_pad = self.width - self.padding[0] - self.padding[1]  # latitude
 
         self.crop = CropND(padding=self.padding)
 
-        self._mean_model = nn.Sequential(  # This model operates on the cropped input
+        self.mean_model = nn.Sequential(  # This model operates on the cropped input
             self.crop,
             LocallyConnected2D(
                 height=self.height_no_pad,
@@ -423,21 +501,29 @@ class CNNChenModel(BaseChenModel):
         )
 
         # [batch_size, lat, lon, var]
-        self._std_model = nn.Sequential(
+        self.std_model = nn.Sequential(
             UNet(
                 in_features=self.in_features,
                 out_features=self.noise_dim,
+                channels=std_unet_channels,
+                kernel_size=std_unet_kernel_size,
+                use_batchnorm=std_unet_use_batchnorm,
+                pool_type=std_unet_pool_type,
             ),
             Rearrange("b c h w -> b 1 c h w"),
         )
 
-        self._noise_decoder = nn.Sequential(
+        self.noise_decoder = nn.Sequential(
             UNet(
                 in_features=2 * self.in_features
                 + self.meta_dim
                 + self.embedding_dim
                 + self.noise_dim,
                 out_features=self.out_features,
+                channels=decoder_unet_channels,
+                kernel_size=decoder_unet_kernel_size,
+                use_batchnorm=decoder_unet_use_batchnorm,
+                pool_type=decoder_unet_pool_type,
             ),
             Rearrange("(b n) c h w -> b n c h w", n=self.n_samples_train),
             self.crop,  # Crop back to the original size
@@ -445,21 +531,6 @@ class CNNChenModel(BaseChenModel):
 
         if self.use_embedding:
             self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
-
-    @property
-    def mean_model(self) -> nn.Module:
-        """Model to compute the mean of the input features."""
-        return self._mean_model
-
-    @property
-    def std_model(self) -> nn.Module:
-        """Model to compute the standard deviation of the input features."""
-        return self._std_model
-
-    @property
-    def noise_decoder(self) -> nn.Module:
-        """Model to decode the noise and generate samples."""
-        return self._noise_decoder
 
     def get_noise(self, batch_size: int) -> torch.Tensor:
         """Get the noise tensor for the model."""

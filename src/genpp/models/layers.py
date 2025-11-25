@@ -6,7 +6,6 @@ from itertools import batched
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 
@@ -48,55 +47,174 @@ class LocallyConnected2D(nn.Module):
 
 
 class UNet(nn.Module):
-    """A simple UNet model."""
+    """A customizable UNet model.
 
-    def __init__(self, in_features: int, out_features: int) -> None:
+    Args:
+        in_features (int): Number of input channels.
+        out_features (int): Number of output channels.
+        channels (Sequence[int]): Number of channels at each encoder level.
+            The decoder mirrors this structure. Default is (32, 64, 64) for backward compatibility.
+        kernel_size (int): Kernel size for convolutions. Default is 3.
+        padding_mode (str): Padding mode for convolutions. Default is "replicate".
+        activation (nn.Module): Activation function to use. Default is nn.ReLU().
+        use_batchnorm (bool): Whether to use batch normalization. Default is False.
+        pool_type (str): Type of pooling to use ("max" or "avg"). Default is "max".
+
+    Example:
+        >>> # Default structure (backward compatible)
+        >>> unet = UNet(in_features=3, out_features=1)
+        >>> # Deeper network with more channels
+        >>> unet = UNet(in_features=3, out_features=1, channels=(64, 128, 256, 512))
+        >>> # Shallower network
+        >>> unet = UNet(in_features=3, out_features=1, channels=(32, 64))
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        channels: Sequence[int] = (32, 64, 64),
+        kernel_size: int = 3,
+        padding_mode: str = "replicate",
+        activation: nn.Module = nn.ReLU(),
+        use_batchnorm: bool = False,
+        pool_type: str = "max",
+    ) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        kwargs = dict(kernel_size=3, padding=1, padding_mode="replicate")
-        up_kwargs = {"kernel_size": 3, "stride": 2, "padding": 1}
+        self.channels = list(channels)
+        self.depth = len(channels)
+        self.use_batchnorm = use_batchnorm
+        self.activation = activation
 
-        self.pool = nn.MaxPool2d(2)
+        if self.depth < 2:
+            raise ValueError(
+                "UNet requires at least 2 levels (channels must have at least 2 elements)"
+            )
 
-        self.conv1 = nn.Conv2d(self.in_features, 32, **kwargs)  # type: ignore
-        self.conv2 = nn.Conv2d(32, 64, **kwargs)  # type: ignore
-        self.conv3 = nn.Conv2d(64, 64, **kwargs)  # type: ignore
+        padding = kernel_size // 2
+        conv_kwargs = dict(kernel_size=kernel_size, padding=padding, padding_mode=padding_mode)
+        up_kwargs = dict(kernel_size=kernel_size, stride=2, padding=padding)
 
-        self.upconv1 = nn.ConvTranspose2d(64, 64, **up_kwargs)  # type: ignore
-        self.upconv2 = nn.ConvTranspose2d(
-            128,
-            32,
-            **up_kwargs,  # type: ignore
-        )  # 64 from upconv1 + 64 from conv2
-        self.upconv3 = nn.ConvTranspose2d(
-            64, 32, kernel_size=3, stride=1, padding=1
-        )  # 32 from upconv2 + 32 from conv1
+        # Pooling layer
+        if pool_type == "max":
+            self.pool = nn.MaxPool2d(2)
+        elif pool_type == "avg":
+            self.pool = nn.AvgPool2d(2)
+        else:
+            raise ValueError(f"Unknown pool_type: {pool_type}. Use 'max' or 'avg'.")
 
+        # Build encoder
+        self.encoders = nn.ModuleList()
+        self.encoder_norms = nn.ModuleList() if use_batchnorm else None
+        encoder_channels = [in_features] + self.channels
+        for i in range(self.depth):
+            self.encoders.append(
+                nn.Conv2d(encoder_channels[i], encoder_channels[i + 1], **conv_kwargs)  # type: ignore
+            )
+            if use_batchnorm:
+                self.encoder_norms.append(nn.BatchNorm2d(encoder_channels[i + 1]))  # type: ignore
+
+        # Build decoder (mirrors encoder, but with skip connections)
+        self.decoders = nn.ModuleList()
+        self.decoder_norms = nn.ModuleList() if use_batchnorm else None
+
+        # Decoder channels go from deepest to shallowest
+        # reversed_channels = [channels[-1], channels[-2], ..., channels[0]]
+        reversed_channels = list(reversed(self.channels))
+
+        for i in range(self.depth - 1):
+            if i == 0:
+                # First decoder: input from bottleneck
+                in_ch = reversed_channels[0]
+            else:
+                # Subsequent decoders: input is concat of skip + prev decoder output
+                in_ch = reversed_channels[i] * 2
+            out_ch = reversed_channels[i + 1]
+
+            self.decoders.append(
+                nn.ConvTranspose2d(in_ch, out_ch, **up_kwargs)  # type: ignore
+            )
+            if use_batchnorm:
+                self.decoder_norms.append(nn.BatchNorm2d(out_ch))  # type: ignore
+
+        # Final convolution after last skip connection
+        # Input: skip from first encoder + last decoder output = channels[0] + channels[0]
+        self.final_conv = nn.ConvTranspose2d(
+            self.channels[0] * 2,
+            self.channels[0],
+            kernel_size=kernel_size,
+            stride=1,
+            padding=padding,
+        )
+        self.final_norm = nn.BatchNorm2d(self.channels[0]) if use_batchnorm else None
+
+        # Prediction head
         self.predict = nn.Conv2d(
-            32, self.out_features, kernel_size=3, padding=1, padding_mode="replicate"
+            self.channels[0],
+            out_features,
+            kernel_size=kernel_size,
+            padding=padding,
+            padding_mode=padding_mode,
         )
 
+    def _apply_encoder_block(self, x: Tensor, encoder: nn.Module, norm: nn.Module | None) -> Tensor:
+        """Apply encoder block with optional batch norm and activation."""
+        x = encoder(x)
+        if norm is not None:
+            x = norm(x)
+        return self.activation(x)
+
+    def _apply_decoder_block(
+        self, x: Tensor, decoder: nn.Module, norm: nn.Module | None, output_size: torch.Size
+    ) -> Tensor:
+        """Apply decoder block with optional batch norm and activation."""
+        x = decoder(x, output_size=output_size)
+        if norm is not None:
+            x = norm(x)
+        return self.activation(x)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns logits for each class for each pixel in the input image.
+        """Forward pass through the UNet.
 
         Args:
             x (torch.Tensor): Input image tensor. Shape (B, C, H, W).
 
         Returns:
-            torch.Tensor: Logits for each class for each pixel in the input image. Shape (B, 6, H, W).
+            torch.Tensor: Output tensor. Shape (B, out_features, H, W).
         """
-        x1 = F.relu(self.conv1(x))
-        x2 = F.relu(self.conv2(self.pool(x1)))
-        x3 = F.relu(self.conv3(self.pool(x2)))
+        # Encoder path - store outputs for skip connections
+        skips = []
+        encoder_norms = self.encoder_norms or [None] * self.depth
+        for i, (encoder, norm) in enumerate(zip(self.encoders, encoder_norms)):
+            x = self._apply_encoder_block(x, encoder, norm)
+            skips.append(x)
+            if i < self.depth - 1:  # Don't pool after the last encoder
+                x = self.pool(x)
 
-        x2_up = F.relu(self.upconv1(x3, output_size=x2.shape))
-        x2_up_cat = torch.cat([x2, x2_up], dim=1)
+        # Save first encoder output shape for final_conv
+        first_encoder_shape = skips[0].shape
 
-        x1_up = F.relu(self.upconv2(x2_up_cat, output_size=x1.shape))
-        x1_up_cat = torch.cat([x1, x1_up], dim=1)
+        # Decoder path
+        # x is the bottleneck (last encoder output = skips[-1])
+        # Pop the bottleneck since we already have it as x
+        skips.pop()
 
-        x = F.relu(self.upconv3(x1_up_cat, output_size=x.shape))
+        # Process decoder blocks, popping skip connections in reverse order
+        decoder_norms = self.decoder_norms or [None] * (self.depth - 1)
+        for decoder, norm in zip(self.decoders, decoder_norms):
+            skip = skips.pop()
+            x = self._apply_decoder_block(x, decoder, norm, skip.shape)
+            x = torch.cat([skip, x], dim=1)
+
+        # Final convolution with first encoder output shape
+        x = self.final_conv(x, output_size=first_encoder_shape)
+        if self.final_norm is not None:
+            x = self.final_norm(x)
+        x = self.activation(x)
+
+        # Prediction
         x = self.predict(x)
         return x
 
