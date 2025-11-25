@@ -49,9 +49,8 @@ class StochasticEncoder(nn.Module):
         layers: list[nn.Module] = []
         current_channels = in_channels
 
-        for i in range(num_layers):
-            target_channels = out_channels if i == num_layers - 1 else out_channels
-            if use_resblock and current_channels == target_channels:
+        for _ in range(num_layers):
+            if use_resblock and current_channels == out_channels:
                 layers.append(
                     StochasticResBlock2D(
                         channels=current_channels,
@@ -64,14 +63,14 @@ class StochasticEncoder(nn.Module):
                 layers.append(
                     StochasticLayer2D(
                         in_channels=current_channels,
-                        out_channels=target_channels,
+                        out_channels=out_channels,
                         noise_channels=noise_channels,
                         kernel_size=kernel_size,
                         add_bn=add_bn,
                         activation=nn.ReLU(),
                     )
                 )
-                current_channels = target_channels
+                current_channels = out_channels
 
         self.layers = nn.Sequential(*layers)
         self.pool = nn.MaxPool2d(2)
@@ -126,9 +125,8 @@ class StochasticDecoder(nn.Module):
         layers: list[nn.Module] = []
         current_channels = in_channels + skip_channels  # After concatenation with skip
 
-        for i in range(num_layers):
-            target_channels = out_channels if i == num_layers - 1 else out_channels
-            if use_resblock and current_channels == target_channels:
+        for _ in range(num_layers):
+            if use_resblock and current_channels == out_channels:
                 layers.append(
                     StochasticResBlock2D(
                         channels=current_channels,
@@ -141,14 +139,14 @@ class StochasticDecoder(nn.Module):
                 layers.append(
                     StochasticLayer2D(
                         in_channels=current_channels,
-                        out_channels=target_channels,
+                        out_channels=out_channels,
                         noise_channels=noise_channels,
                         kernel_size=kernel_size,
                         add_bn=add_bn,
                         activation=nn.ReLU(),
                     )
                 )
-                current_channels = target_channels
+                current_channels = out_channels
 
         self.layers = nn.Sequential(*layers)
 
