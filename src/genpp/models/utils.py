@@ -63,13 +63,13 @@ class BaseGenerativeModule(BaseModule, ABC):
 
     This class unifies common functionality between FlowMatchingModel and BaseChenModel,
     including:
-    - internal_td_scaling: Scaling strategy to normalize deviations based on lead time
+    - internal_td_scaling: Scaling strategy to normalize (predicted) deviations based on lead time
     - n_samples: Number of ensemble samples to generate during prediction
 
     Args:
         optimizer (Callable[..., torch.optim.Optimizer]): Factory function to create the optimizer.
         lr_scheduler (DictConfig): Configuration for the learning rate scheduler.
-        internal_td_scaling (str): Scaling strategy to normalize deviations based on
+        internal_td_scaling (str): Scaling strategy to normalize (predicted) deviations based on
             lead time, ensuring the model learns a single scale across different forecast horizons.
             Can be "abs", "std", "learned", or "linear_abs".
         n_samples (int): Number of ensemble samples to generate during prediction.
