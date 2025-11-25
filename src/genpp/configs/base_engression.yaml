@@ -1,0 +1,23 @@
+# Main configuration file for GenPP training with Engression
+defaults:
+  - data/dataloader: standard
+  - data/spatial: padded_xy
+  - data/splits: standard
+  - data/preprocess: standard
+  - data: weatherbench2_full_fast
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
+  - model: engression
+  - trainer: default
+  - logger: wandb
+  - hydra: standard
+  - _self_
+
+name: ENGRESSION
+seed: 42
+
+logger:
+  tags:
+    - "engression"
+    - "cnn"
+    - "multi leadtime"
