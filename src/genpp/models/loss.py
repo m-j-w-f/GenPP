@@ -11,11 +11,9 @@ class EnergyScore(nn.Module):
     Args:
         beta (float): The beta parameter for the energy score.
         clamp (bool): Whether to clamp the values to avoid numerical issues.
-        *args: Additional positional arguments are ignored.
-        **kwargs: Additional keyword arguments are ignored.
     """
 
-    def __init__(self, beta: float = 1.0, clamp: bool = True, *args, **kwargs) -> None:
+    def __init__(self, beta: float = 1.0, clamp: bool = True) -> None:
         super().__init__()
         self.beta = beta
         self.clamp = clamp
@@ -31,12 +29,13 @@ class EnergyScore(nn.Module):
         reduced = reduce(torch.sqrt(sq_diff_sum) ** self.beta, "... n 1 -> ...", reduction="mean")
         return reduced
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """Computes the energy score between the predicted and true values.
 
         Args:
             x (torch.Tensor): The predicted values with shape [..., n_samples, variables].
             y (torch.Tensor): The true values with shape [..., variables].
+            Additional args and kwargs are ignored.
 
         Returns:
             torch.Tensor: The computed energy score with shape [..., ].
@@ -75,7 +74,37 @@ class PatchwiseEnergyScore(EnergyScore):
         patch_size: int = 3,
         height: int = 37,
         width: int = 31,
+        normalize: bool = True,
     ) -> None:
+        """
+        Initialize a PatchwiseEnergyScore.
+
+        Args:
+            beta (float, optional): Exponent used in the L2-beta norm inside the energy
+                score computations. Default: 1.0.
+            clamp (bool, optional): If True, clamp small/large values to avoid numerical
+                instabilities. Default: True.
+            patch_size (int, optional): Side length of the square patch used to compute
+                the patchwise energy score. Default: 3.
+            height (int, optional): Height of the input image. Default: 37.
+            width (int, optional): Width of the input image. Default: 31.
+            normalize (bool, optional): Whether to scale the computed per-patch energy by
+                1.0 / (patch_size ** beta) to keep magnitudes comparable across patch sizes.
+                Default: True.
+
+        Notes:
+            - In 'complete' mode, the forward expects:
+                x: [batch, n_samples, c*h*w]
+                y: [batch, c*h*w]
+              The inputs are reshaped to [batch, c, h, w] and patches are extracted via
+              unfold; the result is averaged over patches to produce [batch].
+            - In 'per_var' mode, the forward expects:
+                x: [batch, c, n_samples, h*w]
+                y: [batch, c, h*w]
+              Patches are computed per channel and averaged over patches to produce [batch, c].
+            - Pads are chosen so every pixel participates equally using padding derived
+              from patch_size.
+        """
         super().__init__(beta=beta, clamp=clamp)
         self.patch_size = (patch_size, patch_size)
         self.height = height
@@ -83,6 +112,8 @@ class PatchwiseEnergyScore(EnergyScore):
         self.padding = tuple(
             [(k - 1) // 2 for k in self.patch_size]
         )  # ensure that every pixel is covered the same number of times
+        if normalize:
+            self.normalization_factor = 1.0 / (patch_size**beta)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
         """Computes the spatial energy score between predicted and true values.
@@ -118,6 +149,8 @@ class PatchwiseEnergyScore(EnergyScore):
                 y_patchwise, "b patchsize num_patches -> b num_patches patchsize"
             )  # [b, num_patches, patchsize]
             es = super().forward(x_patchwise, y_patchwise)  # [b, num_patches]
+            if self.normalization_factor is not None:
+                es = es * self.normalization_factor
             return reduce(es, "b num_patches -> b", "mean")  # [b]
         elif mode == "per_var":
             *B, C, N, _ = x.shape
@@ -140,6 +173,8 @@ class PatchwiseEnergyScore(EnergyScore):
                 y_patchwise, "(b c) patchsize num_patches -> b c num_patches patchsize", c=C
             )
             es = super().forward(x_patchwise, y_patchwise)  # [b, c, num_patches]
+            if self.normalization_factor is not None:
+                es = es * self.normalization_factor
             return reduce(es, "b c num_patches -> b c", "mean")  # [b, c]
 
         else:
