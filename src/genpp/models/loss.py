@@ -61,6 +61,8 @@ class EnergyScore(nn.Module):
             distances_22 = torch.clamp(distances_22, min=self.eps, max=self.max_value)
 
         # Sum over all pairs (including diagonal, but we'll account for that)
+        # NOTE: in the engression codebase the diagonal elements are excluded, here we don't
+        #       this is inline with the library scoringRules in R
         es_22 = reduce(torch.sqrt(distances_22), "... n1 n2 -> ...", reduction="mean")  # [..., ]
         es = es_12 - 0.5 * es_22
         return es

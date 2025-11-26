@@ -18,6 +18,7 @@ from genpp.models.engression.base import (
     StochasticResBlock2D,
 )
 from genpp.models.layers import PixelEmbedder
+from genpp.models.loss import EnergyScore
 
 
 class StochasticEncoder(nn.Module):
@@ -361,7 +362,7 @@ class CNNEngressionModel(EngressionModel):
         internal_td_scaling: str,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
-        loss_fn: nn.Module | None = None,
+        loss_fn: nn.Module = EnergyScore(),
     ) -> None:
         # Create pixel embedder
         self.use_embedding = embedding_dim > 0
@@ -425,7 +426,7 @@ class CNNEngressionModel(EngressionModel):
         ]
 
         if self.use_embedding:
-            pixel_emb = self.pixel_embedder(x["pixel_idx"])
+            pixel_emb = self.pixel_embedder(x["pixel_idx"])  # type: ignore
             inputs.append(pixel_emb)
 
         return torch.cat(inputs, dim=1)

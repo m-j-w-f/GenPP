@@ -102,37 +102,26 @@ class StochasticResBlock2D(nn.Module):
         super().__init__()
         if hidden_channels is None:
             hidden_channels = channels
-        self.noise_channels = noise_channels
-        padding = kernel_size // 2
 
-        # First conv block with noise
-        layers1: list[nn.Module] = [
-            nn.Conv2d(
-                channels + noise_channels,
-                hidden_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-                padding_mode="replicate",
-            ),
-        ]
-        if add_bn:
-            layers1.append(nn.BatchNorm2d(hidden_channels))
-        layers1.append(nn.ReLU())
-        self.block1 = nn.Sequential(*layers1)
+        # First stochastic layer with ReLU activation
+        self.block1 = StochasticLayer2D(
+            in_channels=channels,
+            out_channels=hidden_channels,
+            noise_channels=noise_channels,
+            kernel_size=kernel_size,
+            add_bn=add_bn,
+            activation=nn.ReLU(),
+        )
 
-        # Second conv block with noise
-        layers2: list[nn.Module] = [
-            nn.Conv2d(
-                hidden_channels + noise_channels,
-                channels,
-                kernel_size=kernel_size,
-                padding=padding,
-                padding_mode="replicate",
-            ),
-        ]
-        if add_bn:
-            layers2.append(nn.BatchNorm2d(channels))
-        self.block2 = nn.Sequential(*layers2)
+        # Second stochastic layer without activation (applied after residual)
+        self.block2 = StochasticLayer2D(
+            in_channels=hidden_channels,
+            out_channels=channels,
+            noise_channels=noise_channels,
+            kernel_size=kernel_size,
+            add_bn=add_bn,
+            activation=None,
+        )
 
         self.relu = nn.ReLU()
 
@@ -146,19 +135,12 @@ class StochasticResBlock2D(nn.Module):
             torch.Tensor: Output tensor of shape [batch, channels, height, width].
         """
         residual = x
-        batch_size, _, height, width = x.shape
 
-        # First block with noise
-        noise1 = torch.randn(
-            batch_size, self.noise_channels, height, width, device=x.device, dtype=x.dtype
-        )
-        out = self.block1(torch.cat([x, noise1], dim=1))
+        # First stochastic layer
+        out = self.block1(x)
 
-        # Second block with noise
-        noise2 = torch.randn(
-            batch_size, self.noise_channels, height, width, device=x.device, dtype=x.dtype
-        )
-        out = self.block2(torch.cat([out, noise2], dim=1))
+        # Second stochastic layer
+        out = self.block2(out)
 
         # Residual connection
         out = out + residual
@@ -226,7 +208,7 @@ class EngressionModel(BaseGenerativeModule, ABC):
         internal_td_scaling: str,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
-        loss_fn: nn.Module | None = None,
+        loss_fn: nn.Module = EnergyScore(),
     ) -> None:
         super().__init__(
             optimizer=optimizer,
@@ -234,7 +216,7 @@ class EngressionModel(BaseGenerativeModule, ABC):
             internal_td_scaling=internal_td_scaling,
             n_samples=n_samples,
         )
-        self.save_hyperparameters(ignore=["backbone", "loss_fn", "rescaler"])
+        self.save_hyperparameters()
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
 
@@ -243,7 +225,7 @@ class EngressionModel(BaseGenerativeModule, ABC):
         self.crop = CropND(padding=padding) if padding else nn.Identity()
 
         # Loss function
-        self.loss_fn = loss_fn if loss_fn is not None else EnergyScore(beta=1.0, clamp=True)
+        self.loss_fn = loss_fn
         self.loss_is_energy_score = type(self.loss_fn) is EnergyScore
         if not self.loss_is_energy_score:
             self.es = EnergyScore()
