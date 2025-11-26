@@ -364,15 +364,11 @@ class CNNEngressionModel(EngressionModel):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
     ) -> None:
-        # Create pixel embedder
-        self.use_embedding = embedding_dim > 0
-        if self.use_embedding:
-            self.pixel_embedder = PixelEmbedder(
-                num_embeddings=height * width, embedding_dim=embedding_dim
-            )
+        # Calculate total input channels
+        use_embedding = embedding_dim > 0
+        if use_embedding:
             total_in_channels = in_channels + embedding_dim
         else:
-            self.pixel_embedder = None
             total_in_channels = in_channels
 
         # Create stochastic UNet backbone
@@ -398,6 +394,15 @@ class CNNEngressionModel(EngressionModel):
             rescaler=rescaler,
             loss_fn=loss_fn,
         )
+
+        # Create pixel embedder after super().__init__() call
+        self.use_embedding = use_embedding
+        if self.use_embedding:
+            self.pixel_embedder = PixelEmbedder(
+                num_embeddings=height * width, embedding_dim=embedding_dim
+            )
+        else:
+            self.pixel_embedder = None
 
         # Store additional parameters
         self.in_channels = in_channels

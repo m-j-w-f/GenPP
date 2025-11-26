@@ -1,5 +1,7 @@
 """Tests for the engression model components."""
 
+from functools import partial
+
 import pytest
 import torch
 
@@ -8,10 +10,12 @@ from genpp.models.engression.base import (
     StochasticResBlock2D,
 )
 from genpp.models.engression.cnn import (
-    StochasticEncoder,
+    CNNEngressionModel,
     StochasticDecoder,
+    StochasticEncoder,
     StochasticUNet,
 )
+from genpp.models.loss import EnergyScore
 
 
 class TestStochasticLayer2D:
@@ -209,3 +213,146 @@ class TestStochasticUNet:
         # Check that samples are different from each other
         assert not torch.allclose(samples[0, 0], samples[0, 1])
         assert not torch.allclose(samples[0, 1], samples[0, 2])
+
+
+class TestCNNEngressionModel:
+    """Tests for CNNEngressionModel."""
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "batch_size,height,width,pred_channels,aux_channels,meta_channels,out_channels,n_samples,padding",
+        [
+            (2, 48, 32, 2, 8, 6, 2, 10, [2, 2, 4, 4]),
+            (1, 64, 64, 4, 10, 4, 4, 5, [4, 4, 4, 4]),
+        ],
+    )
+    def test_forward_output_shape(
+        self,
+        batch_size,
+        height,
+        width,
+        pred_channels,
+        aux_channels,
+        meta_channels,
+        out_channels,
+        n_samples,
+        padding,
+    ):
+        """Test that CNNEngressionModel forward pass produces correct output shape."""
+        # Calculate expected output dimensions after cropping
+        expected_height = height - padding[2] - padding[3]
+        expected_width = width - padding[0] - padding[1]
+
+        embedding_dim = 5
+        in_channels = pred_channels + aux_channels + meta_channels
+
+        # Create the model
+        model = CNNEngressionModel(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            height=height,
+            width=width,
+            embedding_dim=embedding_dim,
+            channels=[32, 64],
+            noise_channels=16,
+            num_layers_per_block=2,
+            use_resblock=False,
+            kernel_size=3,
+            add_bn=True,
+            n_samples=n_samples,
+            padding=padding,
+            optimizer=partial(torch.optim.Adam, lr=1e-3),
+            lr_scheduler={"scheduler": None},
+            internal_td_scaling="learned",
+            use_rescaler=False,
+            loss_fn=EnergyScore(),
+        )
+
+        # Mark TD scaling as fitted to avoid errors during forward pass
+        model.internal_td_scaling.is_fitted = torch.tensor(True)
+        # Set up the internal TD scaling model for out_channels variables
+        model.internal_td_scaling.model = torch.nn.Linear(1, out_channels)
+
+        # Create input tensors with correct shapes
+        # Note: predicted_vars must have out_channels since scale is computed based on it
+        x = {
+            "predicted_vars": torch.randn(batch_size, out_channels, height, width),
+            "auxiliary_vars": torch.randn(batch_size, aux_channels, height, width),
+            "meta_vars": torch.randn(batch_size, meta_channels, height, width),
+            "pixel_idx": torch.zeros(batch_size, 1, height, width, dtype=torch.long),
+        }
+        # Fill pixel_idx properly
+        for i in range(height):
+            for j in range(width):
+                x["pixel_idx"][:, 0, i, j] = i * width + j
+
+        td = torch.rand(batch_size)
+
+        # Forward pass
+        out = model.forward(x, td)
+
+        # Check output shape: [batch, n_samples, out_channels, cropped_height, cropped_width]
+        assert out.shape == (
+            batch_size,
+            n_samples,
+            out_channels,
+            expected_height,
+            expected_width,
+        ), (
+            f"Expected shape {(batch_size, n_samples, out_channels, expected_height, expected_width)}, got {out.shape}"
+        )
+
+    @pytest.mark.unit
+    def test_samples_are_stochastic(self):
+        """Test that multiple forward passes produce different samples due to noise injection."""
+        batch_size = 2
+        height, width = 32, 32
+        aux_channels, meta_channels = 4, 2
+        out_channels = 2
+        n_samples = 5
+        padding = [2, 2, 2, 2]
+        embedding_dim = 5
+
+        model = CNNEngressionModel(
+            in_channels=out_channels + aux_channels + meta_channels,
+            out_channels=out_channels,
+            height=height,
+            width=width,
+            embedding_dim=embedding_dim,
+            channels=[32, 64],
+            noise_channels=16,
+            num_layers_per_block=2,
+            use_resblock=False,
+            kernel_size=3,
+            add_bn=True,
+            n_samples=n_samples,
+            padding=padding,
+            optimizer=partial(torch.optim.Adam, lr=1e-3),
+            lr_scheduler={"scheduler": None},
+            internal_td_scaling="learned",
+            use_rescaler=False,
+            loss_fn=EnergyScore(),
+        )
+
+        model.internal_td_scaling.is_fitted = torch.tensor(True)
+        # Set up the internal TD scaling model for out_channels variables
+        model.internal_td_scaling.model = torch.nn.Linear(1, out_channels)
+
+        x = {
+            "predicted_vars": torch.randn(batch_size, out_channels, height, width),
+            "auxiliary_vars": torch.randn(batch_size, aux_channels, height, width),
+            "meta_vars": torch.randn(batch_size, meta_channels, height, width),
+            "pixel_idx": torch.zeros(batch_size, 1, height, width, dtype=torch.long),
+        }
+        for i in range(height):
+            for j in range(width):
+                x["pixel_idx"][:, 0, i, j] = i * width + j
+
+        td = torch.rand(batch_size)
+
+        out = model.forward(x, td)
+
+        # Check that different samples are different (due to stochastic noise)
+        assert not torch.allclose(out[0, 0], out[0, 1]), (
+            "Different samples should be different due to noise injection"
+        )
