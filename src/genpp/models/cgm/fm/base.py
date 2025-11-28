@@ -8,8 +8,8 @@ from flow_matching.path import CondOTProbPath
 from flow_matching.solver import ODESolver
 from omegaconf import DictConfig
 
+from genpp.models.cgm.utils import BaseGenerativeModule
 from genpp.models.layers import CropND
-from genpp.models.utils import BaseGenerativeModule
 
 
 class ConditionalVectorField(nn.Module, ABC):

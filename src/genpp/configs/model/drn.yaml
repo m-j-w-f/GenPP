@@ -1,5 +1,5 @@
 # DRN model config
-_target_: genpp.models.distributionalRegression.drn.DRNModel
+_target_: genpp.models.distributionalRegression.DRNModel
 
 in_features: ${data.features.input_concat}
 out_distribution:

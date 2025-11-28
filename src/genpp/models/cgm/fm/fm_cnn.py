@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from genpp.models.fm.base import ConditionalVectorField
+from genpp.models.cgm.fm.base import ConditionalVectorField
 from genpp.models.layers import FourierEncoder, PixelEmbedder
 
 

@@ -1,5 +1,5 @@
 # UNet-based Flow Matching Model Configuration
-_target_: genpp.models.fm.base.FlowMatchingModel
+_target_: genpp.models.cgm.FlowMatchingModel
 n_samples: 50
 solver_iter: 10
 padding: ${data.spatial.padding_list}
@@ -8,7 +8,7 @@ internal_td_scaling: abs
 
 # Model backbone parameters
 backbone:
-  _target_: genpp.models.fm.fm_cnn.UNetCVF
+  _target_: genpp.models.cgm.fm.UNetCVF
   channels:
     - 32
     - 64

@@ -1,4 +1,4 @@
-"""Custom neural network layers for the GenPP project."""
+"""Custom neural network layers for the GenPP project shared across different models."""
 
 import math
 from collections.abc import Sequence

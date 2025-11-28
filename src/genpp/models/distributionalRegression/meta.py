@@ -6,8 +6,8 @@ import torch.nn as nn
 from einops import reduce
 from omegaconf import DictConfig
 
+from genpp.models.base_module import BaseModule
 from genpp.models.distributionalRegression.distributions import PredictiveDistribution
-from genpp.models.utils import BaseModule
 
 
 class DistributionRegression(BaseModule, ABC):
