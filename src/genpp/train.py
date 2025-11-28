@@ -24,7 +24,7 @@ def train(cfg: DictConfig) -> None:
         model: L.LightningModule = hydra.utils.instantiate(
             cfg.model, rescaler=datamodule.y_reverseModules if cfg.model.use_rescaler else None
         )
-        model.compile()
+        model.compile(mode="max-autotune")
         logger = False
         if hasattr(cfg, "logger") and cfg.logger:
             logger = hydra.utils.instantiate(cfg.logger)
