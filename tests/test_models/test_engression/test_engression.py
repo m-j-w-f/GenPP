@@ -5,11 +5,11 @@ from functools import partial
 import pytest
 import torch
 
-from genpp.models.engression.base import (
+from genpp.models.cgm.engression.base import (
     StochasticLayer2D,
     StochasticResBlock2D,
 )
-from genpp.models.engression.cnn import (
+from genpp.models.cgm.engression.cnn import (
     CNNEngressionModel,
     StochasticDecoder,
     StochasticEncoder,
@@ -262,7 +262,7 @@ class TestCNNEngressionModel:
             n_samples=n_samples,
             padding=padding,
             optimizer=partial(torch.optim.Adam, lr=1e-3),
-            lr_scheduler={"scheduler": None},
+            lr_scheduler={"scheduler": None},  # pyright: ignore[reportArgumentType]
             internal_td_scaling="learned",
             use_rescaler=False,
             loss_fn=EnergyScore(),
@@ -328,7 +328,7 @@ class TestCNNEngressionModel:
             n_samples=n_samples,
             padding=padding,
             optimizer=partial(torch.optim.Adam, lr=1e-3),
-            lr_scheduler={"scheduler": None},
+            lr_scheduler={"scheduler": None},  # pyright: ignore[reportArgumentType]
             internal_td_scaling="learned",
             use_rescaler=False,
             loss_fn=EnergyScore(),

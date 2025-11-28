@@ -1,5 +1,5 @@
 # CNN-based Engression Model Configuration
-_target_: genpp.models.engression.cnn.CNNEngressionModel
+_target_: genpp.models.cgm.CNNEngressionModel
 
 # Input/output configuration
 in_channels: ${data.features.input_concat}
@@ -9,10 +9,10 @@ width: ${data.spatial.padded.latitude}
 
 # Model architecture parameters
 embedding_dim: 5
-channels: [32, 64, 128]
+channels: [32, 64]
 noise_channels: 32
 num_layers_per_block: 2
-use_resblock: false
+use_resblock: true
 kernel_size: 3
 add_bn: true
 

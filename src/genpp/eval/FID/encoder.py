@@ -9,8 +9,8 @@ from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 from tqdm import tqdm
 
+from genpp.models.base_module import BaseModule
 from genpp.models.layers import CropND
-from genpp.models.utils import BaseModule
 
 
 class BaseEncoder(BaseModule):

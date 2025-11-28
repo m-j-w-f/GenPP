@@ -11,8 +11,8 @@ import torch.nn as nn
 from einops import rearrange, repeat
 from omegaconf import DictConfig
 
-from genpp.models.engression.base import (
-    EngressionModel,
+from genpp.models.cgm.engression.base import (
+    BaseEngressionModel,
     StochasticBackbone,
     StochasticLayer2D,
     StochasticResBlock2D,
@@ -184,7 +184,7 @@ class StochasticUNet(StochasticBackbone):
         self,
         in_channels: int,
         out_channels: int,
-        channels: Sequence[int] = (32, 64, 128),
+        channels: Sequence[int] = (32, 64),
         noise_channels: int = 32,
         num_layers_per_block: int = 2,
         use_resblock: bool = False,
@@ -272,7 +272,7 @@ class StochasticUNet(StochasticBackbone):
         x = self.init_conv(x)
 
         # Encoder path
-        skips = [x]
+        skips = []
         for encoder in self.encoders:
             x, skip = encoder(x)
             skips.append(skip)
@@ -281,12 +281,8 @@ class StochasticUNet(StochasticBackbone):
         x = self.bottleneck(x)
 
         # Decoder path
-        # skips[0] is from init_conv (not used for decoders in standard UNet)
-        # skips[1:] are from encoders in order [encoder[0] output, encoder[1] output, ...]
-        # We need them in reverse order for decoders
-        encoder_skips = list(reversed(skips[1:]))  # [encoder[-1] output, ..., encoder[0] output]
-        for decoder, skip in zip(self.decoders, encoder_skips):
-            x = decoder(x, skip)
+        for decoder in self.decoders:
+            x = decoder(x, skips.pop())
 
         # Output
         return self.out_conv(x)
@@ -314,7 +310,7 @@ class StochasticUNet(StochasticBackbone):
         return out
 
 
-class CNNEngressionModel(EngressionModel):
+class CNNEngressionModel(BaseEngressionModel):
     """CNN-based Engression model using a stochastic UNet backbone.
 
     This model combines the engression approach with a UNet architecture
@@ -433,5 +429,17 @@ class CNNEngressionModel(EngressionModel):
         if self.use_embedding:
             pixel_emb = self.pixel_embedder(x["pixel_idx"])  # type: ignore
             inputs.append(pixel_emb)
+        inputs_concat = torch.cat(inputs, dim=1)
+        return inputs_concat
 
-        return torch.cat(inputs, dim=1)
+
+class TransformerEngressionModel(BaseEngressionModel):
+    """Transformer-based Engression model for grid-based weather forecast post-processing.
+
+    This is a placeholder for a Transformer-based engression model implementation.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # TODO
+        ...

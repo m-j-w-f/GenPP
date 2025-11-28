@@ -1,7 +1,7 @@
 # Main configuration file for GenPP training with Engression
 defaults:
   - data/dataloader: standard
-  - data/spatial: padded_xy
+  - data/spatial: padded_x
   - data/splits: standard
   - data/preprocess: standard
   - data: weatherbench2_full_fast
@@ -15,6 +15,10 @@ defaults:
 
 name: ENGRESSION
 seed: 42
+
+# Override default batch size for engression model to avoid OOM
+data:
+  batch_size: 8
 
 logger:
   tags:

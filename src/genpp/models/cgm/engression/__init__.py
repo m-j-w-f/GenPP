@@ -6,7 +6,7 @@ X. Shen et al., "Engression: Extrapolation through the Lens of Distributional Re
 The models are adapted for grid-based weather forecast post-processing.
 """
 
-from genpp.models.engression.base import EngressionModel
-from genpp.models.engression.cnn import CNNEngressionModel
+from .base import BaseEngressionModel
+from .cnn import CNNEngressionModel
 
-__all__ = ["EngressionModel", "CNNEngressionModel"]
+__all__ = ["BaseEngressionModel", "CNNEngressionModel"]

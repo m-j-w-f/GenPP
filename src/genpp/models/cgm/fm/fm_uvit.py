@@ -8,8 +8,8 @@ import einops
 import torch
 import torch.nn as nn
 
-from genpp.models.fm.base import ConditionalVectorField
-from genpp.models.fm.helpers import Mlp, trunc_normal_
+from genpp.models.cgm.fm.base import ConditionalVectorField
+from genpp.models.cgm.fm.helpers import Mlp, trunc_normal_
 from genpp.models.layers import FourierEncoder, PixelEmbedder
 
 if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
@@ -22,7 +22,6 @@ else:
         ATTENTION_MODE = "xformers"
     except ImportError:
         ATTENTION_MODE = "math"
-print(f"attention mode is {ATTENTION_MODE}")
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
@@ -152,7 +151,7 @@ class PatchEmbed(nn.Module):
         return x
 
 
-class UViT(ConditionalVectorField):
+class UViTCVF(ConditionalVectorField):
     def __init__(
         self,
         img_height=40,
@@ -173,6 +172,7 @@ class UViT(ConditionalVectorField):
         skip=True,
     ):
         super().__init__()
+        print(f"attention mode is {ATTENTION_MODE}")
         self.in_channels = in_channels
         self.channels_conditioning = channels_conditioning + pixel_embed_dim
         self.image_size = (img_height, img_width)

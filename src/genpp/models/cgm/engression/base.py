@@ -12,9 +12,9 @@ import torch.nn as nn
 from einops import rearrange, reduce
 from omegaconf import DictConfig
 
+from genpp.models.cgm.utils import BaseGenerativeModule
 from genpp.models.layers import CropND
 from genpp.models.loss import EnergyScore
-from genpp.models.utils import BaseGenerativeModule
 
 
 class StochasticLayer2D(nn.Module):
@@ -179,7 +179,7 @@ class StochasticBackbone(nn.Module, ABC):
         pass
 
 
-class EngressionModel(BaseGenerativeModule, ABC):
+class BaseEngressionModel(BaseGenerativeModule, ABC):
     """Base engression model for grid-based weather forecast post-processing.
 
     This model uses a stochastic neural network that injects noise at each layer,
@@ -216,7 +216,7 @@ class EngressionModel(BaseGenerativeModule, ABC):
             internal_td_scaling=internal_td_scaling,
             n_samples=n_samples,
         )
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["backbone", "loss_fn"])
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
 
@@ -300,8 +300,7 @@ class EngressionModel(BaseGenerativeModule, ABC):
 
         # Reshape for loss computation
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
-        y_cropped = self.crop(y)
-        y_reshape = rearrange(y_cropped, "b c h w -> b (c h w)")
+        y_reshape = rearrange(y, "b c h w -> b (c h w)")
 
         loss = self.loss_fn(res_reshape, y_reshape, mode="complete")
         loss = torch.mean(loss)
@@ -324,10 +323,9 @@ class EngressionModel(BaseGenerativeModule, ABC):
 
         # Reshape for per-variable and overall loss computation
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        y_cropped = self.crop(y)
-        y_reshape = rearrange(y_cropped, "b c h w -> b c (h w)")
+        y_reshape = rearrange(y, "b c h w -> b c (h w)")
         res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
-        y_reshape2 = rearrange(y_cropped, "b c h w -> b (c h w)")
+        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
 
         # Compute energy score
         if self.loss_is_energy_score:

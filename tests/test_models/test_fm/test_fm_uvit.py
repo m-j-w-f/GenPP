@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from genpp.models.fm.fm_uvit import patchify, unpatchify
+from genpp.models.cgm.fm.fm_uvit import patchify, unpatchify
 
 
 class TestPatchifyUnpatchify:
