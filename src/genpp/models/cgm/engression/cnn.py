@@ -431,15 +431,3 @@ class CNNEngressionModel(BaseEngressionModel):
             inputs.append(pixel_emb)
         inputs_concat = torch.cat(inputs, dim=1)
         return inputs_concat
-
-
-class TransformerEngressionModel(BaseEngressionModel):
-    """Transformer-based Engression model for grid-based weather forecast post-processing.
-
-    This is a placeholder for a Transformer-based engression model implementation.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        # TODO
-        ...
