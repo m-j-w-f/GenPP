@@ -7,9 +7,6 @@ to the verifying analysis, individual IFS ensemble members, and the ensemble mea
 Usage:
     python plot_forecasts_web.py [--port PORT] [--host HOST]
 
-    Or use panel serve:
-    panel serve plot_forecasts_web.py --show --port 5006
-
 Requirements:
     - panel >= 0.12.1
     - hvplot >= 0.12.1
@@ -23,24 +20,24 @@ The dashboard will open automatically in your default web browser.
 
 from __future__ import annotations
 
-import argparse  # noqa: F401
-from collections import OrderedDict  # noqa: F401
-from pathlib import Path  # noqa: F401
-from typing import Any  # noqa: F401
+import argparse
+from collections import OrderedDict
+from typing import Any
 
-import hvplot  # noqa: F401
+import hvplot
 import hvplot.xarray  # noqa: F401 -> register xarray accessor
-import numpy as np  # noqa: F401
-import pandas as pd  # noqa: F401
-import panel as pn  # noqa: F401
-import xarray as xr  # noqa: F401
-from bokeh.models import BasicTicker, ColorBar, LinearColorMapper  # noqa: F401
-from bokeh.palettes import Inferno256, Turbo256  # noqa: F401
-from bokeh.plotting import figure  # noqa: F401
+import numpy as np
+import pandas as pd
+import panel as pn
+import xarray as xr
+from bokeh.models import BasicTicker, ColorBar, LinearColorMapper
+from bokeh.palettes import Inferno256, Turbo256
+from bokeh.plotting import figure
 
-from genpp import BASE_DIR  # noqa: F401
-from genpp.data import FC_VARS, OBSERVATIONS_FLAT_PATH, VAL_PREDICTIONS  # noqa: F401
-from genpp.eval.utils import load_predictions_dataarray  # noqa: F401
+from genpp import BASE_DIR
+from genpp.data import FC_VARS, OBSERVATIONS_FLAT_PATH, VAL_PREDICTIONS
+from genpp.eval import best_models
+from genpp.eval.utils import load_predictions_dataarray
 
 # Initialize extensions
 print("Initializing extensions...")
@@ -52,13 +49,13 @@ print("Extensions initialized.")
 # Configuration
 # ============================================================================
 
-# Model configurations with run IDs
-models: dict[str, dict[str, Any]] = {
-    "emos": {"id": "k32mygar"},
-    "drn": {"id": "hn0gdrqm"},
-    "chen": {"id": "qbuvhf5p"},
-    "fm": {"id": "blkpcik8"},
-}
+# Build models dictionary from best_models with variants keyed by tag
+models: dict[str, dict[str, Any]] = {}
+for model_name, model_entries in best_models:
+    if model_entries:  # Only add if there are entries
+        models[model_name] = {
+            "entries": {entry.tag or "standard": entry for entry in model_entries}
+        }
 
 OUTPUT_DIR = BASE_DIR.parent.parent / "outputs"
 
@@ -81,19 +78,24 @@ def load_model_predictions():
     """Load validation predictions for all configured models."""
     print("\nLoading model predictions...")
     for model_name, model_info in models.items():
-        try:
-            model_dir = list(OUTPUT_DIR.rglob(f"*{model_info['id']}*"))[0].parent.parent.parent
-            model_info["val_predictions"] = {
-                f.name: f for f in model_dir.rglob("val_predictions*.zarr")
-            }
-            print(
-                f"  ✓ Found {len(model_info['val_predictions'])} prediction file(s) for '{model_name}'"
-            )
-        except IndexError:
-            print(
-                f"  ✗ Warning: Could not find predictions for model '{model_name}' with ID {model_info['id']}"
-            )
-            model_info["val_predictions"] = {}
+        model_info["val_predictions"] = {}
+        for variant_key, entry in model_info["entries"].items():
+            try:
+                model_dir = entry.model_dir
+                entry_predictions = list(model_dir.rglob("val_predictions*.zarr"))
+                if entry_predictions:
+                    model_info["val_predictions"][variant_key] = entry_predictions[0]
+                    print(
+                        f"  ✓ Found prediction file for '{model_name}' variant '{variant_key}' (entry {entry.id})"
+                    )
+                else:
+                    print(
+                        f"  ✗ Warning: No prediction files found for '{model_name}' variant '{variant_key}' (entry {entry.id})"
+                    )
+            except (IndexError, ValueError) as e:
+                print(
+                    f"  ✗ Warning: Could not find predictions for model '{model_name}' variant '{variant_key}' (entry {entry.id}): {e}"
+                )
 
 
 load_model_predictions()
@@ -154,7 +156,7 @@ def prepare_array(
         arr = arr.assign_coords(
             member=(
                 "member",
-                [f"{member_label_prefix}_{idx:02d}" for idx in range(arr.sizes["member"])],
+                [f"{idx:02d}" for idx in range(arr.sizes["member"])],
             ),
         )
     elif "member" not in arr.coords or len(arr.coords["member"]) != arr.sizes["member"]:
@@ -228,16 +230,9 @@ print("Forecast sources loaded.")
 # ============================================================================
 
 
-def _variant_key_from_filename(file_name: str) -> str:
-    """Extract variant key from prediction filename."""
-    stem = Path(file_name).stem
-    suffix = stem[len("val_predictions") :].strip("_") if stem.startswith("val_predictions") else ""
-    return suffix or "standard"
-
-
 def _variant_display_name(variant_key: str) -> str:
     """Convert variant key to display name."""
-    return "Standard" if variant_key == "standard" else variant_key.upper()
+    return "Standard" if variant_key == "standard" else variant_key.replace("_", " ").title()
 
 
 model_forecasts: dict[str, OrderedDict[str, xr.DataArray]] = {}
@@ -248,8 +243,7 @@ for model_name, model_info in models.items():
     print(f"  Loading '{model_name}' variants...")
     variant_arrays: OrderedDict[str, xr.DataArray] = OrderedDict()
     variant_labels: OrderedDict[str, str] = OrderedDict()
-    for file_name, val_path in sorted(model_info["val_predictions"].items()):
-        variant_key = _variant_key_from_filename(file_name)
+    for variant_key, val_path in sorted(model_info["val_predictions"].items()):
         variant_display = _variant_display_name(variant_key)
         preds = load_predictions_dataarray(val_path).sel(prediction=VAL_PREDICTIONS)
         member_prefix = f"{model_name}_{variant_key}" if variant_key != "standard" else model_name
