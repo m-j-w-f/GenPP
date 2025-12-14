@@ -110,7 +110,7 @@ best_models: BestModels = BestModels(
     ],
     fm=[
         ModelEntry(id="pwb8kh5a", tag="unet_std"),
-        ModelEntry(id="vg3d7e9s", tag="unet_abs"),
+        ModelEntry(id="qiso22uq", tag="unet_abs"),
         ModelEntry(id="ftmjxjq9", tag="uvit_std"),
         ModelEntry(id="s19rsj2i", tag="uvit_abs"),
     ],
