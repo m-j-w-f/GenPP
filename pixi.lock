@@ -7660,7 +7660,7 @@ packages:
 - pypi: ./
   name: genpp
   version: 0.1.0
-  sha256: dc9b905feddaa0ac60377d28ec179dad893cfdbe09318915ba28b31803b74e93
+  sha256: eede5ef1a220c34288480683317fc3c536ca34c7ad56d6580fffbdd64ea6305c
   requires_python: '>=3.13'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/gflags-2.2.2-h5888daf_1005.conda
