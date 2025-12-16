@@ -12,7 +12,7 @@ requires = ["hatchling"]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
-[tool.pixi.system-requirements]
+[tool.pixi.feature.gpu.system-requirements]
 cuda = "12.2"
 
 [tool.pixi.pypi-dependencies]
@@ -20,9 +20,12 @@ genpp = { path = ".", editable = true }
 flow_matching = ">=1.0.10,<2"
 
 [tool.pixi.tasks]
-install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
 train = "python src/genpp/train.py" # Specify file by using --config-name ...
 create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
+
+[too.pixi.feature.nb.tasks]
+install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
+jl = "jupyter lab --no-browser --port=8890" #on local machine run ssh -N -L 8890:localhost:8890 user@remote_host
 
 [tool.pixi.dependencies]
 zarr = ">=2.18.3,<3"
@@ -40,26 +43,35 @@ hydra-core = ">=1.3.2,<2"
 omegaconf = ">=2.3.0,<3"
 wandb = ">=0.21.0,<0.22"
 bottleneck = ">=1.5.0,<2"
-cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
 polars = ">=1.35.0,<2"
 seaborn = ">=0.13.2,<0.14"
 hvplot = ">=0.12.1,<0.13"
 torchvision = ">=0.24.0,<0.25"
 xformers = ">=0.0.32.post2,<0.0.33"
 jupyter_bokeh = ">=4.0.5,<5"
+cfgrib = ">=0.9.15.1,<0.10"
 
-[tool.pixi.feature.dev.dependencies]
+[tool.pixi.feature.gpu.dependencies]
+cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
+
+[tool.pixi.feature.test.dependencies]
 pytest = ">=8.4.1,<9"
 scoringrules = ">=0.8.0,<0.9"
+
+[tool.pixi.feature.dev.dependencies]
 pre-commit = ">=4.2.0,<5"
-ipykernel = ">=6.29.5,<7"
 rsync = ">=3.4.1,<4"
 gh = ">=2.83.0,<3"
 
+[tool.pixi.feature.nb.dependencies]
+ipykernel = ">=6.29.5,<7"
+jupyterlab = ">=4.5.0,<5"
 
-[tool.pixi.feature.dev.tasks]
+[tool.pixi.feature.test.tasks]
 test = "pytest"
 unittest = "pytest -m unit"
+
+[tool.pixi.feature.dev.tasks]
 sync = '''rsync -avzr --progress --human-readable
   --exclude='.pixi/'
   --exclude='__pycache__/'
@@ -70,10 +82,11 @@ sync = '''rsync -avzr --progress --human-readable
   --exclude='data/weatherbench2/hres_t0.zarr/'
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
 
-
 [tool.pixi.environments]
-dev = ["default","dev"]
-
+dev = ["default", "dev", "test"]
+dev-gpu = ["default", "dev", "gpu", "test"]
+nb = ["default", "dev", "nb", "test"]
+nb-gpu = ["default", "dev", "nb", "gpu", "test"]
 
 [tool.pytest.ini_options]
 markers = [
