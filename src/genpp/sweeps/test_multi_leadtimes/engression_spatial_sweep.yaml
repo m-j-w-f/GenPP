@@ -1,0 +1,37 @@
+program: src/genpp/train.py
+name: testsweep_engression_spatial
+description: Sweep for Engression model with multiple lead times and learned scalings with spatial loss fn.
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3]
+  data.batch_size:
+    values: [8]
+  model.internal_td_scaling:
+    values: ["learned"]
+  model.channels:
+    values:
+      - [16]
+      - [32]
+      - [16, 32]
+      - [32, 64]
+      - [16, 32, 64]
+  model.loss_fn.patch_size:
+    values: [3, 5, 7]
+
+
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_engression_spatial
+  - ${args_no_hyphens}
