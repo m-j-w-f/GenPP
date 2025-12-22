@@ -40,6 +40,7 @@ class EnergyScore(nn.Module):
         Returns:
             torch.Tensor: The computed energy score with shape [..., ].
         """
+        # Note: x will be referred to as y_pred and y as y_true in comments below
         # For correct broadcasting
         y = rearrange(y, "... var -> ... 1 var")
 
@@ -66,121 +67,6 @@ class EnergyScore(nn.Module):
         es_22 = reduce(torch.sqrt(distances_22), "... n1 n2 -> ...", reduction="mean")  # [..., ]
         es = es_12 - 0.5 * es_22
         return es
-
-
-class PatchwiseEnergyScore(EnergyScore):
-    def __init__(
-        self,
-        beta: float = 1.0,
-        clamp: bool = True,
-        patch_size: int = 3,
-        height: int = 37,
-        width: int = 31,
-        normalize: bool = True,
-    ) -> None:
-        """
-        Initialize a PatchwiseEnergyScore.
-
-        Args:
-            beta (float, optional): Exponent used in the L2-beta norm inside the energy
-                score computations. Default: 1.0.
-            clamp (bool, optional): If True, clamp small/large values to avoid numerical
-                instabilities. Default: True.
-            patch_size (int, optional): Side length of the square patch used to compute
-                the patchwise energy score. Default: 3.
-            height (int, optional): Height of the input image. Default: 37.
-            width (int, optional): Width of the input image. Default: 31.
-            normalize (bool, optional): Whether to scale the computed per-patch energy by
-                1.0 / (patch_size ** beta) to keep magnitudes comparable across patch sizes.
-                Default: True.
-
-        Notes:
-            - In 'complete' mode, the forward expects:
-                x: [batch, n_samples, c*h*w]
-                y: [batch, c*h*w]
-              The inputs are reshaped to [batch, c, h, w] and patches are extracted via
-              unfold; the result is averaged over patches to produce [batch].
-            - In 'per_var' mode, the forward expects:
-                x: [batch, c, n_samples, h*w]
-                y: [batch, c, h*w]
-              Patches are computed per channel and averaged over patches to produce [batch, c].
-            - Pads are chosen so every pixel participates equally using padding derived
-              from patch_size.
-        """
-        super().__init__(beta=beta, clamp=clamp)
-        self.patch_size = (patch_size, patch_size)
-        self.height = height
-        self.width = width
-        self.padding = tuple(
-            [(k - 1) // 2 for k in self.patch_size]
-        )  # ensure that every pixel is covered the same number of times
-        if normalize:
-            self.normalization_factor = 1.0 / (patch_size**beta)
-
-    def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
-        """Computes the spatial energy score between predicted and true values.
-
-        Args:
-            x (torch.Tensor): Predicted values with shape [batch, n_samples, (variables, height, width)] in case of mode "complete".
-                If mode is "per_var", shape is [batch, variables, n_samples, (height, width)].
-            y (torch.Tensor): True values with shape [batch, (variables, height, width)].
-                If mode is "per_var", shape is [batch, variables, (height, width)].
-            mode (str): Mode of input data, either "complete" or "per_var".
-        Note:
-            In this implementations c refers to the number of channels/variables.
-        Returns:
-            torch.Tensor: The computed energy score with shape [batch, num_patches] in case of mode "complete".
-                If mode is "per_var", shape is [batch, variables].
-        """
-        if mode == "complete":
-            # F.unfold only works with tensors of shape [b, c, *]
-            *B, N, _ = x.shape
-            x = rearrange(x, "b n (c h w) -> (b n) c h w", h=self.height, w=self.width)
-            x_patchwise = torch.nn.functional.unfold(
-                x, kernel_size=self.patch_size, stride=1
-            )  # [(b, n), patchsize, num_patches]
-            x_patchwise = rearrange(
-                x_patchwise, "(b n) patchsize num_patches -> b num_patches n patchsize", n=N
-            )  # [b, num_patches, n, patchsize]
-
-            y = rearrange(y, "... (c h w) -> (...) c h w", h=self.height, w=self.width)
-            y_patchwise = torch.nn.functional.unfold(
-                y, kernel_size=self.patch_size, stride=1
-            )  # [B, patchsize, num_patches]
-            y_patchwise = rearrange(
-                y_patchwise, "b patchsize num_patches -> b num_patches patchsize"
-            )  # [b, num_patches, patchsize]
-            es = super().forward(x_patchwise, y_patchwise)  # [b, num_patches]
-            if self.normalization_factor is not None:
-                es = es * self.normalization_factor
-            return reduce(es, "b num_patches -> b", "mean")  # [b]
-        elif mode == "per_var":
-            *B, C, N, _ = x.shape
-            x = rearrange(x, "b c n (h w) -> (b c n) 1 h w", h=self.height, w=self.width)
-            x_patchwise = torch.nn.functional.unfold(
-                x, kernel_size=self.patch_size, stride=1
-            )  # [(b, c, n), patchsize, num_patches]
-            x_patchwise = rearrange(
-                x_patchwise,
-                "(b c n) patchsize num_patches -> b c num_patches n patchsize",
-                c=C,
-                n=N,
-            )
-
-            y = rearrange(y, "b c (h w) -> (b c) 1 h w", h=self.height, w=self.width)
-            y_patchwise = torch.nn.functional.unfold(
-                y, kernel_size=self.patch_size, stride=1
-            )  # [(b, c), patchsize, num_patches]
-            y_patchwise = rearrange(
-                y_patchwise, "(b c) patchsize num_patches -> b c num_patches patchsize", c=C
-            )
-            es = super().forward(x_patchwise, y_patchwise)  # [b, c, num_patches]
-            if self.normalization_factor is not None:
-                es = es * self.normalization_factor
-            return reduce(es, "b c num_patches -> b c", "mean")  # [b, c]
-
-        else:
-            raise ValueError(f"Mode {mode} not recognized. Use 'complete' or 'per_var'.")
 
 
 class VariogramScore(nn.Module):
@@ -329,3 +215,207 @@ class EnsembleCRPS(nn.Module):
             dim=[self.n_axis, self.n_axis - 1]
         )
         return dxy - 0.5 * dxx
+
+
+class RBFScore(nn.Module):
+    """Radial Basis Function (RBF) score for multivariate predictions.
+
+    Args:
+        lengthscale (float): Lengthscale parameter for the RBF kernel.
+    """
+
+    def __init__(self, lengthscale: float = 1.0) -> None:
+        super().__init__()
+        self.lengthscale = lengthscale
+
+    def _rbf_kernel(self, diff: torch.Tensor) -> torch.Tensor:
+        sq_diff = (diff) ** 2
+        sq_diff_sum = torch.sum(sq_diff, dim=-1)
+        rbf = torch.exp(-0.5 * sq_diff_sum / (self.lengthscale**2))
+        return rbf
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Computes the RBF score between predicted and true values.
+
+        Args:
+            x (torch.Tensor): Predicted values with shape [..., n_samples, variables].
+            y (torch.Tensor): True values with shape [..., variables].
+        """
+        diff = x - rearrange(y, "... var -> ... 1 var")
+        rbf_xy = self._rbf_kernel(diff)  # shape [..., n_samples]
+        term1 = reduce(rbf_xy, "... n-> ...", reduction="mean")
+
+        diff_xx = rearrange(x, "... n var -> ... n 1 var") - rearrange(
+            x, "... n var -> ... 1 n var"
+        )  # shape [..., n_samples, n_samples, variables]
+        rbf_xx = self._rbf_kernel(diff_xx)  # shape [..., n_samples, n_samples]
+        term2 = reduce(rbf_xx, "... n1 n2 -> ...", reduction="mean")
+
+        rbf_score = term1 - 0.5 * term2
+        return rbf_score
+
+
+class PatchwiseMixin:
+    def __init__(self, patch_size, height, width, normalize) -> None:
+        self.patch_size = (patch_size, patch_size)
+        self.height = height
+        self.width = width
+        self.padding = tuple(
+            [(k - 1) // 2 for k in self.patch_size]
+        )  # ensure that every pixel is covered the same number of times
+
+    def patchify(
+        self, x: torch.Tensor, y: torch.Tensor, mode: str
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Splits x and y into patches
+
+        Args:
+            x (torch.Tensor): Predictions Tensor of shape [batch, n_samples, (variables, height, width)] in case of mode "complete".
+                If mode is "per_var", shape is [batch, variables, n_samples, (height, width)].
+            y (torch.Tensor): Target Values Tensor of shape [batch, (variables, height, width)].
+                If mode is "per_var", shape is [batch, variables, (height, width)].
+            mode (str): "complete" or "per_var"
+
+        Raises:
+            ValueError: If mode is not recognized.
+
+        Returns:
+            torch.Tensor: Patchified tensors x and y. Of shapes:
+                - In "complete" mode:
+                    x: [batch, num_patches, n_samples, patchsize]
+                    y: [batch, num_patches, patchsize]
+                - In "per_var" mode:
+                    x: [batch, variables, num_patches, n_samples, patchsize]
+                    y: [batch, variables, num_patches, patchsize]
+        """
+        if mode == "complete":
+            # F.unfold only works with tensors of shape [b, c, *]
+            *B, N, _ = x.shape
+            x = rearrange(x, "b n (c h w) -> (b n) c h w", h=self.height, w=self.width)
+            x_patchwise = torch.nn.functional.unfold(
+                x, kernel_size=self.patch_size, stride=1
+            )  # [(b, n), patchsize, num_patches]
+            x_patchwise = rearrange(
+                x_patchwise, "(b n) patchsize num_patches -> b num_patches n patchsize", n=N
+            )  # [b, num_patches, n, patchsize]
+
+            y = rearrange(y, "... (c h w) -> (...) c h w", h=self.height, w=self.width)
+            y_patchwise = torch.nn.functional.unfold(
+                y, kernel_size=self.patch_size, stride=1
+            )  # [B, patchsize, num_patches]
+            y_patchwise = rearrange(
+                y_patchwise, "b patchsize num_patches -> b num_patches patchsize"
+            )  # [b, num_patches, patchsize]
+            return x_patchwise, y_patchwise
+        elif mode == "per_var":
+            *B, C, N, _ = x.shape
+            x = rearrange(x, "b c n (h w) -> (b c n) 1 h w", h=self.height, w=self.width)
+            x_patchwise = torch.nn.functional.unfold(
+                x, kernel_size=self.patch_size, stride=1
+            )  # [(b, c, n), patchsize, num_patches]
+            x_patchwise = rearrange(
+                x_patchwise,
+                "(b c n) patchsize num_patches -> b c num_patches n patchsize",
+                c=C,
+                n=N,
+            )
+
+            y = rearrange(y, "b c (h w) -> (b c) 1 h w", h=self.height, w=self.width)
+            y_patchwise = torch.nn.functional.unfold(
+                y, kernel_size=self.patch_size, stride=1
+            )  # [(b, c), patchsize, num_patches]
+            y_patchwise = rearrange(
+                y_patchwise, "(b c) patchsize num_patches -> b c num_patches patchsize", c=C
+            )
+            return x_patchwise, y_patchwise
+
+        else:
+            raise ValueError(f"Mode {mode} not recognized. Use 'complete' or 'per_var'.")
+
+
+class PatchwiseEnergyScore(EnergyScore, PatchwiseMixin):
+    def __init__(
+        self,
+        beta: float = 1.0,
+        clamp: bool = True,
+        patch_size: int = 3,
+        height: int = 37,
+        width: int = 31,
+        normalize: bool = True,
+    ) -> None:
+        """
+        Initialize a PatchwiseEnergyScore.
+
+        Args:
+            beta (float, optional): Exponent used in the L2-beta norm inside the energy
+                score computations. Default: 1.0.
+            clamp (bool, optional): If True, clamp small/large values to avoid numerical
+                instabilities. Default: True.
+            patch_size (int, optional): Side length of the square patch used to compute
+                the patchwise energy score. Default: 3.
+            height (int, optional): Height of the input image. Default: 37.
+            width (int, optional): Width of the input image. Default: 31.
+            normalize (bool, optional): Whether to scale the computed per-patch energy by
+                1.0 / (patch_size ** beta) to keep magnitudes comparable across patch sizes.
+                Default: True.
+        """
+        EnergyScore.__init__(self, beta=beta, clamp=clamp)
+        PatchwiseMixin.__init__(
+            self, patch_size=patch_size, height=height, width=width, normalize=normalize
+        )
+        if normalize:
+            self.normalization_factor = 1.0 / (patch_size**beta)
+        else:
+            self.normalization_factor = None
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
+        x_patchwise, y_patchwise = self.patchify(x, y, mode)
+        es = super().forward(x_patchwise, y_patchwise)
+        if self.normalization_factor is not None:
+            es = es * self.normalization_factor
+        return reduce(es, "... num_patches -> ...", "mean")
+
+
+class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
+    def __init__(
+        self,
+        lengthscale: float = 1.0,
+        patch_size: int = 3,
+        height: int = 37,
+        width: int = 31,
+        normalize: bool = True,
+    ) -> None:
+        """
+        Initialize a PatchwiseRBFScore.
+
+        Args:
+            lengthscale (float, optional): Lengthscale parameter for the RBF kernel. Default: 1.0.
+            patch_size (int, optional): Side length of the square patch used to compute
+                the patchwise RBF score. Default: 3.
+            height (int, optional): Height of the input image. Default: 37.
+            width (int, optional): Width of the input image. Default: 31.
+            normalize (bool, optional): Whether to scale the computed per-patch RBF score to keep
+                magnitudes comparable across patch sizes. Default: True.
+
+        Notes:
+            - In 'complete' mode, the forward expects:
+                x: [batch, n_samples, c*h*w]
+                y: [batch, c*h*w]
+        """
+        RBFScore.__init__(self, lengthscale=lengthscale)
+        PatchwiseMixin.__init__(
+            self, patch_size=patch_size, height=height, width=width, normalize=normalize
+        )
+        if normalize:
+            self.normalization_factor = 1.0 / (
+                patch_size**1
+            )  # TODO figure this factor out properly
+        else:
+            self.normalization_factor = None
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
+        x_patchwise, y_patchwise = self.patchify(x, y, mode)
+        s = super().forward(x_patchwise, y_patchwise)
+        if self.normalization_factor is not None:
+            s = s * self.normalization_factor
+        return reduce(s, "... num_patches -> ...", "mean")
