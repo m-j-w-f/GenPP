@@ -375,26 +375,28 @@ class PatchwiseEnergyScore(EnergyScore, PatchwiseMixin):
 class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
     def __init__(
         self,
-        lengthscale: float = 1.0,
+        lengthscale: float | None = None,
         patch_size: int = 3,
         height: int = 37,
         width: int = 31,
     ) -> None:
-        """
-        Initialize a PatchwiseRBFScore.
+        """Patch-based RBF score with optional per-variable mode.
 
         Args:
-            lengthscale (float, optional): Lengthscale parameter for the RBF kernel. Default: 1.0.
-            patch_size (int, optional): Side length of the square patch used to compute
-                the patchwise RBF score. Default: 3.
-            height (int, optional): Height of the input image. Default: 37.
-            width (int, optional): Width of the input image. Default: 31.
+            lengthscale (float | None, optional): RBF kernel lengthscale. If None, it is set to
+                ``patch_size ** 2`` so that larger patches default to broader kernels. Default: None.
+            patch_size (int, optional): Square patch side length used for unfolding inputs. Default: 3.
+            height (int, optional): Height of the input grid before unfolding. Default: 37.
+            width (int, optional): Width of the input grid before unfolding. Default: 31.
 
-        Notes:
-            - In 'complete' mode, the forward expects:
-                x: [batch, n_samples, c*h*w]
-                y: [batch, c*h*w]
+        Modes:
+            - "complete": forward expects ``x`` shaped [batch, n_samples, c*h*w] and ``y`` shaped
+              [batch, c*h*w]. Patches are extracted across all variables jointly.
+            - "per_var": forward expects ``x`` shaped [batch, variables, n_samples, h*w] and ``y``
+              shaped [batch, variables, h*w]. Patches are extracted separately per variable.
         """
+        if lengthscale is None:
+            lengthscale = patch_size**2
         RBFScore.__init__(self, lengthscale=lengthscale)
         PatchwiseMixin.__init__(self, patch_size=patch_size, height=height, width=width)
 
@@ -410,13 +412,11 @@ class MultiPatchwiseRBFScore(nn.Module):
         patch_sizes: list[int] = [3, 5, 7],
         height: int = 37,
         width: int = 31,
-        normalize: bool = True,
     ) -> None:
         super().__init__()
         self.patch_sizes = patch_sizes
         self.height = height
         self.width = width
-        self.normalize = normalize
         self.scores = nn.ModuleList(
             [
                 PatchwiseRBFScore(

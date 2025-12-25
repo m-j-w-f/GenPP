@@ -1,0 +1,5 @@
+_target_: genpp.models.loss.PatchwiseRBFScore
+lengthscale: null
+patch_size: 3
+height: ${data.spatial.original.longitude}
+width: ${data.spatial.original.latitude}

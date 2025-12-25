@@ -1,0 +1,3 @@
+_target_: genpp.models.loss.EnergyScore
+beta: 1.0
+clamp: true

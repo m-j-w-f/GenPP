@@ -7,6 +7,7 @@ defaults:
   - data: weatherbench2_full_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
+  - model/loss_fn: energy_score
   - model: engression
   - trainer: default
   - logger: wandb

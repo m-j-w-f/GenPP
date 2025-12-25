@@ -7,7 +7,7 @@ method: grid
 
 parameters:
   model.optimizer.lr:
-    values: [!!float 1e-3, !!float  1e-4]
+    values: [!!float 1e-3]
   data.batch_size:
     values: [8, 32]
   model.loss_fn.patch_size:
@@ -16,12 +16,10 @@ parameters:
     values:
       - [16, 32]
       - [32, 64, 128]
-      - [64, 128]
   model.std_unet_channels:
     values:
       - [16, 32]
       - [32, 64, 128]
-      - [64, 128]
 
 command:
   - pixi
@@ -32,5 +30,5 @@ command:
   - ${program}
   - --config-name
   - base_chen
-  - model/loss_fn=patchwise_energy_score # Use PatchwiseEnergyScore loss
+  - model/loss_fn=patchwise_rbf_score # Use PatchwiseRBFScore loss
   - ${args_no_hyphens}
