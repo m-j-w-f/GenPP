@@ -250,19 +250,25 @@ class RBFScore(nn.Module):
         )  # shape [..., n_samples, n_samples, variables]
         rbf_xx = self._rbf_kernel(diff_xx)  # shape [..., n_samples, n_samples]
         term2 = reduce(rbf_xx, "... n1 n2 -> ...", reduction="mean")
-
         rbf_score = term1 - 0.5 * term2
         return rbf_score
 
 
 class PatchwiseMixin:
-    def __init__(self, patch_size, height, width, normalize) -> None:
+    def __init__(self, patch_size, height, width) -> None:
         self.patch_size = (patch_size, patch_size)
         self.height = height
         self.width = width
         self.padding = tuple(
-            [(k - 1) // 2 for k in self.patch_size]
+            [k // 2 for k in self.patch_size] * 2
         )  # ensure that every pixel is covered the same number of times
+
+    def _pad_and_unfold(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.nn.functional.pad(x, self.padding, mode="reflect")
+        x_patchwise = torch.nn.functional.unfold(
+            x, kernel_size=self.patch_size, stride=1
+        )  # [B, patchsize, num_patches]
+        return x_patchwise
 
     def patchify(
         self, x: torch.Tensor, y: torch.Tensor, mode: str
@@ -292,17 +298,13 @@ class PatchwiseMixin:
             # F.unfold only works with tensors of shape [b, c, *]
             *B, N, _ = x.shape
             x = rearrange(x, "b n (c h w) -> (b n) c h w", h=self.height, w=self.width)
-            x_patchwise = torch.nn.functional.unfold(
-                x, kernel_size=self.patch_size, stride=1
-            )  # [(b, n), patchsize, num_patches]
+            x_patchwise = self._pad_and_unfold(x)  # [(b n), patchsize, num_patches]
             x_patchwise = rearrange(
                 x_patchwise, "(b n) patchsize num_patches -> b num_patches n patchsize", n=N
             )  # [b, num_patches, n, patchsize]
 
             y = rearrange(y, "... (c h w) -> (...) c h w", h=self.height, w=self.width)
-            y_patchwise = torch.nn.functional.unfold(
-                y, kernel_size=self.patch_size, stride=1
-            )  # [B, patchsize, num_patches]
+            y_patchwise = self._pad_and_unfold(y)
             y_patchwise = rearrange(
                 y_patchwise, "b patchsize num_patches -> b num_patches patchsize"
             )  # [b, num_patches, patchsize]
@@ -310,9 +312,7 @@ class PatchwiseMixin:
         elif mode == "per_var":
             *B, C, N, _ = x.shape
             x = rearrange(x, "b c n (h w) -> (b c n) 1 h w", h=self.height, w=self.width)
-            x_patchwise = torch.nn.functional.unfold(
-                x, kernel_size=self.patch_size, stride=1
-            )  # [(b, c, n), patchsize, num_patches]
+            x_patchwise = self._pad_and_unfold(x)  # [(b c n), patchsize, num_patches]
             x_patchwise = rearrange(
                 x_patchwise,
                 "(b c n) patchsize num_patches -> b c num_patches n patchsize",
@@ -321,9 +321,7 @@ class PatchwiseMixin:
             )
 
             y = rearrange(y, "b c (h w) -> (b c) 1 h w", h=self.height, w=self.width)
-            y_patchwise = torch.nn.functional.unfold(
-                y, kernel_size=self.patch_size, stride=1
-            )  # [(b, c), patchsize, num_patches]
+            y_patchwise = self._pad_and_unfold(y)  # [(b c), patchsize, num_patches]
             y_patchwise = rearrange(
                 y_patchwise, "(b c) patchsize num_patches -> b c num_patches patchsize", c=C
             )
@@ -360,9 +358,7 @@ class PatchwiseEnergyScore(EnergyScore, PatchwiseMixin):
                 Default: True.
         """
         EnergyScore.__init__(self, beta=beta, clamp=clamp)
-        PatchwiseMixin.__init__(
-            self, patch_size=patch_size, height=height, width=width, normalize=normalize
-        )
+        PatchwiseMixin.__init__(self, patch_size=patch_size, height=height, width=width)
         if normalize:
             self.normalization_factor = 1.0 / (patch_size**beta)
         else:
@@ -383,7 +379,6 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
         patch_size: int = 3,
         height: int = 37,
         width: int = 31,
-        normalize: bool = True,
     ) -> None:
         """
         Initialize a PatchwiseRBFScore.
@@ -394,8 +389,6 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
                 the patchwise RBF score. Default: 3.
             height (int, optional): Height of the input image. Default: 37.
             width (int, optional): Width of the input image. Default: 31.
-            normalize (bool, optional): Whether to scale the computed per-patch RBF score to keep
-                magnitudes comparable across patch sizes. Default: True.
 
         Notes:
             - In 'complete' mode, the forward expects:
@@ -403,19 +396,42 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
                 y: [batch, c*h*w]
         """
         RBFScore.__init__(self, lengthscale=lengthscale)
-        PatchwiseMixin.__init__(
-            self, patch_size=patch_size, height=height, width=width, normalize=normalize
-        )
-        if normalize:
-            self.normalization_factor = 1.0 / (
-                patch_size**1
-            )  # TODO figure this factor out properly
-        else:
-            self.normalization_factor = None
+        PatchwiseMixin.__init__(self, patch_size=patch_size, height=height, width=width)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
         x_patchwise, y_patchwise = self.patchify(x, y, mode)
         s = super().forward(x_patchwise, y_patchwise)
-        if self.normalization_factor is not None:
-            s = s * self.normalization_factor
         return reduce(s, "... num_patches -> ...", "mean")
+
+
+class MultiPatchwiseRBFScore(nn.Module):
+    def __init__(
+        self,
+        patch_sizes: list[int] = [3, 5, 7],
+        height: int = 37,
+        width: int = 31,
+        normalize: bool = True,
+    ) -> None:
+        super().__init__()
+        self.patch_sizes = patch_sizes
+        self.height = height
+        self.width = width
+        self.normalize = normalize
+        self.scores = nn.ModuleList(
+            [
+                PatchwiseRBFScore(
+                    lengthscale=patch_size**2,
+                    patch_size=patch_size,
+                    height=height,
+                    width=width,
+                )
+                for patch_size in self.patch_sizes
+            ]
+        )
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
+        score = self.scores[0].forward(x, y, mode=mode)
+        for score_module in self.scores[1:] if len(self.scores) > 1 else []:
+            score += score_module.forward(x, y, mode=mode)
+        avg_score = score / len(self.scores)
+        return avg_score
