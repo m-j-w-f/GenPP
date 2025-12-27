@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -218,21 +219,42 @@ class EnsembleCRPS(nn.Module):
 
 
 class RBFScore(nn.Module):
-    """Radial Basis Function (RBF) score for multivariate predictions.
-
-    Args:
-        lengthscale (float): Lengthscale parameter for the RBF kernel.
+    """
+    Radial Basis Function (RBF) score for multivariate predictions.
     """
 
-    def __init__(self, lengthscale: float = 1.0) -> None:
+    def __init__(self, lengthscales: float | Sequence[float] | torch.Tensor = 1.0) -> None:
+        """
+        Args:
+            lengthscales (float | Sequence[float] | torch.Tensor): Lengthscale parameter(s) for the RBF kernel.
+                If multiple lengthscales are provided as a 1D tensor, the final score is averaged over them.
+        """
         super().__init__()
-        self.lengthscale = lengthscale
+        if isinstance(lengthscales, int):
+            lengthscales = float(lengthscales)
+        if isinstance(lengthscales, float):
+            lengthscales = torch.tensor(lengthscales)
+        elif isinstance(lengthscales, Sequence):
+            lengthscales = torch.tensor(lengthscales)
+        # Validate the Tensor
+        if isinstance(lengthscales, torch.Tensor):
+            # Check that it has only one dimension or is a scalar
+            if lengthscales.dim() > 1:
+                raise ValueError("lengthscales must be a float or a 1D tensor.")
+        else:
+            raise TypeError("lengthscales must be a float or a 1D tensor.")
+
+        self.lengthscales = lengthscales
 
     def _rbf_kernel(self, diff: torch.Tensor) -> torch.Tensor:
-        sq_diff = (diff) ** 2
-        sq_diff_sum = torch.sum(sq_diff, dim=-1)
-        rbf = torch.exp(-0.5 * sq_diff_sum / (self.lengthscale**2))
-        return rbf
+        """
+        Negative RBF kernel
+        NOTE: the RBF kernel is stictly positive definite so -k is conditionally negative definite
+        """
+        sq_diff_sum = torch.sum(diff**2, dim=-1)
+        rbf = torch.exp(-sq_diff_sum.unsqueeze(-1) / (self.lengthscales.to(sq_diff_sum)))
+        rbf = rbf.mean(dim=-1)  # average over lengthscales if multiple are provided
+        return -rbf
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes the RBF score between predicted and true values.
@@ -249,7 +271,10 @@ class RBFScore(nn.Module):
             x, "... n var -> ... 1 n var"
         )  # shape [..., n_samples, n_samples, variables]
         rbf_xx = self._rbf_kernel(diff_xx)  # shape [..., n_samples, n_samples]
-        term2 = reduce(rbf_xx, "... n1 n2 -> ...", reduction="mean")
+        # Exclude the diagonal as this will bias scores to 0
+        *_, N = rbf_xx.shape
+        off_diag_sum = rbf_xx.sum(dim=(-2, -1)) - rbf_xx.diagonal(dim1=-2, dim2=-1).sum(dim=-1)
+        term2 = off_diag_sum / (N * (N - 1))  # shape [...]
         rbf_score = term1 - 0.5 * term2
         return rbf_score
 
@@ -375,19 +400,21 @@ class PatchwiseEnergyScore(EnergyScore, PatchwiseMixin):
 class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
     def __init__(
         self,
-        lengthscale: float | None = None,
+        lengthscales: torch.Tensor | Sequence[float] | float | None = None,
         patch_size: int = 3,
         height: int = 37,
         width: int = 31,
+        **kwargs,
     ) -> None:
         """Patch-based RBF score with optional per-variable mode.
 
         Args:
-            lengthscale (float | None, optional): RBF kernel lengthscale. If None, it is set to
+            lengthscales (float | None, optional): RBF kernel lengthscale. If None, it is set to
                 ``patch_size ** 2`` so that larger patches default to broader kernels. Default: None.
             patch_size (int, optional): Square patch side length used for unfolding inputs. Default: 3.
             height (int, optional): Height of the input grid before unfolding. Default: 37.
             width (int, optional): Width of the input grid before unfolding. Default: 31.
+            **kwargs: Additional keyword arguments are ignored.
 
         Modes:
             - "complete": forward expects ``x`` shaped [batch, n_samples, c*h*w] and ``y`` shaped
@@ -395,9 +422,9 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
             - "per_var": forward expects ``x`` shaped [batch, variables, n_samples, h*w] and ``y``
               shaped [batch, variables, h*w]. Patches are extracted separately per variable.
         """
-        if lengthscale is None:
-            lengthscale = patch_size**2
-        RBFScore.__init__(self, lengthscale=lengthscale)
+        if lengthscales is None:
+            lengthscales = patch_size**2
+        RBFScore.__init__(self, lengthscales=lengthscales)
         PatchwiseMixin.__init__(self, patch_size=patch_size, height=height, width=width)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
@@ -409,29 +436,57 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
 class MultiPatchwiseRBFScore(nn.Module):
     def __init__(
         self,
-        patch_sizes: list[int] = [3, 5, 7],
+        patch_sizes: Sequence[int] = [3, 5, 7],
+        lengthscales: Sequence[float | Sequence[float] | torch.Tensor] | None = None,
         height: int = 37,
         width: int = 31,
     ) -> None:
+        """Multi-scale patchwise RBF score averaging over multiple patch sizes.
+
+        Computes patchwise RBF scores at different spatial scales and averages them to produce
+        a multi-scale scoring metric. Each patch size can have its own lengthscale(s) for the
+        RBF kernel.
+
+        Args:
+            patch_sizes (list[int], optional): List of square patch side lengths for each scale.
+                Larger patch sizes capture longer-range spatial dependencies. Default: [3, 5, 7].
+            lengthscales (Sequence[float | Sequence[float] | torch.Tensor] | None, optional):
+                Lengthscale parameter(s) for each patch size. Each element corresponds to one patch size
+                and can be either a single float or a sequence/tensor of multiple lengthscales (which
+                will be averaged). If None, defaults to ``[ps**2 for ps in patch_sizes]``. Default: None.
+            height (int, optional): Height of the input grid before unfolding. Default: 37.
+            width (int, optional): Width of the input grid before unfolding. Default: 31.
+
+        Modes:
+            Inherits modes from ``PatchwiseRBFScore``:
+            - "complete": forward expects ``x`` shaped [batch, n_samples, c*h*w] and ``y`` shaped
+              [batch, c*h*w]. Patches are extracted across all variables jointly.
+            - "per_var": forward expects ``x`` shaped [batch, variables, n_samples, h*w] and ``y``
+              shaped [batch, variables, h*w]. Patches are extracted separately per variable.
+        """
         super().__init__()
         self.patch_sizes = patch_sizes
         self.height = height
         self.width = width
+        self.lengthscales = lengthscales or [ps**2 for ps in patch_sizes]
         self.scores = nn.ModuleList(
             [
                 PatchwiseRBFScore(
-                    lengthscale=patch_size**2,
+                    lengthscales=lengthscale,
                     patch_size=patch_size,
                     height=height,
                     width=width,
                 )
-                for patch_size in self.patch_sizes
+                for patch_size, lengthscale in zip(self.patch_sizes, self.lengthscales)
             ]
         )
+        if len(self.scores) == 0:
+            raise ValueError("At least one patch size must be provided.")
+        self.n_scales = len(self.scores)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "complete") -> torch.Tensor:
         score = self.scores[0].forward(x, y, mode=mode)
         for score_module in self.scores[1:] if len(self.scores) > 1 else []:
             score += score_module.forward(x, y, mode=mode)
-        avg_score = score / len(self.scores)
+        avg_score = score / self.n_scales
         return avg_score

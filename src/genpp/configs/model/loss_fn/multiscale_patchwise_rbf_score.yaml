@@ -1,4 +1,5 @@
 _target_: genpp.models.loss.MultiPatchwiseRBFScore
+lengthscales: ${eval:'[[i*ps**2 for i in [0.5, 1.0, 2.0]] for ps in ${.patch_sizes}]'}
 patch_sizes:
   - 3
   - 5

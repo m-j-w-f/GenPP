@@ -1,5 +1,6 @@
 _target_: genpp.models.loss.PatchwiseRBFScore
-lengthscale: null
+lengthscales: ${eval:'[i*${.patch_size}**2 for i in ${._lengthscale_factors}]'}
+_lengthscale_factors: [0.5, 1.0, 2.0] # These are a helper variable and are ignored in the PatchwiseRBFScore constructor
 patch_size: 3
 height: ${data.spatial.original.longitude}
 width: ${data.spatial.original.latitude}
