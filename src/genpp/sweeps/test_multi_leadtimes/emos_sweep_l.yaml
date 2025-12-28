@@ -16,7 +16,7 @@ command:
   - pixi
   - run
   - -e
-  - default
+  - dev-gpu
   - python
   - ${program}
   - --config-name

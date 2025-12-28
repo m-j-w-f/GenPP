@@ -61,7 +61,7 @@ jupyterlab = ">=4.5.0,<5"
 
 [tool.pixi.tasks]
 train = "python src/genpp/train.py" # Specify file by using --config-name ...
-create_sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
+create-sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
 
 [tool.pixi.feature.nb.tasks]
 install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
@@ -70,6 +70,9 @@ jl = "jupyter lab --no-browser --port=8890" #on local machine run ssh -N -L 8890
 [tool.pixi.feature.test.tasks]
 test = "pytest"
 unittest = "pytest -m unit"
+
+[tool.pixi.feature.gpu.tasks]
+wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
 
 [tool.pixi.feature.dev.tasks]
 sync = '''rsync -avzr --progress --human-readable

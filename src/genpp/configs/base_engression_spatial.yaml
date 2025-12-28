@@ -1,0 +1,14 @@
+# Main configuration file for GenPP training
+defaults:
+  - base_engression
+  - override model: engression_spatial
+  - _self_
+
+name: ENGRESSION_SPATIAL
+seed: 42
+
+logger:
+  tags:
+    - "cnn"
+    - "engression"
+    - "multi leadtime"
