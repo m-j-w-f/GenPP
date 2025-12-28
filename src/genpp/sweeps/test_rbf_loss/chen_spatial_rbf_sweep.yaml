@@ -1,6 +1,6 @@
 program: src/genpp/train.py
 name: testsweep_chen_spatial_rbf
-description: Sweep for Chen model with multiple lead times with spatial rbf loss. This run specificalls focuses on the parameters of the loss function.
+description: Sweep for Chen model with multiple lead times with spatial rbf loss. This run specifically focuses on the parameters of the loss function.
 metric:
   name: val_loss
   goal: minimize

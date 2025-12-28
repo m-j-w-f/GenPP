@@ -258,6 +258,7 @@ class RBFScore(nn.Module):
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Computes the RBF score between predicted and true values.
+            NOTE: There shoudl be at least 2 samples in x to compute the score.
 
         Args:
             x (torch.Tensor): Predicted values with shape [..., n_samples, variables].
@@ -409,8 +410,9 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
         """Patch-based RBF score with optional per-variable mode.
 
         Args:
-            lengthscales (float | None, optional): RBF kernel lengthscale. If None, it is set to
-                ``patch_size ** 2`` so that larger patches default to broader kernels. Default: None.
+            lengthscales (torch.Tensor | Sequence[float] | float | None, optional): RBF kernel
+                lengthscale(s). If None, it is set to ``patch_size ** 2`` so that larger patches
+                default to broader kernels. Default: None.
             patch_size (int, optional): Square patch side length used for unfolding inputs. Default: 3.
             height (int, optional): Height of the input grid before unfolding. Default: 37.
             width (int, optional): Width of the input grid before unfolding. Default: 31.
@@ -436,10 +438,11 @@ class PatchwiseRBFScore(RBFScore, PatchwiseMixin):
 class MultiPatchwiseRBFScore(nn.Module):
     def __init__(
         self,
-        patch_sizes: Sequence[int] = [3, 5, 7],
+        patch_sizes: Sequence[int] = (3, 5, 7),
         lengthscales: Sequence[float | Sequence[float] | torch.Tensor] | None = None,
         height: int = 37,
         width: int = 31,
+        **kwargs,
     ) -> None:
         """Multi-scale patchwise RBF score averaging over multiple patch sizes.
 
@@ -456,6 +459,7 @@ class MultiPatchwiseRBFScore(nn.Module):
                 will be averaged). If None, defaults to ``[ps**2 for ps in patch_sizes]``. Default: None.
             height (int, optional): Height of the input grid before unfolding. Default: 37.
             width (int, optional): Width of the input grid before unfolding. Default: 31.
+            **kwargs: Additional keyword arguments are ignored.
 
         Modes:
             Inherits modes from ``PatchwiseRBFScore``:
