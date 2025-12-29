@@ -9,15 +9,17 @@ from collections.abc import Callable, Sequence
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
 from omegaconf import DictConfig
 
 from genpp.models.cgm.engression.base import (
-    BaseEngressionModel,
+    BaseEngressionDirectModel,
+    BaseEngressionNoiseModel,
     StochasticBackbone,
     StochasticLayer2D,
     StochasticResBlock2D,
 )
-from genpp.models.layers import PixelEmbedder
+from genpp.models.layers import FourierEncoder, PixelEmbedder
 from genpp.models.loss import EnergyScore
 
 
@@ -310,11 +312,12 @@ class StochasticUNet(StochasticBackbone):
         return out
 
 
-class CNNEngressionModel(BaseEngressionModel):
-    """CNN-based Engression model using a stochastic UNet backbone.
+class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
+    """CNN-based Engression model using a stochastic UNet backbone with noise prediction.
 
     This model combines the engression approach with a UNet architecture
-    for grid-based weather forecast post-processing.
+    for grid-based weather forecast post-processing. It predicts deviations
+    from the NWP forecast with internal TD scaling.
 
     Args:
         in_channels (int): Number of input channels (predicted + auxiliary + meta).
@@ -360,6 +363,7 @@ class CNNEngressionModel(BaseEngressionModel):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
     ) -> None:
+        self.save_hyperparameters()
         # Calculate total input channels
         use_embedding = embedding_dim > 0
         if use_embedding:
@@ -431,3 +435,187 @@ class CNNEngressionModel(BaseEngressionModel):
             inputs.append(pixel_emb)
         inputs_concat = torch.cat(inputs, dim=1)
         return inputs_concat
+
+
+class CNNEngressionDirectModel(BaseEngressionDirectModel):
+    """CNN-based Engression model with direct prediction and timedelta encoding.
+
+    This model directly predicts target values without using internal TD scaling.
+    The timedelta is encoded using a FourierEncoder and added to the model input.
+
+    Args:
+        in_channels (int): Number of input channels (predicted + auxiliary + meta).
+        out_channels (int): Number of output channels.
+        height (int): Height of the input grid.
+        width (int): Width of the input grid.
+        embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
+        td_embedding_dim (int): Dimension of timedelta encoding. Defaults to 8.
+        channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
+        noise_channels (int): Number of noise channels per layer. Defaults to 32.
+        num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
+        use_resblock (bool): Whether to use residual blocks. Defaults to False.
+        kernel_size (int): Kernel size for convolutions. Defaults to 3.
+        add_bn (bool): Whether to add batch normalization. Defaults to True.
+        n_samples (int): Number of samples to generate. Defaults to 50.
+        padding (Sequence[int]): Padding values for cropping output.
+        optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
+        lr_scheduler (DictConfig): Learning rate scheduler config.
+        use_rescaler (bool): Whether to use rescaling modules.
+        rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
+        loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        height: int,
+        width: int,
+        embedding_dim: int,
+        td_embedding_dim: int = 8,
+        channels: Sequence[int] = (32, 64, 128),
+        noise_channels: int = 32,
+        num_layers_per_block: int = 2,
+        use_resblock: bool = False,
+        kernel_size: int = 3,
+        add_bn: bool = True,
+        n_samples: int = 50,
+        padding: Sequence[int] = (0, 0, 0, 0),
+        optimizer: Callable[..., torch.optim.Optimizer] | None = None,
+        lr_scheduler: DictConfig | None = None,
+        use_rescaler: bool = False,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        loss_fn: nn.Module = EnergyScore(),
+    ) -> None:
+        self.save_hyperparameters()
+        # Check required parameters
+        if optimizer is None:
+            raise ValueError("optimizer is required for CNNEngressionDirectModel")
+        if lr_scheduler is None:
+            raise ValueError("lr_scheduler is required for CNNEngressionDirectModel")
+
+        # Calculate dimensions (don't create modules yet)
+        if td_embedding_dim > 0:
+            td_embedding_dim_value = td_embedding_dim
+        elif td_embedding_dim == 0:
+            td_embedding_dim_value = 1
+        else:
+            raise ValueError("td_embedding_dim must be >= 0")
+
+        # Calculate total input channels
+        use_embedding_value = embedding_dim > 0
+        if use_embedding_value:
+            total_in_channels = in_channels + embedding_dim + td_embedding_dim_value
+        else:
+            total_in_channels = in_channels + td_embedding_dim_value
+
+        # Create stochastic UNet backbone
+        backbone = StochasticUNet(
+            in_channels=total_in_channels,
+            out_channels=out_channels,
+            channels=channels,
+            noise_channels=noise_channels,
+            num_layers_per_block=num_layers_per_block,
+            use_resblock=use_resblock,
+            kernel_size=kernel_size,
+            add_bn=add_bn,
+        )
+
+        # Call super().__init__() before assigning any module attributes
+        super().__init__(
+            backbone=backbone,
+            n_samples=n_samples,
+            padding=padding,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            use_rescaler=use_rescaler,
+            rescaler=rescaler,
+            loss_fn=loss_fn,
+        )
+
+        # NOW assign instance variables and module attributes after super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.height = height
+        self.width = width
+        self.embedding_dim = embedding_dim
+        self.use_embedding = use_embedding_value
+        self.td_embedding_dim = td_embedding_dim_value
+
+        # Create timedelta encoder module
+        if td_embedding_dim > 0:
+            self.td_encoder = FourierEncoder(dim=td_embedding_dim)
+        elif td_embedding_dim == 0:
+            self.td_encoder = Rearrange("b -> b 1")
+
+        # Create pixel embedder module
+        if self.use_embedding:
+            self.pixel_embedder = PixelEmbedder(
+                num_embeddings=height * width, embedding_dim=self.embedding_dim
+            )
+        else:
+            self.pixel_embedder = None
+
+    def prepare_input(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Prepare input for the backbone by concatenating all feature tensors.
+
+        Args:
+            x (dict[str, torch.Tensor]): Input dictionary with:
+                - predicted_vars: [batch, pred_channels, height, width]
+                - auxiliary_vars: [batch, aux_channels, height, width]
+                - meta_vars: [batch, meta_channels, height, width]
+                - pixel_idx: [batch, 1, height, width]
+
+        Returns:
+            torch.Tensor: Concatenated input tensor.
+        """
+        inputs = [
+            x["predicted_vars"],
+            x["auxiliary_vars"],
+            x["meta_vars"],
+        ]
+
+        if self.use_embedding:
+            pixel_emb = self.pixel_embedder(x["pixel_idx"])  # type: ignore
+            inputs.append(pixel_emb)
+
+        inputs_concat = torch.cat(inputs, dim=1)
+        return inputs_concat
+
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model with direct prediction.
+
+        Args:
+            x (dict[str, torch.Tensor]): Input dictionary.
+            td (torch.Tensor): Time delta tensor.
+
+        Returns:
+            torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
+        """
+        # Prepare base input
+        backbone_input = self.prepare_input(x)
+
+        # Encode timedelta and expand spatially
+        enc_timedelta = self.td_encoder(td)  # [batch, td_encoding_dim]
+        *_, h, w = x["predicted_vars"].shape
+        enc_timedelta = enc_timedelta[..., None, None].expand(
+            -1, -1, h, w
+        )  # [batch, td_encoding_dim, height, width]
+
+        # Concatenate with timedelta encoding
+        backbone_input = torch.cat([backbone_input, enc_timedelta], dim=1)
+
+        # Generate samples using the stochastic backbone
+        samples = self.backbone.sample(backbone_input, self.n_samples)
+
+        # Residual Connection
+        means = x["predicted_vars"].unsqueeze(1)  # [batch, 1, out_channels, height, width]
+        res = means + samples
+
+        # Crop padding
+        res = self.crop(res)
+        return res
+
+
+# Backwards compatibility alias
+CNNEngressionModel = CNNEngressionNoiseModel

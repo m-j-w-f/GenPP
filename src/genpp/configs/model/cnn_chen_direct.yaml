@@ -1,0 +1,5 @@
+defaults:
+  - base_chen
+
+_target_: genpp.models.cgm.CNNChenDirectModel
+td_embedding_dim: 8
