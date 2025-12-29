@@ -3,6 +3,7 @@ from collections.abc import Sequence
 import torch
 import torch.nn as nn
 from einops import rearrange
+from einops.layers.torch import Rearrange
 
 from genpp.models.cgm.fm.base import ConditionalVectorField
 from genpp.models.layers import FourierEncoder, PixelEmbedder
@@ -220,6 +221,7 @@ class UNetCVF(ConditionalVectorField):
         width: int,
         channels_conditioning: int,
         channels_x: int = 2,
+        td_embedding_dim: int | None = None,
     ):
         super().__init__()
         # Initial convolution: [bs, 2, 32, 32] -> [bs, c_0, 32, 32]
@@ -231,6 +233,19 @@ class UNetCVF(ConditionalVectorField):
 
         # Initialize time embedder
         self.time_embedder = FourierEncoder(t_embed_dim)
+
+        # Initialize timedelta embedder
+        self.td_embedding_dim = td_embedding_dim
+        if td_embedding_dim is not None and td_embedding_dim > 0:
+            self.td_embedder = FourierEncoder(td_embedding_dim)
+            # Adjust channels_conditioning to accommodate timedelta embedding
+            channels_conditioning += td_embedding_dim
+        elif td_embedding_dim == 0:
+            self.td_embedder = Rearrange("... -> ... 1")
+            # Timedelta is added as a single raw value
+            channels_conditioning += 1
+        else:
+            self.td_embedder = None
 
         # Embed the Pixel IDX
         # Note that conditioning now has the channels channels_conditioning + pixel_embed_dim
@@ -288,17 +303,27 @@ class UNetCVF(ConditionalVectorField):
         Returns:
             torch.Tensor: u_t^theta(x|conditioning) [bs, 2, 48, 32]
         """
-        # Embed t and conditioning
+        # Embed t
         t_embed = self.time_embedder(t)  # [bs, time_embed_dim]
-        conditioning_embed = torch.cat(
-            [
-                conditioning["predicted_vars"],
-                conditioning["auxiliary_vars"],
-                conditioning["meta_vars"],
-                self.conditioning_embedder(conditioning["pixel_idx"]),
-            ],
-            dim=1,
-        )  # [bs, c_conditioning, 48, 32] most likely c_conditioning = 2 + 56 + 4 + 5 = 67
+
+        # Build conditioning_embed with all components
+        conditioning_parts = [
+            conditioning["predicted_vars"],
+            conditioning["auxiliary_vars"],
+            conditioning["meta_vars"],
+            self.conditioning_embedder(conditioning["pixel_idx"]),
+        ]
+
+        # Add timedelta embedding to conditioning if configured
+        if self.td_embedder is not None:
+            td = conditioning["timedelta"]  # [bs]
+            td_embed = self.td_embedder(td)  # [bs, 1 | td_embedding_dim]
+            # Expand spatially to match conditioning dimensions
+            *_, h, w = conditioning["predicted_vars"].shape
+            td_embed = td_embed[..., None, None].expand(-1, -1, h, w)  # [bs, td_dim, h, w]
+            conditioning_parts.append(td_embed)
+
+        conditioning_embed = torch.cat(conditioning_parts, dim=1)  # [bs, c_conditioning, 48, 32]
 
         # Initial convolution
         x = self.init_conv(x)  # [bs, c_0, 48, 32]

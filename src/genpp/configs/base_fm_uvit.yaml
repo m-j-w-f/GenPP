@@ -7,7 +7,7 @@ defaults:
   - data: weatherbench2_full_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
-  - model: fm_uvit
+  - model: fm_uvit_direct
   - trainer: default
   - logger: wandb
   - hydra: standard

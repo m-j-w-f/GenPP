@@ -13,6 +13,7 @@ from einops import rearrange, reduce
 from omegaconf import DictConfig
 
 from genpp.models.cgm.utils import BaseGenerativeModule
+from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
 from genpp.models.layers import CropND
 from genpp.models.loss import EnergyScore
 
@@ -192,7 +193,6 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         padding (Sequence[int]): Padding values to crop from the output.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
         lr_scheduler (DictConfig): Learning rate scheduler config.
-        internal_td_scaling (str): TD scaling strategy.
         use_rescaler (bool): Whether to use rescaling modules.
         rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
         loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
@@ -205,7 +205,6 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
-        internal_td_scaling: str,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
@@ -213,7 +212,6 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         super().__init__(
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            internal_td_scaling=internal_td_scaling,
             n_samples=n_samples,
         )
         self.save_hyperparameters(ignore=["backbone", "loss_fn"])
@@ -243,6 +241,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         """
         pass
 
+    @abstractmethod
     def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
 
@@ -253,26 +252,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
         """
-        # Prepare input for backbone
-        backbone_input = self.prepare_input(x)
-
-        # Generate samples using the stochastic backbone
-        samples = self.backbone.sample(backbone_input, self.n_samples)
-
-        # Get NWP forecast mean for residual connection
-        nwp_mean = x["predicted_vars"]  # [batch, channels, height, width]
-
-        # Scale by TD and add to NWP mean
-        scale = self.internal_td_scaling.get_scale(td=td)  # [batch, n_vars, 1, 1]
-        scale = rearrange(scale, "b c 1 1 -> b 1 c 1 1")
-
-        # samples contains the deviation from NWP mean
-        nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
-        result = nwp_mean_expanded + scale * samples
-
-        # Crop padding
-        result = self.crop(result)
-        return result
+        pass
 
     def predict_step(self, batch: dict) -> torch.Tensor:
         """Prediction step.
@@ -406,3 +386,114 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
             torch.Tensor: Test loss.
         """
         return self._score_step(batch, stage="test")
+
+
+class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC):
+    """Base engression model that predicts noise with internal TD scaling.
+
+    This model predicts deviations from the NWP forecast, which are then scaled
+    by the internal TD scaling and added to the NWP mean.
+    """
+
+    def __init__(
+        self,
+        backbone: StochasticBackbone,
+        n_samples: int,
+        padding: Sequence[int],
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
+        internal_td_scaling: str,
+        use_rescaler: bool,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        loss_fn: nn.Module = EnergyScore(),
+    ) -> None:
+        """Initialize BaseEngressionNoiseModel.
+
+        Args:
+            backbone (StochasticBackbone): Stochastic neural network backbone.
+            n_samples (int): Number of samples to generate.
+            padding (Sequence[int]): Padding values to crop from the output.
+            optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
+            lr_scheduler (DictConfig): Learning rate scheduler config.
+            internal_td_scaling (str): Scaling strategy ("abs", "std", "learned", or "linear_abs").
+            use_rescaler (bool): Whether to use rescaling modules.
+            rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
+            loss_fn (nn.Module): Loss function.
+        """
+        BaseEngressionModel.__init__(
+            self,
+            backbone=backbone,
+            n_samples=n_samples,
+            padding=padding,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            use_rescaler=use_rescaler,
+            rescaler=rescaler,
+            loss_fn=loss_fn,
+        )
+        InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
+
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model with noise prediction and scaling.
+
+        Args:
+            x (dict[str, torch.Tensor]): Input dictionary.
+            td (torch.Tensor): Time delta tensor.
+
+        Returns:
+            torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
+        """
+        # Prepare input for backbone
+        backbone_input = self.prepare_input(x)
+
+        # Generate samples using the stochastic backbone
+        samples = self.backbone.sample(backbone_input, self.n_samples)
+
+        # Get NWP forecast mean for residual connection
+        nwp_mean = x["predicted_vars"]  # [batch, channels, height, width]
+
+        # Scale by TD and add to NWP mean
+        scale = self.internal_td_scaling.get_scale(td=td)  # [batch, n_vars, 1, 1]
+        scale = rearrange(scale, "b c 1 1 -> b 1 c 1 1")
+
+        # samples contains the deviation from NWP mean
+        nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
+        result = nwp_mean_expanded + scale * samples
+
+        # Crop padding
+        result = self.crop(result)
+        return result
+
+
+class BaseEngressionDirectModel(BaseEngressionModel, ABC):
+    """Base engression model that predicts targets directly without internal TD scaling.
+
+    This model directly predicts the target values without using internal TD scaling.
+    The samples represent the full prediction, not deviations from NWP.
+    """
+
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model with direct prediction.
+
+        Args:
+            x (dict[str, torch.Tensor]): Input dictionary.
+            td (torch.Tensor): Time delta tensor.
+
+        Returns:
+            torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
+        """
+        # Prepare input for backbone
+        backbone_input = self.prepare_input(x)
+
+        # Generate samples using the stochastic backbone
+        # samples contains the deviation from NWP mean
+        samples = self.backbone.sample(backbone_input, self.n_samples)
+
+        # Get NWP forecast mean for residual connection
+        nwp_mean = x["predicted_vars"]  # [batch, channels, height, width]
+        nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
+        result = nwp_mean_expanded + samples
+
+        # Crop padding
+        result = self.crop(result)
+        return result

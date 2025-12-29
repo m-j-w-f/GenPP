@@ -7,6 +7,54 @@ from einops import rearrange
 from tqdm import tqdm
 
 
+class InternalTDScalingMixin:
+    """Mixin class that adds internal TD scaling functionality to generative models.
+
+    This mixin provides:
+    - internal_td_scaling: Scaling strategy to normalize (predicted) deviations based on lead time
+    - setup() method to fit the scaling model during training
+
+    This should be used with noise-based models that predict deviations from NWP forecasts.
+    Use this as the first base class in multiple inheritance to ensure proper initialization order.
+
+    Args:
+        internal_td_scaling (str): Scaling strategy to normalize (predicted) deviations based on
+            lead time, ensuring the model learns a single scale across different forecast horizons.
+            Can be "abs", "std", "learned", or "linear_abs".
+
+    Example:
+        class MyNoiseModel(InternalTDScalingMixin, BaseModel):
+            def __init__(self, internal_td_scaling: str, other_param: int, **kwargs):
+                # Initialize mixin explicitly
+                InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
+                # Then initialize base class
+                BaseModel.__init__(self, other_param=other_param, **kwargs)
+    """
+
+    def __init__(self, internal_td_scaling: str) -> None:
+        # Don't call super().__init__() - let the derived class control initialization order
+        if internal_td_scaling == "abs":
+            self.internal_td_scaling: BaseInternalTDScaling = FixedTDScaling(mode="abs")
+        elif internal_td_scaling == "std":
+            self.internal_td_scaling = FixedTDScaling(mode="std")
+        elif internal_td_scaling == "learned":
+            self.internal_td_scaling = LearnedTDScaling()
+        elif internal_td_scaling == "linear_abs":
+            self.internal_td_scaling = LinearAbsTDScaling()
+        else:
+            raise ValueError(f"Invalid internal_td_scaling: {internal_td_scaling}")
+
+    def setup(self, stage: str | None = None) -> None:
+        """Fit the internal TD scaling model during the 'fit' stage.
+
+        Args:
+            stage (str | None): The stage of setup, e.g., "fit"
+        """
+        # Fit TD scaling during fit stage
+        if stage == "fit":
+            self.internal_td_scaling.fit(self)  # type: ignore
+
+
 class BaseInternalTDScaling(torch.nn.Module, ABC):
     def __init__(self) -> None:
         super().__init__()

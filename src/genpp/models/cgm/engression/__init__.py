@@ -6,7 +6,14 @@ X. Shen et al., "Engression: Extrapolation through the Lens of Distributional Re
 The models are adapted for grid-based weather forecast post-processing.
 """
 
-from .base import BaseEngressionModel
-from .cnn import CNNEngressionModel
+from .base import BaseEngressionDirectModel, BaseEngressionModel, BaseEngressionNoiseModel
+from .cnn import CNNEngressionDirectModel, CNNEngressionModel, CNNEngressionNoiseModel
 
-__all__ = ["BaseEngressionModel", "CNNEngressionModel"]
+__all__ = [
+    "BaseEngressionModel",
+    "BaseEngressionNoiseModel",
+    "BaseEngressionDirectModel",
+    "CNNEngressionModel",  # Backwards compatibility alias (same as CNNEngressionNoiseModel)
+    "CNNEngressionNoiseModel",
+    "CNNEngressionDirectModel",
+]
