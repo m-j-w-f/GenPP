@@ -449,7 +449,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         height (int): Height of the input grid.
         width (int): Width of the input grid.
         embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
-        td_encoding_dim (int): Dimension of timedelta encoding. Defaults to 32.
+        td_embedding_dim (int): Dimension of timedelta encoding. Defaults to 8.
         channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
         noise_channels (int): Number of noise channels per layer. Defaults to 32.
         num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
@@ -460,7 +460,6 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         padding (Sequence[int]): Padding values for cropping output.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
         lr_scheduler (DictConfig): Learning rate scheduler config.
-        internal_td_scaling (str): TD scaling strategy.
         use_rescaler (bool): Whether to use rescaling modules.
         rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
         loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
@@ -484,7 +483,6 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         padding: Sequence[int] = (0, 0, 0, 0),
         optimizer: Callable[..., torch.optim.Optimizer] | None = None,
         lr_scheduler: DictConfig | None = None,
-        internal_td_scaling: str = "none",
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
@@ -559,7 +557,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             self.pixel_embedder = None
 
     def prepare_input(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-        """Prepare input for the backbone by concatenating all features (without timedelta).
+        """Prepare input for the backbone by concatenating all feature tensors.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary with:

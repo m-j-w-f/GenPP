@@ -323,7 +323,7 @@ class FlowMatchingDirectModel(BaseFlowMatchingModel):
             method="midpoint",
             step_size=self.step_size,
         )
-        # Sol now contains the direct predictions
+        # sol now contains the direct predictions
         sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
         res_cropped = self.crop(sol)
         return res_cropped

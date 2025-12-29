@@ -486,7 +486,6 @@ class BaseEngressionDirectModel(BaseEngressionModel, ABC):
         backbone_input = self.prepare_input(x)
 
         # Generate samples using the stochastic backbone
-        # samples contains the deviation from NWP mean
         samples = self.backbone.sample(backbone_input, self.n_samples)
 
         # Get NWP forecast mean for residual connection

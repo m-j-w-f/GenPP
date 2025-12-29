@@ -635,12 +635,10 @@ class CNNChenDirectModel(BaseChenDirectModel):
         loss_fn (nn.Module): Loss function to use for training. Passed to BaseChenModel.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer class. Passed to BaseChenModel.
         lr_scheduler (DictConfig): Learning rate scheduler config. Passed to BaseChenModel.
-        internal_td_scaling (str): TD scaling mode. Passed to BaseChenModel. Default is "abs".
         padding (Tuple[int, int, int, int]): Padding already applied to the input tensor.
             This is used as a final step to crop the output tensor to the original size
             so it can be compared with y to calculate the loss.
-        td_encoding_dim (int): Dimension of timedelta encoding. Default is 8.
-        std_unet_channels (Sequence[int]): Number of channels at each encoder level for the std_model UNet.
+        td_embedding_dim (int): Dimension of timedelta encoding. Default is 8.
             Default is (32, 64, 64).
         std_unet_kernel_size (int): Kernel size for convolutions in std_model UNet. Default is 3.
         std_unet_use_batchnorm (bool): Whether to use batch normalization in std_model UNet. Default is False.
