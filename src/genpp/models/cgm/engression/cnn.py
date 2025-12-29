@@ -582,16 +582,22 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         inputs_concat = torch.cat(inputs, dim=1)
         return inputs_concat
 
-    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
+    ) -> torch.Tensor:
         """Forward pass through the model with direct prediction.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary.
             td (torch.Tensor): Time delta tensor.
+            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
 
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
         """
+        if n_samples is None:
+            n_samples = self.n_samples_predict
+            
         # Prepare base input
         backbone_input = self.prepare_input(x)
 
@@ -606,7 +612,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         backbone_input = torch.cat([backbone_input, enc_timedelta], dim=1)
 
         # Generate samples using the stochastic backbone
-        samples = self.backbone.sample(backbone_input, self.n_samples)
+        samples = self.backbone.sample(backbone_input, n_samples)
 
         # Residual Connection
         means = x["predicted_vars"].unsqueeze(1)  # [batch, 1, out_channels, height, width]
