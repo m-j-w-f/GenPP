@@ -8,7 +8,7 @@ defaults:
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model/loss_fn: energy_score
-  - model: cnn_chen
+  - model: cnn_chen_direct
   - trainer: default
   - logger: wandb
   - hydra: standard

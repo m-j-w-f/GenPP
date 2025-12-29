@@ -1,0 +1,5 @@
+defaults:
+  - base_chen
+
+_target_: genpp.models.cgm.CNNChenNoiseModel
+internal_td_scaling: abs

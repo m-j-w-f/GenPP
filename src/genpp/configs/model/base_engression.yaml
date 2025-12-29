@@ -1,5 +1,8 @@
-# CNN-based Engression Model Configuration
-_target_: genpp.models.cgm.CNNEngressionModel
+# Base CNN-based Engression Model Configuration
+# This serves as a base configuration for CNN Engression models.
+# It can be extended for specific variants like noise or direct models.
+# See cnn_engression_noise.yaml and cnn_engression_direct.yaml for specific configurations.
+_target_: PLACEHOLDER_FOR_CNN_ENGRESSION_MODEL
 
 # Input/output configuration
 in_channels: ${data.features.input_concat}
@@ -21,9 +24,6 @@ n_samples: 50
 
 # Padding for output cropping
 padding: ${data.spatial.padding_list}
-
-# TD scaling strategy
-internal_td_scaling: abs
 
 # Rescaler (not implemented yet)
 use_rescaler: false
