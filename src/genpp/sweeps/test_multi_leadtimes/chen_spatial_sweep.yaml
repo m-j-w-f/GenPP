@@ -31,5 +31,6 @@ command:
   - python
   - ${program}
   - --config-name
-  - base_chen_spatial
+  - base_chen
+  - model/loss_fn=patchwise_energy_score # Use PatchwiseEnergyScore loss
   - ${args_no_hyphens}

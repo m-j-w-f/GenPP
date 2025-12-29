@@ -1,0 +1,44 @@
+program: src/genpp/train.py
+name: testsweep_engression_spatial_rbf
+description: Sweep for Engression model with multiple lead times and learned scalings with spatial rbf loss fn.
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3]
+  data.batch_size:
+    values: [8]
+  model.internal_td_scaling:
+    values: ["learned"]
+  model.channels:
+    values:
+      - [16]
+  model.loss_fn.patch_size:
+    values:
+      - 3
+      - 5
+      - 7
+  model.loss_fn._lengthscale_factors:
+    values:
+      - [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0]
+      - [0.0625, 0.25, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0]
+      - [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
+      - [0.0625, 0.125, 256.0, 512.0]
+      - [0.0625, 0.5, 4.0, 32.0, 256.0, 1024.0]
+
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_engression
+  - model/loss_fn=patchwise_rbf_score # Use PatchwiseRBFScore loss
+  - logger.tags=["engression", "cnn", "multi leadtime", "rbf patchwise"]
+  - ${args_no_hyphens}

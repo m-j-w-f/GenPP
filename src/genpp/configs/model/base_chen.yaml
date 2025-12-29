@@ -28,10 +28,4 @@ final_activation:
     - _target_: torch.nn.Identity # Temperature (standardized)
     - _target_: torch.nn.Identity # Wind speed (standardized)
 
-# Loss function
-loss_fn:
-  _target_: genpp.models.loss.EnergyScore
-  beta: 1.0
-  clamp: true
-
-# Optimizer and learning rate scheduler are imported automatically due to the folder structure
+# Loss function, Optimizer and learning rate scheduler are imported automatically due to the folder structure

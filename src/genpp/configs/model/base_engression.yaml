@@ -28,10 +28,4 @@ padding: ${data.spatial.padding_list}
 # Rescaler (not implemented yet)
 use_rescaler: false
 
-# Loss function
-loss_fn:
-  _target_: genpp.models.loss.EnergyScore
-  beta: 1.0
-  clamp: true
-
-# Optimizer and learning rate scheduler are imported automatically due to the folder structure
+# Loss function, Optimizer and learning rate scheduler are imported automatically due to the folder structure

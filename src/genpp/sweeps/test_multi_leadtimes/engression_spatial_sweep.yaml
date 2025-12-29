@@ -34,4 +34,5 @@ command:
   - ${program}
   - --config-name
   - base_engression_spatial
+  - model/loss_fn=patchwise_energy_score # Use PatchwiseEnergyScore loss
   - ${args_no_hyphens}
