@@ -201,15 +201,15 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
     def __init__(
         self,
         backbone: StochasticBackbone,
+        padding: Sequence[int],
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
+        use_rescaler: bool,
+        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        loss_fn: nn.Module = EnergyScore(),
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
-        padding: Sequence[int] = (0, 0, 0, 0),
-        optimizer: Callable[..., torch.optim.Optimizer] | None = None,
-        lr_scheduler: DictConfig | None = None,
-        use_rescaler: bool = False,
-        rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
-        loss_fn: nn.Module = EnergyScore(),
     ) -> None:
         super().__init__(
             optimizer=optimizer,
@@ -246,15 +246,13 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         pass
 
     @abstractmethod
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
         """Forward pass through the model.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary.
             td (torch.Tensor): Time delta tensor.
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples to generate.
 
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
@@ -283,7 +281,9 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
             torch.Tensor: Loss value.
         """
         x, y, td = batch["x"], batch["y"], batch["timedelta"]
-        res = self.forward(x, td, n_samples=self.n_samples_train)  # [batch, n_samples, out_features, height, width]
+        res = self.forward(
+            x, td, n_samples=self.n_samples_train
+        )  # [batch, n_samples, out_features, height, width]
 
         # Reshape for loss computation
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
@@ -305,13 +305,13 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         Returns:
             torch.Tensor: Loss value.
         """
-        x, y, td = batch["x"], batch["y"], batch["timedelta"]
-        res = self.forward(x, td, n_samples=self.n_samples_predict)
+        res = self.predict_step(batch)  # shape [b, n_samples, out_features, lon, lat]
 
         # Reshape for per-variable and overall loss computation
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        y_reshape = rearrange(y, "b c h w -> b c (h w)")
         res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
+        y = batch["y"]
+        y_reshape = rearrange(y, "b c h w -> b c (h w)")
         y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
 
         # Compute energy score
@@ -405,7 +405,6 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
     def __init__(
         self,
         backbone: StochasticBackbone,
-        n_samples: int,
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
@@ -413,12 +412,14 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
+        n_samples: int | None = None,
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
     ) -> None:
         """Initialize BaseEngressionNoiseModel.
 
         Args:
             backbone (StochasticBackbone): Stochastic neural network backbone.
-            n_samples (int): Number of samples to generate.
             padding (Sequence[int]): Padding values to crop from the output.
             optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
             lr_scheduler (DictConfig): Learning rate scheduler config.
@@ -426,36 +427,36 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
             use_rescaler (bool): Whether to use rescaling modules.
             rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
             loss_fn (nn.Module): Loss function.
+            n_samples (int | None): Number of samples to generate. Defaults to None.
+            n_samples_train (int | None): Number of samples during training. Defaults to None.
+            n_samples_predict (int | None): Number of samples during prediction. Defaults to None.
         """
         BaseEngressionModel.__init__(
             self,
             backbone=backbone,
-            n_samples=n_samples,
             padding=padding,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
             loss_fn=loss_fn,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
 
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
         """Forward pass through the model with noise prediction and scaling.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary.
             td (torch.Tensor): Time delta tensor.
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples to generate.
 
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
         """
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-            
         # Prepare input for backbone
         backbone_input = self.prepare_input(x)
 
@@ -485,22 +486,17 @@ class BaseEngressionDirectModel(BaseEngressionModel, ABC):
     The samples represent the full prediction, not deviations from NWP.
     """
 
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
         """Forward pass through the model with direct prediction.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary.
             td (torch.Tensor): Time delta tensor.
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples to generate.
 
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
         """
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-            
         # Prepare input for backbone
         backbone_input = self.prepare_input(x)
 

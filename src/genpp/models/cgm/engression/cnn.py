@@ -318,27 +318,6 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
     This model combines the engression approach with a UNet architecture
     for grid-based weather forecast post-processing. It predicts deviations
     from the NWP forecast with internal TD scaling.
-
-    Args:
-        in_channels (int): Number of input channels (predicted + auxiliary + meta).
-        out_channels (int): Number of output channels.
-        height (int): Height of the input grid.
-        width (int): Width of the input grid.
-        embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
-        channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
-        noise_channels (int): Number of noise channels per layer. Defaults to 32.
-        num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
-        use_resblock (bool): Whether to use residual blocks. Defaults to False.
-        kernel_size (int): Kernel size for convolutions. Defaults to 3.
-        add_bn (bool): Whether to add batch normalization. Defaults to True.
-        n_samples (int): Number of samples to generate. Defaults to 50.
-        padding (Sequence[int]): Padding values for cropping output.
-        optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
-        lr_scheduler (DictConfig): Learning rate scheduler config.
-        internal_td_scaling (str): TD scaling strategy.
-        use_rescaler (bool): Whether to use rescaling modules.
-        rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
-        loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
     """
 
     def __init__(
@@ -354,7 +333,6 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         use_resblock: bool,
         kernel_size: int,
         add_bn: bool,
-        n_samples: int,
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
@@ -362,7 +340,34 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
+        n_samples: int | None = None,
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
     ) -> None:
+        """
+        Args:
+            in_channels (int): Number of input channels (predicted + auxiliary + meta).
+            out_channels (int): Number of output channels.
+            height (int): Height of the input grid.
+            width (int): Width of the input grid.
+            embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
+            channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
+            noise_channels (int): Number of noise channels per layer. Defaults to 32.
+            num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
+            use_resblock (bool): Whether to use residual blocks. Defaults to False.
+            kernel_size (int): Kernel size for convolutions. Defaults to 3.
+            add_bn (bool): Whether to add batch normalization. Defaults to True.
+            padding (Sequence[int]): Padding values for cropping output.
+            optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
+            lr_scheduler (DictConfig): Learning rate scheduler config.
+            internal_td_scaling (str): TD scaling strategy.
+            use_rescaler (bool): Whether to use rescaling modules.
+            rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
+            loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
+            n_samples (int | None): Number of samples to generate. Defaults to None.
+            n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+            n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
+        """
         self.save_hyperparameters()
         # Calculate total input channels
         use_embedding = embedding_dim > 0
@@ -386,6 +391,8 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         super().__init__(
             backbone=backbone,
             n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
             padding=padding,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
@@ -442,27 +449,6 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
     This model directly predicts target values without using internal TD scaling.
     The timedelta is encoded using a FourierEncoder and added to the model input.
-
-    Args:
-        in_channels (int): Number of input channels (predicted + auxiliary + meta).
-        out_channels (int): Number of output channels.
-        height (int): Height of the input grid.
-        width (int): Width of the input grid.
-        embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
-        td_embedding_dim (int): Dimension of timedelta encoding. Defaults to 8.
-        channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
-        noise_channels (int): Number of noise channels per layer. Defaults to 32.
-        num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
-        use_resblock (bool): Whether to use residual blocks. Defaults to False.
-        kernel_size (int): Kernel size for convolutions. Defaults to 3.
-        add_bn (bool): Whether to add batch normalization. Defaults to True.
-        n_samples (int): Number of samples to generate. Defaults to 50.
-        padding (Sequence[int]): Padding values for cropping output.
-        optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
-        lr_scheduler (DictConfig): Learning rate scheduler config.
-        use_rescaler (bool): Whether to use rescaling modules.
-        rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
-        loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
     """
 
     def __init__(
@@ -479,14 +465,40 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         use_resblock: bool = False,
         kernel_size: int = 3,
         add_bn: bool = True,
-        n_samples: int = 50,
         padding: Sequence[int] = (0, 0, 0, 0),
         optimizer: Callable[..., torch.optim.Optimizer] | None = None,
         lr_scheduler: DictConfig | None = None,
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         loss_fn: nn.Module = EnergyScore(),
+        n_samples: int | None = None,
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
     ) -> None:
+        """
+        Args:
+            in_channels (int): Number of input channels (predicted + auxiliary + meta).
+            out_channels (int): Number of output channels.
+            height (int): Height of the input grid.
+            width (int): Width of the input grid.
+            embedding_dim (int): Dimension of pixel embeddings. Defaults to 5.
+            td_embedding_dim (int): Dimension of timedelta encoding. Defaults to 8.
+            channels (Sequence[int]): UNet channel dimensions. Defaults to (32, 64, 128).
+            noise_channels (int): Number of noise channels per layer. Defaults to 32.
+            num_layers_per_block (int): Number of layers per encoder/decoder block. Defaults to 2.
+            use_resblock (bool): Whether to use residual blocks. Defaults to False.
+            kernel_size (int): Kernel size for convolutions. Defaults to 3.
+            add_bn (bool): Whether to add batch normalization. Defaults to True.
+            padding (Sequence[int]): Padding values for cropping output.
+            optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
+            lr_scheduler (DictConfig): Learning rate scheduler config.
+            use_rescaler (bool): Whether to use rescaling modules.
+            rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
+            loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
+            n_samples (int | None): Number of samples to generate. Defaults to None.
+            n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+            n_samples_predict (int | None): Number of samples during prediction. If None, defaults
+        """
         self.save_hyperparameters()
         # Check required parameters
         if optimizer is None:
@@ -524,13 +536,15 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         # Call super().__init__() before assigning any module attributes
         super().__init__(
             backbone=backbone,
-            n_samples=n_samples,
             padding=padding,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
             loss_fn=loss_fn,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
         )
 
         # NOW assign instance variables and module attributes after super().__init__()
@@ -582,22 +596,17 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         inputs_concat = torch.cat(inputs, dim=1)
         return inputs_concat
 
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
         """Forward pass through the model with direct prediction.
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary.
             td (torch.Tensor): Time delta tensor.
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples to generate.
 
         Returns:
             torch.Tensor: Output tensor of shape [batch, n_samples, out_features, height, width].
         """
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-            
         # Prepare base input
         backbone_input = self.prepare_input(x)
 

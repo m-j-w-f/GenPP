@@ -28,11 +28,13 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         height (int): Height of the input feature map.
         noise_dim (int): Dimensionality of the latent space.
         embedding_dim (int): Dimensionality of the embeddings. Defaults to 5. If set to 0, no embeddings are used.
-        n_samples (int): Number of samples to generate during training. Defaults to 50.
         final_activation (nn.Module): Activation function to apply at the end of the model.
         loss_fn (nn.Module): Loss function to use for training. Defaults to EnergyScore with beta=1.0.
         lr (float): Learning rate for the optimizer. Defaults to 3e-4.
         optimizer (Type[torch.optim.Optimizer]): Optimizer class to use. Defaults to torch.optim.AdamW.
+        n_samples (int | None): Number of samples to generate during training. Defaults to None.
+        n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+        n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
         **kwargs: Any additional keyword arguments. These are here for compatibility and are ignored.
 
     Attributes:
@@ -55,13 +57,13 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         height: int,  # longitude
         noise_dim: int,
         embedding_dim: int,
+        final_activation: nn.Module,
+        loss_fn: nn.Module,
+        optimizer: Callable[..., torch.optim.Optimizer],
+        lr_scheduler: DictConfig,
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
-        final_activation: nn.Module | None = None,
-        loss_fn: nn.Module | None = None,
-        optimizer: Callable[..., torch.optim.Optimizer] | None = None,
-        lr_scheduler: DictConfig | None = None,
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | None = None,
         **kwargs: Any,
@@ -125,12 +127,12 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         pass
 
     @abstractmethod
-    def get_noise(self, batch_size: int, n_samples: int | None = None) -> torch.Tensor:
+    def get_noise(self, batch_size: int, n_samples: int) -> torch.Tensor:
         """Get the noise tensor for the model.
 
         Args:
             batch_size (int): Batch size.
-            n_samples (int | None): Number of samples. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples.
 
         Returns:
             torch.Tensor: Noise tensor.
@@ -138,15 +140,13 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         pass
 
     @abstractmethod
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
         """Forward pass through the model.
 
         Args:
             x (dict[str, torch.Tensor]): the input dictionary.
             td (torch.Tensor): the time delta tensor. Shape [batch_size]
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
+            n_samples (int): Number of samples to generate.
 
         Returns:
             torch.Tensor: the output tensor. Shape [batch_size, n_samples, out_features, height, width]
@@ -159,7 +159,9 @@ class BaseChenModel(BaseGenerativeModule, ABC):
 
     def training_step(self, batch) -> torch.Tensor:
         x, y, td = batch["x"], batch["y"], batch["timedelta"]
-        res = self.forward(x, td, n_samples=self.n_samples_train)  # shape [b, n_samples, out_features, lon, lat]
+        res = self.forward(
+            x, td, n_samples=self.n_samples_train
+        )  # shape [b, n_samples, out_features, lon, lat]
         res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
         y_reshape = rearrange(y, "b c h w -> b (c h w)")
         loss = self.loss_fn(res_reshape, y_reshape, mode="complete")  # shape [b]
@@ -168,7 +170,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         return loss
 
     # New unified scoring step for validation & testing.
-    def score_step(self, batch: dict, stage: str) -> torch.Tensor:
+    def _score_step(self, batch: dict, stage: str) -> torch.Tensor:
         """Unified scoring step used by validation_step and test_step.
 
         Computes ensemble predictions, calculates per-variable loss and overall loss,
@@ -178,13 +180,14 @@ class BaseChenModel(BaseGenerativeModule, ABC):
             batch (dict): The input batch with keys 'x', 'y', 'timedelta'.
             stage (str): Log prefix/prefix for metrics.
         """
-        x, y, td = batch["x"], batch["y"], batch["timedelta"]
-        res = self.forward(x, td, n_samples=self.n_samples_predict)
+        res = self.predict_step(batch)  # shape [b, n_samples, out_features, lon, lat]
 
         # Reshape for per-variable and overall loss computation
         res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        y_reshape = rearrange(y, "b c h w -> b c (h w)")
         res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
+
+        y = batch["y"]
+        y_reshape = rearrange(y, "b c h w -> b c (h w)")
         y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
 
         # Compute energy score (always logged as {stage}_loss)
@@ -238,10 +241,10 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         return es_overall
 
     def validation_step(self, batch) -> torch.Tensor:
-        return self.score_step(batch, stage="val")
+        return self._score_step(batch, stage="val")
 
     def test_step(self, batch, batch_idx, dataloader_idx=0) -> torch.Tensor:
-        return self.score_step(batch, stage="test")
+        return self._score_step(batch, stage="test")
 
     def on_load_checkpoint(self, checkpoint):
         # If buffer exists in checkpoint, load it
@@ -266,7 +269,6 @@ class BaseChenNoiseModel(InternalTDScalingMixin, BaseChenModel, ABC):
         height: int,
         noise_dim: int,
         embedding_dim: int,
-        n_samples: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -274,6 +276,9 @@ class BaseChenNoiseModel(InternalTDScalingMixin, BaseChenModel, ABC):
         internal_td_scaling: str,
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | None = None,
+        n_samples: int | None = None,
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize BaseChenNoiseModel.
@@ -286,7 +291,6 @@ class BaseChenNoiseModel(InternalTDScalingMixin, BaseChenModel, ABC):
             height (int): Height of the input feature map.
             noise_dim (int): Dimensionality of the latent space.
             embedding_dim (int): Dimensionality of the embeddings.
-            n_samples (int): Number of samples to generate.
             final_activation (nn.Module): Activation function.
             loss_fn (nn.Module): Loss function.
             optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
@@ -294,6 +298,9 @@ class BaseChenNoiseModel(InternalTDScalingMixin, BaseChenModel, ABC):
             internal_td_scaling (str): Scaling strategy ("abs", "std", "learned", or "linear_abs").
             use_rescaler (bool): Whether to use rescaling modules.
             rescaler (Sequence[nn.Module | None] | None): Rescaling modules.
+            n_samples (int | None): Number of samples to generate.
+            n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+            n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
             **kwargs: Additional keyword arguments.
         """
         BaseChenModel.__init__(
@@ -305,16 +312,67 @@ class BaseChenNoiseModel(InternalTDScalingMixin, BaseChenModel, ABC):
             height=height,
             noise_dim=noise_dim,
             embedding_dim=embedding_dim,
-            n_samples=n_samples,
             final_activation=final_activation,
             loss_fn=loss_fn,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
             **kwargs,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
+
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
+        """Forward pass with noise scaling.
+
+        Args:
+            x (dict[str, torch.Tensor]): the input dictionary.
+            td (torch.Tensor): the time delta tensor (used to scale the predicted noise). Shape [batch_size]
+            n_samples (int): Number of samples to generate.
+
+        Returns:
+            torch.Tensor: the output tensor. Shape [batch_size, n_samples, out_features, height, width]
+        """
+        batch_size = x["predicted_vars"].shape[0]
+        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
+        mean, std = torch.chunk(x_cat, 2, dim=1)
+        meta = x["meta_vars"]
+
+        if self.use_embedding:
+            pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
+            emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
+            emb = rearrange(emb, "b 1 h w c -> b c h w")
+        else:
+            emb = None
+
+        # TODO it would make sense to use a residual connection here, but the original paper does not use it.
+        # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
+        # This is easy with the improved data loading
+        pred_mean = self.mean_model(mean)  # Shape [batch_size, 1, out_features, lon, lat]
+        delta = self.std_model(std)
+        z = self.get_noise(batch_size=batch_size, n_samples=n_samples).to(
+            delta
+        )  # Must be on the same device as delta
+
+        noise = z * delta
+
+        full_input_repeated_noise = self.concat_noise_decoder_input(
+            mean=mean, std=std, meta=meta, embedding=emb, noise=noise, n_samples=n_samples
+        )  # Shape [batch_size * n_samples, ...]
+        std_samples = self.noise_decoder(
+            full_input_repeated_noise
+        )  # Shape [batch_size, n_samples, out_features, lon, lat]
+        scales = rearrange(
+            self.internal_td_scaling.get_scale(td=td),
+            "b c h w -> b 1 c h w",
+        )
+        res = (
+            pred_mean + scales * std_samples
+        )  # Shape [batch_size, n_samples, out_features, lon, lat]
+        return self.final_activation(res)
 
 
 class BaseChenDirectModel(BaseChenModel, ABC):
@@ -335,7 +393,6 @@ class BaseChenDirectModel(BaseChenModel, ABC):
         height: int,
         noise_dim: int,
         embedding_dim: int,
-        n_samples: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -343,6 +400,9 @@ class BaseChenDirectModel(BaseChenModel, ABC):
         td_embedding_dim: int,
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | None = None,
+        n_samples: int | None = None,
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
         **kwargs: Any,
     ) -> None:
         self.save_hyperparameters()
@@ -354,13 +414,15 @@ class BaseChenDirectModel(BaseChenModel, ABC):
             height=height,
             noise_dim=noise_dim,
             embedding_dim=embedding_dim,
-            n_samples=n_samples,
             final_activation=final_activation,
             loss_fn=loss_fn,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
             **kwargs,
         )
         if td_embedding_dim > 0:
@@ -373,6 +435,60 @@ class BaseChenDirectModel(BaseChenModel, ABC):
             self.td_embedder = Rearrange("b -> b 1")
         else:
             raise ValueError("td_embedding_dim must be >= 0")
+
+    def forward(self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int) -> torch.Tensor:
+        """Forward pass with direct prediction (no scaling).
+
+        Args:
+            x (dict[str, torch.Tensor]): the input dictionary.
+            td (torch.Tensor): the time delta tensor. Shape [batch_size]
+            n_samples (int): Number of samples to generate.
+
+        Returns:
+            torch.Tensor: the output tensor. Shape [batch_size, n_samples, out_features, height, width]
+        """
+        batch_size = x["predicted_vars"].shape[0]
+        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
+        mean, std = torch.chunk(x_cat, 2, dim=1)
+        meta = x["meta_vars"]
+
+        if self.use_embedding:
+            pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
+            emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
+            emb = rearrange(emb, "b 1 h w c -> b c h w")
+        else:
+            emb = None
+
+        pred_mean = self.mean_model(mean)  # Shape [batch_size, 1, out_features, lon, lat]
+        delta = self.std_model(std)
+        z = self.get_noise(batch_size=batch_size, n_samples=n_samples).to(
+            delta
+        )  # Must be on the same device as delta
+
+        noise = z * delta
+
+        # Encode timedelta
+        td_emb = self.td_embedder(td)  # Shape [batch_size, td_embedding_dim]
+        # Expand to spatial dimensions
+        td_emb = repeat(
+            td_emb, "b c -> b c h w", h=self.height, w=self.width
+        )  # Shape [batch_size, td_embedding_dim, height, width]
+        full_input_repeated_noise = self.concat_noise_decoder_input(
+            mean=mean,
+            std=std,
+            meta=meta,
+            embedding=emb,
+            noise=noise,
+            td_emb=td_emb,
+            n_samples=n_samples,
+        )  # Shape [batch_size * n_samples, ...]
+        print(full_input_repeated_noise.shape)
+        std_samples = self.noise_decoder(
+            full_input_repeated_noise
+        )  # Shape [batch_size, n_samples, out_features, lon, lat]
+        # Direct prediction without scaling
+        res = pred_mean + std_samples  # Shape [batch_size, n_samples, out_features, lon, lat]
+        return self.final_activation(res)
 
 
 class CNNChenNoiseModel(BaseChenNoiseModel):
@@ -387,7 +503,6 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
         height (int): Height of the input feature map. Passed to BaseChenModel.
         noise_dim (int): Dimensionality of the latent space. Passed to BaseChenModel.
         embedding_dim (int): Dimensionality of the embeddings. Passed to BaseChenModel.
-        n_samples (int): Number of samples to generate during training. Passed to BaseChenModel.
         final_activation (nn.Module): Activation function to apply at the end. Passed to BaseChenModel.
         loss_fn (nn.Module): Loss function to use for training. Passed to BaseChenModel.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer class. Passed to BaseChenModel.
@@ -406,6 +521,9 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
         decoder_unet_kernel_size (int): Kernel size for convolutions in noise_decoder UNet. Default is 3.
         decoder_unet_use_batchnorm (bool): Whether to use batch normalization in noise_decoder UNet. Default is False.
         decoder_unet_pool_type (str): Type of pooling for noise_decoder UNet ("max" or "avg"). Default is "max".
+        n_samples (int | None): Number of samples to generate during training. Passed to BaseChenModel.
+        n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+        n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
     """
 
     def __init__(
@@ -418,7 +536,6 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
         height: int,
         noise_dim: int,
         embedding_dim: int,
-        n_samples: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -439,6 +556,10 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
         decoder_unet_kernel_size: int = 3,
         decoder_unet_use_batchnorm: bool = False,
         decoder_unet_pool_type: str = "max",
+        # Number of samples
+        n_samples: int | None = None,  # This is here for backwards compatibility
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
     ) -> None:
         self.save_hyperparameters()
         super().__init__(
@@ -449,12 +570,14 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
             height=height,
             noise_dim=noise_dim,
             embedding_dim=embedding_dim,
-            n_samples=n_samples,
             final_activation=final_activation,
             loss_fn=loss_fn,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             internal_td_scaling=internal_td_scaling,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
         )
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
@@ -486,80 +609,30 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
             Rearrange("b c h w -> b 1 c h w"),
         )
 
-        self.noise_decoder_unet = UNet(
-            in_features=2 * self.in_features
-            + self.meta_dim
-            + self.embedding_dim
-            + self.noise_dim,
-            out_features=self.out_features,
-            channels=decoder_unet_channels,
-            kernel_size=decoder_unet_kernel_size,
-            use_batchnorm=decoder_unet_use_batchnorm,
-            pool_type=decoder_unet_pool_type,
+        self.noise_decoder = nn.Sequential(
+            UNet(
+                in_features=2 * self.in_features
+                + self.meta_dim
+                + self.embedding_dim
+                + self.noise_dim,
+                out_features=self.out_features,
+                channels=decoder_unet_channels,
+                kernel_size=decoder_unet_kernel_size,
+                use_batchnorm=decoder_unet_use_batchnorm,
+                pool_type=decoder_unet_pool_type,
+            ),
+            # Rearrange(
+            #    "(b n) c h w -> b n c h w", n=self.n_samples
+            # ),  # TODO n_samples needs to be variable here
+            self.crop,  # Crop back to the original size
         )
 
         if self.use_embedding:
             self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
 
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
-        """Forward pass with noise scaling.
-
-        Args:
-            x (dict[str, torch.Tensor]): the input dictionary.
-            td (torch.Tensor): the time delta tensor (used to scale the predicted noise). Shape [batch_size]
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
-
-        Returns:
-            torch.Tensor: the output tensor. Shape [batch_size, n_samples, out_features, height, width]
-        """
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-            
-        batch_size = x["predicted_vars"].shape[0]
-        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
-        mean, std = torch.chunk(x_cat, 2, dim=1)
-        meta = x["meta_vars"]
-
-        if self.use_embedding:
-            pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
-            emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
-            emb = rearrange(emb, "b 1 h w c -> b c h w")
-        else:
-            emb = None
-
-        pred_mean = self.mean_model(mean)  # Shape [batch_size, 1, out_features, lon, lat]
-        delta = self.std_model(std)
-        z = self.get_noise(batch_size, n_samples).to(delta)  # Must be on the same device as delta
-
-        noise = z * delta
-
-        full_input_repeated_noise = self.concat_noise_decoder_input(
-            mean=mean, std=std, meta=meta, embedding=emb, noise=noise, n_samples=n_samples
-        )  # Shape [batch_size * n_samples, ...]
-        
-        # Apply UNet
-        std_samples_flat = self.noise_decoder_unet(full_input_repeated_noise)
-        # Rearrange from (b*n, c, h, w) to (b, n, c, h, w)
-        std_samples = rearrange(std_samples_flat, "(b n) c h w -> b n c h w", b=batch_size, n=n_samples)
-        # Crop back to original size
-        std_samples = self.crop(std_samples)
-        
-        scales = rearrange(
-            self.internal_td_scaling.get_scale(td=td),
-            "b c h w -> b 1 c h w",
-        )
-        res = pred_mean + scales * std_samples
-        return self.final_activation(res)
-
-    def get_noise(self, batch_size: int, n_samples: int | None = None) -> torch.Tensor:
+    def get_noise(self, batch_size: int, n_samples: int) -> torch.Tensor:
         """Get the noise tensor for the model."""
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-        return torch.randn(
-            size=(batch_size, n_samples, self.noise_dim, self.height, self.width)
-        )
+        return torch.randn(size=(batch_size, n_samples, self.noise_dim, self.height, self.width))
 
     def concat_noise_decoder_input(
         self,
@@ -582,9 +655,9 @@ class CNNChenNoiseModel(BaseChenNoiseModel):
             full_det = torch.cat([mean, std, meta], dim=1)
         full_det = repeat(full_det, "b c h w -> b n c h w", n=n_samples)
         full_stoch = torch.cat([full_det, noise], dim=2)  # Concat along channel dim
-        full_stoch = rearrange(
-            full_stoch, "b n c h w -> (b n) c h w"
-        )  # Can be processed in parallel now.
+        # full_stoch = rearrange(
+        #    full_stoch, "b n c h w -> (b n) c h w"
+        # )  # Can be processed in parallel now.
         return full_stoch  # Shape [batch_size * n_samples, (2 * var + meta_var + embedding_dim + noise_dim), height, width]
 
 
@@ -602,7 +675,6 @@ class CNNChenDirectModel(BaseChenDirectModel):
         height (int): Height of the input feature map. Passed to BaseChenModel.
         noise_dim (int): Dimensionality of the latent space. Passed to BaseChenModel.
         embedding_dim (int): Dimensionality of the embeddings. Passed to BaseChenModel.
-        n_samples (int): Number of samples to generate during training. Passed to BaseChenModel.
         final_activation (nn.Module): Activation function to apply at the end. Passed to BaseChenModel.
         loss_fn (nn.Module): Loss function to use for training. Passed to BaseChenModel.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer class. Passed to BaseChenModel.
@@ -620,6 +692,9 @@ class CNNChenDirectModel(BaseChenDirectModel):
         decoder_unet_kernel_size (int): Kernel size for convolutions in noise_decoder UNet. Default is 3.
         decoder_unet_use_batchnorm (bool): Whether to use batch normalization in noise_decoder UNet. Default is False.
         decoder_unet_pool_type (str): Type of pooling for noise_decoder UNet ("max" or "avg"). Default is "max".
+        n_samples (int | None): Number of samples to generate during training. Defaults to None.
+        n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
+        n_samples_predict (int | None): Number of samples during prediction. If
     """
 
     def __init__(
@@ -632,7 +707,6 @@ class CNNChenDirectModel(BaseChenDirectModel):
         height: int,
         noise_dim: int,
         embedding_dim: int,
-        n_samples: int,
         final_activation: nn.Module,
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -653,6 +727,10 @@ class CNNChenDirectModel(BaseChenDirectModel):
         decoder_unet_kernel_size: int = 3,
         decoder_unet_use_batchnorm: bool = False,
         decoder_unet_pool_type: str = "max",
+        # Number of samples
+        n_samples: int | None = None,  # This is here for backwards compatibility
+        n_samples_train: int | None = None,
+        n_samples_predict: int | None = None,
     ) -> None:
         self.save_hyperparameters()
         super().__init__(
@@ -663,12 +741,14 @@ class CNNChenDirectModel(BaseChenDirectModel):
             height=height,
             noise_dim=noise_dim,
             embedding_dim=embedding_dim,
-            n_samples=n_samples,
             final_activation=final_activation,
             loss_fn=loss_fn,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             td_embedding_dim=td_embedding_dim,
+            n_samples=n_samples,
+            n_samples_train=n_samples_train,
+            n_samples_predict=n_samples_predict,
         )
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
@@ -699,85 +779,31 @@ class CNNChenDirectModel(BaseChenDirectModel):
             Rearrange("b c h w -> b 1 c h w"),
         )
 
-        self.noise_decoder_unet = UNet(
-            in_features=2 * self.in_features  # Mean and std of input features
-            + self.meta_dim  # Metadata features
-            + self.embedding_dim  # Embedded pixel values
-            + self.noise_dim  # Noise dimensions
-            + self.td_embedding_dim,  # Add channels for encoded lead time
-            out_features=self.out_features,
-            channels=decoder_unet_channels,
-            kernel_size=decoder_unet_kernel_size,
-            use_batchnorm=decoder_unet_use_batchnorm,
-            pool_type=decoder_unet_pool_type,
+        self.noise_decoder = nn.Sequential(
+            UNet(
+                in_features=2 * self.in_features  # Mean and std of input features
+                + self.meta_dim  # Metadata features
+                + self.embedding_dim  # Embedded pixel values
+                + self.noise_dim  # Noise dimensions
+                + self.td_embedding_dim,  # Add channels for encoded lead time
+                out_features=self.out_features,
+                channels=decoder_unet_channels,
+                kernel_size=decoder_unet_kernel_size,
+                use_batchnorm=decoder_unet_use_batchnorm,
+                pool_type=decoder_unet_pool_type,
+            ),
+            # Rearrange(
+            #    "(b n) c h w -> b n c h w", n=self.n_samples
+            # ),  # TODO this should respect the number of samples
+            self.crop,
         )
 
         if self.use_embedding:
             self.embedding = nn.Embedding(self.height * self.width, self.embedding_dim)
 
-    def forward(
-        self, x: dict[str, torch.Tensor], td: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
-        """Forward pass with direct prediction (no scaling).
-
-        Args:
-            x (dict[str, torch.Tensor]): the input dictionary.
-            td (torch.Tensor): the time delta tensor. Shape [batch_size]
-            n_samples (int | None): Number of samples to generate. If None, uses self.n_samples_predict.
-
-        Returns:
-            torch.Tensor: the output tensor. Shape [batch_size, n_samples, out_features, height, width]
-        """
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-            
-        batch_size = x["predicted_vars"].shape[0]
-        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
-        mean, std = torch.chunk(x_cat, 2, dim=1)
-        meta = x["meta_vars"]
-
-        if self.use_embedding:
-            pixel_idx = x["pixel_idx"]  # Shape [batch_size, lon, lat]
-            emb = self.embedding(pixel_idx)  # Shape [batch_size, embedding_dim, lon, lat]
-            emb = rearrange(emb, "b 1 h w c -> b c h w")
-        else:
-            emb = None
-
-        pred_mean = self.mean_model(mean)  # Shape [batch_size, 1, out_features, lon, lat]
-        delta = self.std_model(std)
-        z = self.get_noise(batch_size, n_samples).to(delta)  # Must be on the same device as delta
-
-        noise = z * delta
-
-        # Encode timedelta
-        td_emb = self.td_embedder(td)  # Shape [batch_size, td_embedding_dim]
-        # Expand to spatial dimensions
-        td_emb = repeat(
-            td_emb, "b c -> b c h w", h=self.height, w=self.width
-        )  # Shape [batch_size, td_embedding_dim, height, width]
-        
-        full_input_repeated_noise = self.concat_noise_decoder_input(
-            mean=mean, std=std, meta=meta, embedding=emb, noise=noise, td_emb=td_emb, n_samples=n_samples
-        )  # Shape [batch_size * n_samples, ...]
-        
-        # Apply UNet
-        std_samples_flat = self.noise_decoder_unet(full_input_repeated_noise)
-        # Rearrange from (b*n, c, h, w) to (b, n, c, h, w)
-        std_samples = rearrange(std_samples_flat, "(b n) c h w -> b n c h w", b=batch_size, n=n_samples)
-        # Crop back to original size
-        std_samples = self.crop(std_samples)
-        
-        # Direct prediction without scaling
-        res = pred_mean + std_samples  # Shape [batch_size, n_samples, out_features, lon, lat]
-        return self.final_activation(res)
-
-    def get_noise(self, batch_size: int, n_samples: int | None = None) -> torch.Tensor:
+    def get_noise(self, batch_size: int, n_samples: int) -> torch.Tensor:
         """Get the noise tensor for the model."""
-        if n_samples is None:
-            n_samples = self.n_samples_predict
-        return torch.randn(
-            size=(batch_size, n_samples, self.noise_dim, self.height, self.width)
-        )
+        return torch.randn(size=(batch_size, n_samples, self.noise_dim, self.height, self.width))
 
     def concat_noise_decoder_input(
         self,
@@ -805,7 +831,7 @@ class CNNChenDirectModel(BaseChenDirectModel):
             full_det = torch.cat([mean, std, meta, td_emb], dim=1)
         full_det = repeat(full_det, "b c h w -> b n c h w", n=n_samples)
         full_stoch = torch.cat([full_det, noise], dim=2)
-        full_stoch = rearrange(full_stoch, "b n c h w -> (b n) c h w")
+        # full_stoch = rearrange(full_stoch, "b n c h w -> (b n) c h w")
         return full_stoch
 
 

@@ -33,11 +33,10 @@ class TestNSamplesConfiguration:
             rescaler=None,
             padding=(2, 2, 2, 2),
         )
-        
+
         # Both should be set to 50
         assert model.n_samples_train == 50
         assert model.n_samples_predict == 50
-        assert model.n_samples == 50
 
     @pytest.mark.unit
     def test_chen_separate_train_predict_samples(self):
@@ -62,10 +61,9 @@ class TestNSamplesConfiguration:
             rescaler=None,
             padding=(2, 2, 2, 2),
         )
-        
+
         assert model.n_samples_train == 30
         assert model.n_samples_predict == 100
-        assert model.n_samples == 100  # Should equal predict
 
     @pytest.mark.unit
     def test_chen_new_api_without_n_samples(self):
@@ -89,10 +87,9 @@ class TestNSamplesConfiguration:
             rescaler=None,
             padding=(2, 2, 2, 2),
         )
-        
+
         assert model.n_samples_train == 25
         assert model.n_samples_predict == 75
-        assert model.n_samples == 75
 
     @pytest.mark.unit
     def test_engression_backwards_compatibility_n_samples_only(self):
@@ -117,11 +114,10 @@ class TestNSamplesConfiguration:
             use_rescaler=False,
             loss_fn=EnergyScore(),
         )
-        
+
         # Both should be set to 50
         assert model.n_samples_train == 50
         assert model.n_samples_predict == 50
-        assert model.n_samples == 50
 
     @pytest.mark.unit
     def test_engression_separate_train_predict_samples(self):
@@ -148,10 +144,9 @@ class TestNSamplesConfiguration:
             use_rescaler=False,
             loss_fn=EnergyScore(),
         )
-        
+
         assert model.n_samples_train == 20
         assert model.n_samples_predict == 80
-        assert model.n_samples == 80  # Should equal predict
 
     @pytest.mark.unit
     def test_chen_forward_respects_n_samples_train(self):
@@ -175,11 +170,11 @@ class TestNSamplesConfiguration:
             rescaler=None,
             padding=(2, 2, 2, 2),
         )
-        
+
         # Set up TD scaling
         model.internal_td_scaling.is_fitted = torch.tensor(True)
         model.internal_td_scaling.model = torch.nn.Linear(1, 2)
-        
+
         batch_size = 2
         x = {
             "predicted_vars": torch.randn(batch_size, 2, 32, 32),
@@ -188,11 +183,11 @@ class TestNSamplesConfiguration:
             "pixel_idx": torch.zeros(batch_size, 1, 32, 32, dtype=torch.long),
         }
         td = torch.rand(batch_size)
-        
+
         # Test with train samples
         out_train = model.forward(x, td, n_samples=model.n_samples_train)
         assert out_train.shape[1] == 10, f"Expected 10 samples, got {out_train.shape[1]}"
-        
+
         # Test with predict samples
         out_predict = model.forward(x, td, n_samples=model.n_samples_predict)
         assert out_predict.shape[1] == 20, f"Expected 20 samples, got {out_predict.shape[1]}"
@@ -221,11 +216,11 @@ class TestNSamplesConfiguration:
             use_rescaler=False,
             loss_fn=EnergyScore(),
         )
-        
+
         # Set up TD scaling
         model.internal_td_scaling.is_fitted = torch.tensor(True)
         model.internal_td_scaling.model = torch.nn.Linear(1, 2)
-        
+
         batch_size = 2
         x = {
             "predicted_vars": torch.randn(batch_size, 2, 32, 32),
@@ -234,11 +229,11 @@ class TestNSamplesConfiguration:
             "pixel_idx": torch.zeros(batch_size, 1, 32, 32, dtype=torch.long),
         }
         td = torch.rand(batch_size)
-        
+
         # Test with train samples
         out_train = model.forward(x, td, n_samples=model.n_samples_train)
         assert out_train.shape[1] == 15, f"Expected 15 samples, got {out_train.shape[1]}"
-        
+
         # Test with predict samples
         out_predict = model.forward(x, td, n_samples=model.n_samples_predict)
         assert out_predict.shape[1] == 25, f"Expected 25 samples, got {out_predict.shape[1]}"
