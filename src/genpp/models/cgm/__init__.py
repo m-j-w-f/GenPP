@@ -1,6 +1,4 @@
 from .chen import (
-    BaseChenDirectModel,
-    BaseChenNoiseModel,
     CNNChenDirectModel,
     CNNChenModel,
     CNNChenNoiseModel,
@@ -20,8 +18,6 @@ from .fm import (
 )
 
 __all__ = [
-    "BaseChenNoiseModel",
-    "BaseChenDirectModel",
     "CNNChenModel",  # Backwards compatibility alias (same as CNNChenNoiseModel)
     "CNNChenNoiseModel",
     "CNNChenDirectModel",

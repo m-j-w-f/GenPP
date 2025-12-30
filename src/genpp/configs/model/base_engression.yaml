@@ -20,7 +20,10 @@ kernel_size: 3
 add_bn: true
 
 # Sampling parameters
-n_samples: 50
+# For backwards compatibility, n_samples sets both train and predict if they're not specified
+n_samples: 50  # Default for both training and prediction
+# n_samples_train: 50  # Optional: Override number of samples during training
+# n_samples_predict: 50  # Optional: Override number of samples during prediction
 
 # Padding for output cropping
 padding: ${data.spatial.padding_list}
