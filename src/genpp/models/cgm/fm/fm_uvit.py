@@ -7,6 +7,7 @@ import math
 import einops
 import torch
 import torch.nn as nn
+from einops.layers.torch import Rearrange
 
 from genpp.models.cgm.fm.base import ConditionalVectorField
 from genpp.models.cgm.fm.helpers import Mlp, trunc_normal_
@@ -170,10 +171,23 @@ class UViTCVF(ConditionalVectorField):
         norm_layer=nn.LayerNorm,
         conv=True,
         skip=True,
+        td_embedding_dim: int | None = None,
     ):
         super().__init__()
         print(f"attention mode is {ATTENTION_MODE}")
         self.in_channels = in_channels
+
+        # Initialize timedelta embedder and adjust channels_conditioning
+        self.td_embedding_dim = td_embedding_dim
+        if td_embedding_dim is not None and td_embedding_dim > 0:
+            self.td_embedder = FourierEncoder(dim=td_embedding_dim)
+            channels_conditioning += td_embedding_dim
+        elif td_embedding_dim == 0:
+            self.td_embedder = Rearrange("... -> ... 1")
+            channels_conditioning += 1
+        else:
+            self.td_embedder = None
+
         self.channels_conditioning = channels_conditioning + pixel_embed_dim
         self.image_size = (img_height, img_width)
         self.patch_size = (patch_size_height, patch_size_width)
@@ -281,15 +295,25 @@ class UViTCVF(ConditionalVectorField):
         time_token = self.time_embed(t)
         time_token = time_token.unsqueeze(dim=1)
 
-        conditioning_cat = torch.cat(
-            [
-                conditioning["predicted_vars"],
-                conditioning["auxiliary_vars"],
-                conditioning["meta_vars"],
-                self.pixel_embedder(conditioning["pixel_idx"]),
-            ],
-            dim=1,
-        )
+        # Build conditioning with all components
+        conditioning_parts = [
+            conditioning["predicted_vars"],
+            conditioning["auxiliary_vars"],
+            conditioning["meta_vars"],
+            self.pixel_embedder(conditioning["pixel_idx"]),
+        ]
+
+        # Add timedelta embedding to conditioning if configured
+        if self.td_embedder is not None:
+            td = conditioning["timedelta"]  # [bs]
+            td_embed = self.td_embedder(td)  # [bs, 1 | td_embedding_dim]
+
+            # Expand spatially to match conditioning dimensions
+            *_, h, w = conditioning["predicted_vars"].shape
+            td_embed = td_embed[..., None, None].expand(-1, -1, h, w)  # [bs, td_dim, h, w]
+            conditioning_parts.append(td_embed)
+
+        conditioning_cat = torch.cat(conditioning_parts, dim=1)
         conditioning_token = self.conditioning_embed(conditioning_cat)
         x = torch.cat((time_token, conditioning_token, x), dim=1)
         x = x + self.pos_embed

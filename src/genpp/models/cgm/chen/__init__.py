@@ -1,3 +1,11 @@
-from .chen import CNNChenModel
+from .chen import (
+    CNNChenDirectModel,
+    CNNChenModel,
+    CNNChenNoiseModel,
+)
 
-__all__ = ["CNNChenModel"]
+__all__ = [
+    "CNNChenModel",  # Backwards compatibility alias
+    "CNNChenNoiseModel",
+    "CNNChenDirectModel",
+]

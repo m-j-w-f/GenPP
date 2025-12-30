@@ -1,0 +1,5 @@
+defaults:
+  - base_fm_unet
+
+_target_: genpp.models.cgm.FlowMatchingNoiseModel
+internal_td_scaling: abs

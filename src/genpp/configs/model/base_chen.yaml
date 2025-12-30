@@ -1,5 +1,8 @@
-# CNN-based Chen Model Configuration
-_target_: genpp.models.cgm.CNNChenModel
+# Base CNN-based Chen Model Configuration
+# This serves as a base configuration for CNN Chen models.
+# It can be extended for specific variants like noise or direct models.
+# See cnn_chen_noise.yaml and cnn_chen_direct.yaml for specific configurations.
+_target_: PLACEHOLDER_FOR_CNN_CHEN_MODEL
 
 # Model architecture parameters
 in_features: ${data.features.input_features}
@@ -9,8 +12,11 @@ height: ${data.spatial.padded.longitude}
 width: ${data.spatial.padded.latitude}
 noise_dim: 5 # Every gridpoint has noise added of noise_dim
 embedding_dim: 5
-n_samples: 50
-internal_td_scaling: abs
+# Number of samples configuration
+# For backwards compatibility, n_samples sets both train and predict if they're not specified
+n_samples: 50  # Default for both training and prediction
+# n_samples_train: 50  # Optional: Override number of samples during training
+# n_samples_predict: 50  # Optional: Override number of samples during prediction
 use_rescaler: false  # Whether to use rescalers from the datamodule
 
 padding: ${data.spatial.padding_list}
@@ -26,10 +32,4 @@ final_activation:
     - _target_: torch.nn.Identity # Temperature (standardized)
     - _target_: torch.nn.Identity # Wind speed (standardized)
 
-# Loss function
-loss_fn:
-  _target_: genpp.models.loss.EnergyScore
-  beta: 1.0
-  clamp: true
-
-# Optimizer and learning rate scheduler are imported automatically due to the folder structure
+# Loss function, Optimizer and learning rate scheduler are imported automatically due to the folder structure

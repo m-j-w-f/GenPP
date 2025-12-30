@@ -1,0 +1,17 @@
+# Default trainer configuration for PyTorch Lightning
+_target_: lightning.Trainer
+max_epochs: 100
+accelerator: cpu
+accumulate_grad_batches: 1
+check_val_every_n_epoch: 1
+log_every_n_steps: 1
+fast_dev_run: 1
+enable_checkpointing: true
+enable_model_summary: true
+enable_progress_bar: true
+detect_anomaly: true
+callbacks:
+  - _target_: lightning.pytorch.callbacks.early_stopping.EarlyStopping
+    monitor: val_loss
+    patience: 10
+    min_delta: 0.001

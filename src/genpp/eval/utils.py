@@ -209,11 +209,11 @@ def save_predictions_dataarray(
     # Reset index, otherwise xarray will complain when saving
     predictions = predictions.reset_index("prediction")
     if not save_path.exists():
-        predictions.to_zarr(save_path, consolidated=True)
+        predictions.to_zarr(save_path, consolidated=True)  # type: ignore
         print(f"Saved predictions to {save_path}.")
     else:
         if overwrite:
-            predictions.to_zarr(save_path, mode="w", consolidated=True)
+            predictions.to_zarr(save_path, mode="w", consolidated=True)  # type: ignore
             print(f"Overwritten existing file at {save_path}.")
         else:
             print(f"File {save_path} already exists.")
