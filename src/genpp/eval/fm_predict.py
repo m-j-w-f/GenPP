@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
+import pickle
+import shlex
 
 import hydra
 import lightning as L
@@ -28,6 +31,7 @@ from einops import rearrange, reduce
 from omegaconf import DictConfig
 from tqdm import tqdm
 
+import wandb
 from genpp import BASE_DIR
 from genpp.configs import add_y_kwargs, del_key, register_resolvers
 from genpp.data import OBSERVATIONS_FLAT_PATH
@@ -146,9 +150,52 @@ def get_split_config(split: str) -> dict:
     return config[split]
 
 
+def get_original_command(run_path: str) -> str | None:
+    """Fetch the original command from W&B metadata.
+
+    Reads the run's wandb-metadata.json and reconstructs the command
+    from the captured program and args.
+    """
+    try:
+        api = wandb.Api()
+        run = api.run(run_path)
+        meta_file = run.file("wandb-metadata.json").download(replace=True)
+        with open(meta_file.name) as f:
+            meta = json.load(f)
+
+        program = meta.get("program")
+        args = meta.get("args") or []
+
+        parts = ([program] if program else []) + [str(a) for a in args]
+        cmd = shlex.join(parts)
+        return cmd or None
+    except Exception:
+        return None
+
+
+def store_original_command_config(run_path: str, cmd: str, verbose: bool = False) -> None:
+    """Store the preserved original command in the run config.
+
+    Only writes to config (not summary or notes). Safe no-op if unchanged.
+    """
+    try:
+        api = wandb.Api()
+        run = api.run(run_path)
+        existing = run.config.get("original_command")
+        if existing != cmd:
+            run.config["original_command"] = cmd
+            run.update()
+            log_msg("Preserved original W&B command in config", verbose)
+    except Exception as e:
+        log_msg(f"Failed to store original command: {e}", verbose)
+
+
 def main() -> None:
     """Main entry point for the prediction script."""
     args = parse_args()
+
+    # Capture the original W&B command before any updates
+    old_cmd = get_original_command(args.run_path)
 
     # Register Hydra resolvers
     try:
@@ -232,14 +279,26 @@ def main() -> None:
     ModelClass = getattr(module, class_name)
 
     if ModelClass is CNNChenModel:
-        model = ModelClass.load_from_checkpoint(
-            model_checkpoint,
-            final_activation=hydra.utils.instantiate(cfg.model.final_activation),
-            loss_fn=hydra.utils.instantiate(cfg.model.loss_fn),
-            n_samples=50,
-        )
+        try:
+            model = ModelClass.load_from_checkpoint(
+                model_checkpoint,
+                final_activation=hydra.utils.instantiate(cfg.model.final_activation),
+                loss_fn=hydra.utils.instantiate(cfg.model.loss_fn),
+                n_samples=50,
+            )
+        except pickle.UnpicklingError:
+            model = ModelClass.load_from_checkpoint(
+                model_checkpoint,
+                final_activation=hydra.utils.instantiate(cfg.model.final_activation),
+                loss_fn=hydra.utils.instantiate(cfg.model.loss_fn),
+                n_samples=50,
+                weights_only=False,
+            )
     else:
-        model = ModelClass.load_from_checkpoint(model_checkpoint)
+        try:
+            model = ModelClass.load_from_checkpoint(model_checkpoint)
+        except pickle.UnpicklingError:
+            model = ModelClass.load_from_checkpoint(model_checkpoint, weights_only=False)
 
     # Fix internal_td_scaling if needed
     if hasattr(model, "internal_td_scaling"):
@@ -412,6 +471,10 @@ def main() -> None:
     log_msg("Updating WandB run...", args.verbose)
     full_scores = {args.split: scores}
     update_wandb_run(args.run_path, full_scores)
+
+    # Restore the original command into run config (only config)
+    if old_cmd:
+        store_original_command_config(args.run_path, old_cmd, args.verbose)
 
     # Save scores DataFrame
     records = []
