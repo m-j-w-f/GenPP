@@ -74,7 +74,7 @@ def _add_sincos_doy(da: xr.DataArray) -> xr.DataArray:
         MetadataVars.SIN_PREDICTION_TIME.value,
         MetadataVars.COS_PREDICTION_TIME.value,
     ]
-    transformed_time.expand_dims(
+    transformed_time = transformed_time.expand_dims(
         {
             "x": da.x,
             "y": da.y,

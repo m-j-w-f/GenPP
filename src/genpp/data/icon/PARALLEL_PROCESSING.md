@@ -39,9 +39,12 @@ Also update the `-t` parameter in the `#PBS` directives to match the number of m
 
 ### 3. Submit Jobs
 
-Submit the array jobs using qsub:
+**Important:** Submit the jobs from the `src/genpp/data/icon` directory where the scripts are located:
 
 ```bash
+# Navigate to the icon data directory
+cd src/genpp/data/icon
+
 # Submit FC tensor processing (forecast data)
 qsub submit_fc_tensors.sh
 

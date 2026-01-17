@@ -37,8 +37,9 @@ echo "=========================================="
 export JOB_TYPE=fc
 export YEAR_MONTH=$YEAR_MONTH
 
-# Change to the script directory
-cd /home/runner/work/GenPP/GenPP/src/genpp/data/icon || exit 1
+# Change to the working directory from which qsub was called
+# This assumes you run qsub from src/genpp/data/icon directory
+cd "$PBS_O_WORKDIR" || exit 1
 
 # Run the Python script using pixi
 pixi run -e nb python process_tensors.py
