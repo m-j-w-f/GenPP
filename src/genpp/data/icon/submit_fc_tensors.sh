@@ -21,7 +21,9 @@ echo "Job ID: $PBS_JOBID"
 echo "Processing year: $YEAR, month: $MONTH"
 echo "=========================================="
 
-# Set environment variables for the script
+# Export environment variables for the Python script
+export YEAR
+export MONTH
 export JOB_TYPE=fc
 
 # Change to the working directory from which qsub was called
