@@ -42,6 +42,7 @@ torchvision = ">=0.24.0,<0.25"
 xformers = ">=0.0.32.post2,<0.0.33"
 jupyter_bokeh = ">=4.0.5,<5"
 cfgrib = ">=0.9.15.1,<0.10"
+jupytext = "*"
 
 [tool.pixi.feature.gpu.dependencies]
 cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
@@ -62,6 +63,7 @@ catppuccin-jupyterlab = ">=0.2.4,<0.3"
 jupyterlab-lsp = ">=5.2.0,<6"
 python-lsp-server = ">=1.14.0,<2"
 basedpyright = ">=1.36.1,<2"
+jupytext = ">=1.18.1,<2"
 
 [tool.pixi.tasks]
 train = "python src/genpp/train.py" # Specify file by using --config-name ...
