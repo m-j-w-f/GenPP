@@ -32,9 +32,6 @@ for year in {2018..2024}; do
              -o logs/rea_tensor_${year}${month}.log \
              -v YEAR=${year},MONTH=${month} \
              ${REA_SCRIPT_PATH}
-
-        # Optional: add a small delay to avoid overwhelming the scheduler
-        sleep 0.2
     done
 done
 
