@@ -81,13 +81,13 @@ DATA_DIR = BASE_DIR / "data" / "icon" / "data"
 def _add_sincos_doy(da: xr.DataArray) -> xr.DataArray:
     doy = da.time.dt.dayofyear
     sin_time = np.sin(doy * 2 * np.pi / 365).astype(np.float32)
-    cos_time = np.sin(doy * 2 * np.pi / 365).astype(np.float32)
+    cos_time = np.cos(doy * 2 * np.pi / 365).astype(np.float32)
     transformed_time = xr.concat([sin_time, cos_time], dim="feature")
     transformed_time["feature"] = [
         MetadataVars.SIN_PREDICTION_TIME.value,
         MetadataVars.COS_PREDICTION_TIME.value,
     ]
-    transformed_time.expand_dims(
+    transformed_time = transformed_time.expand_dims(
         {
             "x": da.x,
             "y": da.y,
@@ -541,11 +541,6 @@ class ForecastDataModule(L.LightningDataModule):
             torch.save(fc_tensors, fc_path)
 
             meta = get_meatdata_features(da_stacked)
-
-            fc_path = self.fc_tensor_dir / f"fc_{time_leadtime}.pt"
-            fc_tensor = torch.from_numpy(da_stacked.values)
-            # Fc tensors have shape [agg, c, x, y]
-            torch.save(fc_tensor, fc_path)
 
             meta_path = self.meta_tensor_dir / f"meta_{time_leadtime}.pt"
             meta_tensor = torch.from_numpy(meta.values)
