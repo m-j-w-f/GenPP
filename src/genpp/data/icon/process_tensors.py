@@ -68,7 +68,7 @@ def _add_sincos_doy(da: xr.DataArray) -> xr.DataArray:
     """Add sinusoidal day-of-year features."""
     doy = da.time.dt.dayofyear
     sin_time = np.sin(doy * 2 * np.pi / 365).astype(np.float32)
-    cos_time = np.sin(doy * 2 * np.pi / 365).astype(np.float32)
+    cos_time = np.cos(doy * 2 * np.pi / 365).astype(np.float32)
     transformed_time = xr.concat([sin_time, cos_time], dim="feature")
     transformed_time["feature"] = [
         MetadataVars.SIN_PREDICTION_TIME.value,
@@ -172,12 +172,6 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
         torch.save(fc_tensors, fc_path)
 
         meta = get_metadata_features(da_stacked)
-
-        fc_path = FC_TENSOR_DIR / f"fc_{time_leadtime}.pt"
-        fc_tensor = torch.from_numpy(da_stacked.values)
-        # Fc tensors have shape [agg, c, x, y]
-        torch.save(fc_tensor, fc_path)
-
         meta_path = META_TENSOR_DIR / f"meta_{time_leadtime}.pt"
         meta_tensor = torch.from_numpy(meta.values)
         # Meta tensors have shape [c, x, y]
