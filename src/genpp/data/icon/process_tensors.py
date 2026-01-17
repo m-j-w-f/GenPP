@@ -4,18 +4,19 @@ Standalone script for processing ICON forecast and reanalysis data into tensors.
 
 This script extracts the _get_fc_tensors and _get_rea_tensors functions from
 dataset.py to run them as standalone jobs, enabling parallel processing via
-array jobs.
+NQSV job submissions.
 
 Usage:
     For forecast tensors:
-        JOB_TYPE=fc YEAR_MONTH=2021-01 pixi run -e nb python process_tensors.py
+        JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
     
     For reanalysis tensors:
-        JOB_TYPE=rea YEAR_MONTH=2021-01 pixi run -e nb python process_tensors.py
+        JOB_TYPE=rea YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
 
 Environment Variables:
     JOB_TYPE: Either 'fc' or 'rea' to specify which tensor type to process
-    YEAR_MONTH: Year and month in format YYYY-MM (e.g., '2021-01')
+    YEAR: Year in format YYYY (e.g., '2021')
+    MONTH: Month in format MM (e.g., '01')
 """
 
 import os
@@ -217,17 +218,17 @@ def _get_rea_tensors(rea_nc_paths: list[Path]) -> None:
         torch.save(tens, tens_path)
 
 
-def filter_paths_by_month(paths: list[Path], year_month: str) -> list[Path]:
+def filter_paths_by_month(paths: list[Path], year: str, month: str) -> list[Path]:
     """Filter file paths to only include those from a specific year-month.
     
     Args:
         paths: List of file paths where filename contains date like YYYYMMDDHH
-        year_month: String in format 'YYYY-MM'
+        year: String in format 'YYYY'
+        month: String in format 'MM'
     
     Returns:
         Filtered list of paths
     """
-    year, month = year_month.split('-')
     prefix = f"{year}{month}"
     filtered = []
     for path in paths:
@@ -245,21 +246,27 @@ def filter_paths_by_month(paths: list[Path], year_month: str) -> list[Path]:
 
 def main():
     """Main entry point for the script."""
-    # Get job type and year-month from environment variables
+    # Get job type, year and month from environment variables
     job_type = os.environ.get('JOB_TYPE', '').lower()
-    year_month = os.environ.get('YEAR_MONTH', '')
+    year = os.environ.get('YEAR', '')
+    month = os.environ.get('MONTH', '')
     
     if job_type not in ['fc', 'rea']:
         print(f"Error: JOB_TYPE must be 'fc' or 'rea', got '{job_type}'")
-        print("Usage: JOB_TYPE=fc YEAR_MONTH=2021-01 pixi run -e nb python process_tensors.py")
+        print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
         sys.exit(1)
     
-    if not year_month or len(year_month) != 7 or year_month[4] != '-':
-        print(f"Error: YEAR_MONTH must be in format YYYY-MM, got '{year_month}'")
-        print("Usage: JOB_TYPE=fc YEAR_MONTH=2021-01 pixi run -e nb python process_tensors.py")
+    if not year or len(year) != 4 or not year.isdigit():
+        print(f"Error: YEAR must be in format YYYY, got '{year}'")
+        print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
         sys.exit(1)
     
-    print(f"Processing {job_type.upper()} tensors for {year_month}")
+    if not month or len(month) != 2 or not month.isdigit():
+        print(f"Error: MONTH must be in format MM, got '{month}'")
+        print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
+        sys.exit(1)
+    
+    print(f"Processing {job_type.upper()} tensors for {year}-{month}")
     
     if job_type == 'fc':
         # Process forecast tensors
@@ -269,14 +276,14 @@ def main():
             sys.exit(1)
         
         # Filter to only this month
-        ens_nc_paths = filter_paths_by_month(ens_nc_paths, year_month)
-        print(f"Found {len(ens_nc_paths)} ensmean files for {year_month}")
+        ens_nc_paths = filter_paths_by_month(ens_nc_paths, year, month)
+        print(f"Found {len(ens_nc_paths)} ensmean files for {year}-{month}")
         
         if ens_nc_paths:
             _get_fc_tensors(ens_nc_paths)
-            print(f"Completed processing {len(ens_nc_paths)} FC tensors for {year_month}")
+            print(f"Completed processing {len(ens_nc_paths)} FC tensors for {year}-{month}")
         else:
-            print(f"No files found for {year_month}")
+            print(f"No files found for {year}-{month}")
     
     elif job_type == 'rea':
         # Process reanalysis tensors
@@ -286,14 +293,14 @@ def main():
             sys.exit(1)
         
         # Filter to only this month
-        rea_nc_paths = filter_paths_by_month(rea_nc_paths, year_month)
-        print(f"Found {len(rea_nc_paths)} rea files for {year_month}")
+        rea_nc_paths = filter_paths_by_month(rea_nc_paths, year, month)
+        print(f"Found {len(rea_nc_paths)} rea files for {year}-{month}")
         
         if rea_nc_paths:
             _get_rea_tensors(rea_nc_paths)
-            print(f"Completed processing {len(rea_nc_paths)} REA tensors for {year_month}")
+            print(f"Completed processing {len(rea_nc_paths)} REA tensors for {year}-{month}")
         else:
-            print(f"No files found for {year_month}")
+            print(f"No files found for {year}-{month}")
 
 
 if __name__ == "__main__":

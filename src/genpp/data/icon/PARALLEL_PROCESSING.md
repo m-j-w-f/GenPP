@@ -1,16 +1,19 @@
 # Parallel Tensor Processing Scripts
 
-This directory contains scripts for processing ICON forecast and reanalysis data into tensors in parallel using array jobs.
+This directory contains scripts for processing ICON forecast and reanalysis data into tensors in parallel using NQSV job submissions.
 
 ## Files
 
 - **`process_tensors.py`**: Standalone Python script that processes NetCDF files into PyTorch tensors
-- **`submit_fc_tensors.sh`**: qsub job submission script for forecast (FC) tensors
-- **`submit_rea_tensors.sh`**: qsub job submission script for reanalysis (REA) tensors
+- **`submit_fc_tensors.sh`**: NQSV job submission script for forecast (FC) tensors
+- **`submit_rea_tensors.sh`**: NQSV job submission script for reanalysis (REA) tensors
+- **`launch_tensor_jobs.sh`**: Launcher script that submits jobs for all months in a date range
 
 ## Overview
 
 The `_get_fc_tensors` and `_get_rea_tensors` functions from `dataset.py` have been extracted into a standalone script to enable parallel processing. These functions take a significant amount of time to run, so processing them in parallel by month significantly reduces the total runtime.
+
+This implementation follows the same pattern as the existing `launch_interpolate_ens_jobs.sh` and `interpolate_ens.sh` scripts in the `cdo_scripts` directory.
 
 ## Usage
 
@@ -22,56 +25,65 @@ Before submitting jobs, create a directory for log files:
 mkdir -p logs
 ```
 
-### 2. Modify Month Lists (if needed)
+### 2. Modify Date Range (if needed)
 
-Edit the `MONTHS` array in both submission scripts to match your data range:
+Edit the year range in `launch_tensor_jobs.sh` to match your data range:
 
 ```bash
-declare -a MONTHS=(
-    "2019-01" "2019-02" "2019-03" "2019-04" "2019-05" "2019-06"
-    "2019-07" "2019-08" "2019-09" "2019-10" "2019-11" "2019-12"
-    "2020-01" "2020-02" "2020-03" "2020-04" "2020-05" "2020-06"
-    "2020-07" "2020-08" "2020-09" "2020-10" "2020-11" "2020-12"
-)
+for year in {2018..2024}; do
+    for month in {01..12}; do
+        # Skip future months for 2024 (adjust as needed)
+        if [ $year -eq 2024 ] && [ $month -gt 09 ]; then
+            continue
+        fi
+        ...
+    done
+done
 ```
-
-Also update the `-t` parameter in the `#PBS` directives to match the number of months (e.g., `-t 1-24` for 24 months).
 
 ### 3. Submit Jobs
 
-**Important:** Submit the jobs from the `src/genpp/data/icon` directory where the scripts are located:
+**Important:** Run the launcher script from the `src/genpp/data/icon` directory:
 
 ```bash
 # Navigate to the icon data directory
 cd src/genpp/data/icon
 
-# Submit FC tensor processing (forecast data)
-qsub submit_fc_tensors.sh
-
-# Submit REA tensor processing (reanalysis data)
-qsub submit_rea_tensors.sh
+# Submit all jobs for the configured date range
+bash launch_tensor_jobs.sh
 ```
 
-Each job will spawn multiple parallel tasks (one per month), and each task will process all days within that month.
+This will submit separate jobs for each month, with both FC and REA tensors processed in parallel.
+
+### Alternative: Manual Job Submission
+
+You can also submit individual jobs manually:
+
+```bash
+# Navigate to the icon data directory
+cd src/genpp/data/icon
+
+# Submit a single FC tensor job for January 2019
+qsub -N fc_tensor_201901 -o logs/fc_tensor_201901.log -v YEAR=2019,MONTH=01 submit_fc_tensors.sh
+
+# Submit a single REA tensor job for January 2019
+qsub -N rea_tensor_201901 -o logs/rea_tensor_201901.log -v YEAR=2019,MONTH=01 submit_rea_tensors.sh
+```
 
 ### 4. Monitor Jobs
 
 Check job status:
 
 ```bash
-qstat
+qstat -u $USER
 ```
 
-View logs (while jobs are running or after completion):
+View logs:
 
 ```bash
-# View FC logs
-tail -f logs/fc_tensor_1.out
-tail -f logs/fc_tensor_2.out
-
-# View REA logs
-tail -f logs/rea_tensor_1.out
-tail -f logs/rea_tensor_2.out
+# View specific month logs
+tail -f logs/fc_tensor_201901.log
+tail -f logs/rea_tensor_201901.log
 ```
 
 ## Manual Testing
@@ -80,10 +92,10 @@ You can also run the script manually for testing:
 
 ```bash
 # Test processing FC tensors for January 2019
-JOB_TYPE=fc YEAR_MONTH=2019-01 pixi run -e nb python process_tensors.py
+JOB_TYPE=fc YEAR=2019 MONTH=01 pixi run -e nb python process_tensors.py
 
 # Test processing REA tensors for January 2019
-JOB_TYPE=rea YEAR_MONTH=2019-01 pixi run -e nb python process_tensors.py
+JOB_TYPE=rea YEAR=2019 MONTH=01 pixi run -e nb python process_tensors.py
 ```
 
 ## Variable Selection
