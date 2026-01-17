@@ -7,7 +7,7 @@
 mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs
 
 # Path to the main processing script
-SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/interpolate2.sh
+SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/interpolate_ens.sh
 
 # Loop through years and months
 for year in {2018..2024}; do

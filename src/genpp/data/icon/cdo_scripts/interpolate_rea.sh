@@ -1,5 +1,16 @@
 #!/bin/bash
-# This script is used to put all reanalysis files at 00:00 and 12:00 in one .nc file.
+
+#PBS -N merge_rea_${YEAR}${MONTH}${DAY}           # Job name (will be modified per day)
+#PBS -S /bin/bash                                 # set the executing shell
+#PBS -q rc_express                                # queue name
+#PBS -l cpunum_job=1                              # use 1 CPU
+#PBS -l memsz_job=2gb                             # total memory for job
+#PBS -l vmemsz_job=2gb                            # total virtual memory
+#PBS -l elapstim_req=00:02:00                     # max runtime: 2 minutes
+#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs/merge_rea_${YEAR}${MONTH}${DAY}.log
+#PBS -j o                                         # concatenate stderr and stdout
+
+# This script processes reanalysis data on a per-day basis, creating one .nc file per day.
 # We only select the variables T_2M and VMAX_10M
 # To precompute the remap grid use get_remap_grid_rea.sh
 
@@ -12,47 +23,36 @@ intWeights=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/interpolati
 
 # Output
 output_dir=/hpc/uwork/extmfeik/data
-fnameNC=${output_dir}/rea.nc
+output_folder=${output_dir}/rea
+mkdir -p $output_folder
 
-# Temporary directory for yearly files
-tmpDir=${output_dir}/tmp_yearly
-mkdir -p $tmpDir
+# Year, Month, and Day should be env vars
+if [ -z "$YEAR" ] || [ -z "$MONTH" ] || [ -z "$DAY" ]; then
+    echo "ERROR: Year, month, and day required as arguments"
+    echo "Usage: $0 YYYY MM DD"
+    exit 1
+fi
 
-echo "Stage 1: Processing each year separately..."
-for year in $(seq 2018 2024); do
-    echo "Processing year $year..."
+echo "Processing ${YEAR}-${MONTH}-${DAY}"
 
-    # Get only files ending in 00 and 12 for this year
-    gribFiles=$(find ${dataDir}/${year}/ -type f \( -name "*00.grib" -o -name "*12.grib" \) | sort)
+# Construct the date string
+dateStr=${YEAR}${MONTH}${DAY}
 
-    # Check if files were found
-    if [ -z "$gribFiles" ]; then
-        echo "No GRIB files found for $year, skipping..."
-        continue
-    fi
+# Get the GRIB file for this day (00 hour only)
+gribFile=$(find ${dataDir}/${YEAR}/${MONTH}/${DAY} -type f -name "*${dateStr}00.grib")
 
-    fileCount=$(echo $gribFiles | wc -w)
-    echo "Found $fileCount files for $year"
+if [ -z "$gribFile" ]; then
+    echo "No file found for ${YEAR}-${MONTH}-${DAY}, skipping..."
+    exit 0
+fi
 
-    # Process year
-    cdo -f nc4 -z zip_6 \
-        remap,$targetDomain,$intWeights \
-        -selname,T_2M,VMAX_10M \
-        -mergetime,names=union \
-        $gribFiles \
-        ${tmpDir}/rea_${year}.nc
+echo "Found file: $gribFile"
 
-    echo "Done:  ${tmpDir}/rea_${year}.nc"
-done
+# Process the file: select variables, remap
+cdo -f nc4 -z zip_6 \
+    remap,$targetDomain,$intWeights \
+    -selname,T_2M,VMAX_10M \
+    $gribFile \
+    ${output_folder}/rea_${YEAR}${MONTH}${DAY}.nc
 
-echo ""
-echo "Stage 2: Merging all years into single file..."
-cdo -f nc4 -z zip_6 mergetime,names=union ${tmpDir}/rea_*.nc $fnameNC
-
-echo ""
-echo "Cleaning up temporary files..."
-rm -rf $tmpDir
-
-echo ""
-echo "Done! Final output:  $fnameNC"
-cdo sinfov $fnameNC
+echo "Done: ${output_folder}/rea_${YEAR}${MONTH}${DAY}.nc"
