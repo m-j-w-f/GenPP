@@ -93,8 +93,17 @@ if [ ! -f "$SCRIPT_DIR/process_tensors.py" ]; then
 fi
 
 echo "Starting Python script..."
-# Run the Python script using pixi with full path to script
-pixi run -e nb python "$SCRIPT_DIR/process_tensors.py"
+# Instead of using 'pixi run' which spawns a subprocess,
+# use 'pixi shell-hook' to get the environment and source it
+echo "Setting up pixi environment..."
+eval "$(pixi shell-hook -e nb)"
+
+# Verify Python is available and from the correct environment
+echo "Python path: $(which python)"
+echo "Python version: $(python --version 2>&1)"
+
+# Run the Python script directly (environment is already activated)
+python "$SCRIPT_DIR/process_tensors.py"
 
 EXIT_CODE=$?
 
