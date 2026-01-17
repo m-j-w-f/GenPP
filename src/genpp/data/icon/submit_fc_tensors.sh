@@ -32,6 +32,29 @@ export JOB_TYPE=fc
 # This assumes you run qsub from src/genpp/data/icon directory
 cd "$PBS_O_WORKDIR" || exit 1
 
+# Store the script directory
+SCRIPT_DIR="$(pwd)"
+echo "Script directory: $SCRIPT_DIR"
+
+# Find the repository root by looking for pyproject.toml
+REPO_ROOT="$SCRIPT_DIR"
+while [ "$REPO_ROOT" != "/" ]; do
+    if [ -f "$REPO_ROOT/pyproject.toml" ]; then
+        break
+    fi
+    REPO_ROOT="$(dirname "$REPO_ROOT")"
+done
+
+if [ ! -f "$REPO_ROOT/pyproject.toml" ]; then
+    echo "ERROR: Could not find pyproject.toml in parent directories"
+    exit 1
+fi
+
+echo "Repository root: $REPO_ROOT"
+
+# Change to repository root for pixi
+cd "$REPO_ROOT" || exit 1
+
 # Add pixi to PATH if not already present
 # Common installation locations for pixi
 if [ -f "$HOME/.pixi/bin/pixi" ]; then
@@ -49,8 +72,30 @@ fi
 
 echo "Using pixi: $(which pixi)"
 
-# Run the Python script using pixi
-pixi run -e nb python process_tensors.py
+# Verify the pixi environment exists
+echo "Checking pixi environment 'nb'..."
+if ! pixi list -e nb &> /dev/null 2>&1; then
+    echo "WARNING: pixi environment 'nb' may not exist or is not accessible"
+    echo "Available environments:"
+    pixi list || echo "Could not list pixi environments"
+fi
+
+# Verify we're in the correct directory
+echo "Current directory: $(pwd)"
+if [ ! -f "pyproject.toml" ]; then
+    echo "ERROR: pyproject.toml not found in current directory"
+    exit 1
+fi
+
+# Verify the script exists
+if [ ! -f "$SCRIPT_DIR/process_tensors.py" ]; then
+    echo "ERROR: process_tensors.py not found in $SCRIPT_DIR"
+    exit 1
+fi
+
+echo "Starting Python script..."
+# Run the Python script using pixi with full path to script
+pixi run -e nb python "$SCRIPT_DIR/process_tensors.py"
 
 EXIT_CODE=$?
 
