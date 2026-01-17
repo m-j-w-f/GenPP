@@ -141,10 +141,21 @@ Adjust these in the `#PBS` directives if needed based on your data size and clus
 
 ## Troubleshooting
 
-1. **Jobs fail immediately**: Check that the data directory exists and contains the expected ensmean/ensstd/rea subdirectories
-2. **Out of memory**: Increase `memsz_job` in the submission scripts
-3. **Timeout**: Increase `elapstim_req` in the submission scripts
-4. **Missing pixi environment**: Ensure pixi is installed and the `nb` environment is set up
+1. **Jobs receive SIGTERM immediately**: 
+   - The scripts now automatically add pixi to PATH from common installation locations (`~/.pixi/bin` or `~/.local/bin`)
+   - If pixi is installed elsewhere, you may need to modify the PATH setup in the submission scripts
+   - Check the job logs for "ERROR: pixi command not found in PATH"
+   
+2. **Jobs fail immediately**: Check that the data directory exists and contains the expected ensmean/ensstd/rea subdirectories
+
+3. **Out of memory**: Increase `memsz_job` in the submission scripts
+
+4. **Timeout**: Increase `elapstim_req` in the submission scripts
+
+5. **Missing pixi environment**: 
+   - Ensure pixi is installed (typically in `~/.pixi/bin/pixi` or `~/.local/bin/pixi`)
+   - Ensure the `nb` environment is set up with: `pixi install`
+   - Test manually: `JOB_TYPE=fc YEAR=2019 MONTH=01 pixi run -e nb python process_tensors.py`
 
 ## Notes
 
