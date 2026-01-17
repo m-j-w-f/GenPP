@@ -2,8 +2,9 @@
 
 #PBS -N process_rea_tensors           # Job name (will be modified per month)
 #PBS -S /bin/bash                      # set the executing shell
-#PBS -l cpunum_job=2                   # use 2 CPUs
-#PBS -l memsz_job=8gb                  # total memory for job
+#PBS -q rc_express
+#PBS -l cpunum_job=1                   # use 1 CPUs
+#PBS -l memsz_job=2gb                  # total memory for job
 #PBS -l elapstim_req=01:00:00          # max runtime: 1 hour (per month)
 #PBS -j o                              # concatenate stderr and stdout
 
