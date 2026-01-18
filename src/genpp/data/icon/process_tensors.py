@@ -192,7 +192,7 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
         # Select the auxiliary vars (all vars in x_select_vars) and kick out the
         aux_vars_mean = da_stacked.sel(aggregation="mean", feature=X_SELECT_VARIABLES_WO_Y)
         aux_vars_std = da_stacked.sel(aggregation="std", feature=X_SELECT_VARIABLES)
-        aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature", coords="minimal")
+        aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature", coords="different")
         aux_vars = torch.from_numpy(aux_vars.values)
 
         fc_tensors = {

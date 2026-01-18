@@ -3,10 +3,10 @@
 #PBS -N process_fc_tensors           # Job name (will be modified per month)
 #PBS -S /bin/bash                     # set the executing shell
 #PBS -q rc_big
-#PBS -l cpunum_job=4              # use 4 CPUs (for CDO OpenMP)
-#PBS -l memsz_job=8gb            # total memory for job
+#PBS -l cpunum_job=1              # use 4 CPUs
+#PBS -l memsz_job=4gb            # total memory for job
 #PBS -l vmemsz_job=64gb           # total virtual memory
-#PBS -l elapstim_req=01:00:00         # max runtime: 1 hour (per month)
+#PBS -l elapstim_req=00:10:00         # max runtime: 1 hour (per month)
 #PBS -j o                             # concatenate stderr and stdout
 
 # Year and Month should be env vars passed via qsub -v
