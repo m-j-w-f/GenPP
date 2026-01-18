@@ -174,7 +174,6 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
         datasets = []
         time_leadtime = "_".join(paths[0].stem.split("_")[1:])
         for path in paths:
-            print(f"Processing path {path}")
             ds = xr.open_dataset(path).drop_vars(VARS_TO_DROP)
             for level in LEVELS_TO_FLATTEN:
                 try:
