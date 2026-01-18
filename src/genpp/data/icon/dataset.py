@@ -116,10 +116,11 @@ def _add_xy(da: xr.DataArray) -> xr.DataArray:
     return xr.concat([x_grid, y_grid], dim="feature")
 
 
-def get_meatdata_features(da: xr.DataArray) -> xr.DataArray:
+def get_metadata_features(da: xr.DataArray) -> xr.DataArray:
+    """Get metadata features including day-of-year and coordinates."""
     sincos_doy = _add_sincos_doy(da)
     xy_grid = _add_xy(da)
-    return xr.concat([sincos_doy, xy_grid], dim="feature").transpose(*AXIS_ORDER)
+    return xr.concat([sincos_doy, xy_grid], dim="feature", coords="minimal").transpose(*AXIS_ORDER)
 
 
 # %%
@@ -484,6 +485,97 @@ class ForecastDataModule(L.LightningDataModule):
             self.normalize_type,
         )
 
+    @staticmethod
+    def _get_fc_tensors_static(
+        ens_nc_paths: list[Path],
+        x_select_variables: list[str],
+        y_select_variables: list[str],
+        fc_tensor_dir: Path,
+        meta_tensor_dir: Path,
+    ) -> None:
+        """Build and store forecast tensors from ensemble NetCDF paths.
+
+        Args:
+            ens_nc_paths (list[Path]): Paths to ensmean NetCDF files to process.
+            x_select_variables (list[str]): List of input variable names.
+            y_select_variables (list[str]): List of target variable names.
+            fc_tensor_dir (Path): Directory to store forecast tensors.
+            meta_tensor_dir (Path): Directory to store metadata tensors.
+
+        Returns:
+            None: Writes forecast and metadata tensors to disk.
+        """
+        # Ensure output directories exist
+        fc_tensor_dir.mkdir(parents=True, exist_ok=True)
+        meta_tensor_dir.mkdir(parents=True, exist_ok=True)
+
+        # Compute auxiliary variables
+        x_select_variables_wo_y = [var for var in x_select_variables if var not in y_select_variables]
+
+        # Skip entries with already materialized tensors
+        filtered_paths: list[Path] = []
+        for ens_path in ens_nc_paths:
+            time_leadtime = "_".join(ens_path.stem.split("_")[1:])
+            fc_path = fc_tensor_dir / f"fc_{time_leadtime}.pt"
+            meta_path = meta_tensor_dir / f"meta_{time_leadtime}.pt"
+            if fc_path.exists() and meta_path.exists():
+                continue
+            filtered_paths.append(ens_path)
+        ens_nc_paths = filtered_paths
+
+        # Build matching ensstd paths for remaining inputs
+        std_nc_paths = [Path(str(p).replace("ensmean", "ensstd")) for p in ens_nc_paths]
+        # Process mean/std pairs together
+        for paths in tqdm(
+            zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors", total=len(ens_nc_paths)
+        ):
+            datasets = []
+            time_leadtime = "_".join(paths[0].stem.split("_")[1:])
+            missing_var = False
+            for path in paths:
+                ds = xr.open_dataset(path).drop_vars(VARS_TO_DROP)
+                for level in LEVELS_TO_FLATTEN:
+                    try:
+                        ds = flatten_levels(ds, level)
+                    except KeyError:
+                        # Here KeyErrors are fine since a level of a var might be missing but we do not need that var
+                        continue
+                try:
+                    da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
+                    datasets.append(da)
+                except KeyError:
+                    missing_var = True
+            if missing_var:
+                print(f"Skipping {paths} due to missing vars")
+                continue
+            da_stacked = xr.concat(datasets, dim="aggregation")
+            da_stacked.coords["aggregation"] = ["mean", "std"]
+
+            # Select the predicted vars (y_select_vars) and use only aggr dim mean
+            predicted_vars = da_stacked.sel(aggregation="mean", feature=y_select_variables)
+            predicted_vars = torch.from_numpy(predicted_vars.values)
+
+            # Select the auxiliary vars (all vars in x_select_vars) and kick out the
+            aux_vars_mean = da_stacked.sel(aggregation="mean", feature=x_select_variables_wo_y)
+            aux_vars_std = da_stacked.sel(aggregation="std", feature=x_select_variables)
+            aux_vars = xr.concat(
+                [aux_vars_mean, aux_vars_std], dim="feature", coords="different", compat="equals"
+            )
+            aux_vars = torch.from_numpy(aux_vars.values)
+
+            fc_tensors = {
+                "predicted_vars": predicted_vars,  # [c0,x,y]
+                "auxiliary_vars": aux_vars,  # [c1,x,y]
+            }
+            fc_path = fc_tensor_dir / f"fc_{time_leadtime}.pt"
+            torch.save(fc_tensors, fc_path)
+
+            meta = get_metadata_features(da_stacked)
+            meta_path = meta_tensor_dir / f"meta_{time_leadtime}.pt"
+            meta_tensor = torch.from_numpy(meta.values)
+            # Meta tensors have shape [c, x, y]
+            torch.save(meta_tensor, meta_path)
+
     def _get_fc_tensors(self, ens_nc_paths: list[Path]) -> None:
         """Build and store forecast tensors from ensemble NetCDF paths.
 
@@ -493,74 +585,38 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             None: Writes forecast and metadata tensors to disk.
         """
-        # Skip entries with already materialized tensors
-        filtered_paths: list[Path] = []
-        for ens_path in ens_nc_paths:
-            time_leadtime = "_".join(ens_path.stem.split("_")[1:])
-            fc_path = self.fc_tensor_dir / f"fc_{time_leadtime}.pt"
-            meta_path = self.meta_tensor_dir / f"meta_{time_leadtime}.pt"
-            if fc_path.exists() and meta_path.exists():
-                continue
-            filtered_paths.append(ens_path)
-        ens_nc_paths = filtered_paths
+        ForecastDataModule._get_fc_tensors_static(
+            ens_nc_paths,
+            self.x_select_variables,
+            self.y_select_variables,
+            self.fc_tensor_dir,
+            self.meta_tensor_dir,
+        )
 
-        # Build matching ensstd paths for remaining inputs
-        std_nc_paths = [Path(str(p).replace("ensmean", "ensstd")) for p in ens_nc_paths]
-        # Process mean/std pairs together
-        for paths in tqdm(zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors"):
-            datasets = []
-            time_leadtime = "_".join(paths[0].stem.split("_")[1:])
-            for path in paths:
-                print(f"Processing path {path}")
-                ds = xr.open_dataset(path).drop_vars(VARS_TO_DROP)
-                for level in LEVELS_TO_FLATTEN:
-                    try:
-                        ds = flatten_levels(ds, level)
-                    except KeyError:
-                        pass
-                da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
-                datasets.append(da)
-            da_stacked = xr.concat(datasets, dim="aggregation")
-            da_stacked.coords["aggregation"] = ["mean", "std"]
-
-            # Select the predicted vars (y_select_vars) and use only aggr dim mean
-            predicted_vars = da_stacked.sel(aggregation="mean", feature=self.y_select_variables)
-            predicted_vars = torch.from_numpy(predicted_vars.values)
-
-            # Select the auxiliary vars (all vars in x_select_vars) and kick out the
-            aux_vars_mean = da_stacked.sel(aggregation="mean", feature=self.x_select_variables_wo_y)
-            aux_vars_std = da_stacked.sel(aggregation="std", feature=self.x_select_variables)
-            aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature")
-            aux_vars = torch.from_numpy(aux_vars.values)
-
-            fc_tensors = {
-                "predicted_vars": predicted_vars,  # [c0,x,y]
-                "auxiliary_vars": aux_vars,  # [c1,x,y]
-            }
-            fc_path = self.fc_tensor_dir / f"fc_{time_leadtime}.pt"
-            torch.save(fc_tensors, fc_path)
-
-            meta = get_meatdata_features(da_stacked)
-
-            meta_path = self.meta_tensor_dir / f"meta_{time_leadtime}.pt"
-            meta_tensor = torch.from_numpy(meta.values)
-            # Meta tensors have shape [c, x, y]
-            torch.save(meta_tensor, meta_path)
-
-    def _get_rea_tensors(self, rea_nc_paths: list[Path]) -> None:
+    @staticmethod
+    def _get_rea_tensors_static(
+        rea_nc_paths: list[Path],
+        y_select_variables: list[str],
+        rea_tensor_dir: Path,
+    ) -> None:
         """Build and store reanalysis tensors from NetCDF paths, skipping existing outputs.
 
         Args:
             rea_nc_paths (list[Path]): Paths to reanalysis NetCDF files to process.
+            y_select_variables (list[str]): List of target variable names.
+            rea_tensor_dir (Path): Directory to store reanalysis tensors.
 
         Returns:
             None: Writes reanalysis tensors to disk.
         """
+        # Ensure output directory exists
+        rea_tensor_dir.mkdir(parents=True, exist_ok=True)
+
         # Skip entries with already materialized tensors
         filtered_paths: list[Path] = []
         for rea_path in rea_nc_paths:
             date = rea_path.stem.split("_")[-1]
-            tens_path = self.rea_tensor_dir / f"rea_{date}.pt"
+            tens_path = rea_tensor_dir / f"rea_{date}.pt"
             if tens_path.exists():
                 continue
             filtered_paths.append(rea_path)
@@ -571,16 +627,39 @@ class ForecastDataModule(L.LightningDataModule):
             rea = xr.open_dataset(rea_path)
             rea = rea.drop_vars("rotated_pole")
             for dim in ["height", "height_2"]:
-                rea = flatten_levels(rea, level_dim=dim)
-            rea = (
-                rea.to_dataarray("feature")
-                .sel(feature=self.y_select_variables)
-                .transpose(..., *AXIS_ORDER)
-            )
-            tens_path = self.rea_tensor_dir / f"rea_{date}.pt"
+                try:
+                    rea = flatten_levels(rea, level_dim=dim)
+                except KeyError:
+                    # Some files may not have all dimensions (e.g., early rea files missing height_2)
+                    continue
+            try:
+                rea = (
+                    rea.to_dataarray("feature")
+                    .sel(feature=y_select_variables)
+                    .transpose(..., *AXIS_ORDER)
+                )
+            except KeyError:
+                print(f"Skipping {rea_path} due to missing vars")
+                continue
+            tens_path = rea_tensor_dir / f"rea_{date}.pt"
             tens = torch.from_numpy(rea.values).squeeze()
             # Rea has shape [c, x, y]
             torch.save(tens, tens_path)
+
+    def _get_rea_tensors(self, rea_nc_paths: list[Path]) -> None:
+        """Build and store reanalysis tensors from NetCDF paths, skipping existing outputs.
+
+        Args:
+            rea_nc_paths (list[Path]): Paths to reanalysis NetCDF files to process.
+
+        Returns:
+            None: Writes reanalysis tensors to disk.
+        """
+        ForecastDataModule._get_rea_tensors_static(
+            rea_nc_paths,
+            self.y_select_variables,
+            self.rea_tensor_dir,
+        )
 
     def _collect_samples(self) -> list[tuple[Path, Path, Path, np.datetime64, np.timedelta64]]:
         """Collect valid samples from the data directories.
