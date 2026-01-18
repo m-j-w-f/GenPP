@@ -114,7 +114,31 @@ echo "Python test passed."
 
 # Test importing required modules
 echo "Testing required imports..."
-python -c "import numpy, torch, xarray; print('Core imports successful')"
+python -c "
+import sys
+try:
+    import numpy
+    print('  numpy: OK')
+except Exception as e:
+    print(f'  numpy: FAILED - {type(e).__name__}: {e}')
+    sys.exit(1)
+
+try:
+    import torch
+    print('  torch: OK')
+except Exception as e:
+    print(f'  torch: FAILED - {type(e).__name__}: {e}')
+    sys.exit(1)
+
+try:
+    import xarray
+    print('  xarray: OK')
+except Exception as e:
+    print(f'  xarray: FAILED - {type(e).__name__}: {e}')
+    sys.exit(1)
+
+print('Core imports successful')
+"
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to import required modules"
     exit 1
