@@ -116,10 +116,11 @@ def _add_xy(da: xr.DataArray) -> xr.DataArray:
     return xr.concat([x_grid, y_grid], dim="feature")
 
 
-def get_meatdata_features(da: xr.DataArray) -> xr.DataArray:
+def get_metadata_features(da: xr.DataArray) -> xr.DataArray:
+    """Get metadata features including day-of-year and coordinates."""
     sincos_doy = _add_sincos_doy(da)
     xy_grid = _add_xy(da)
-    return xr.concat([sincos_doy, xy_grid], dim="feature").transpose(*AXIS_ORDER)
+    return xr.concat([sincos_doy, xy_grid], dim="feature", coords="minimal").transpose(*AXIS_ORDER)
 
 
 # %%
@@ -493,6 +494,10 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             None: Writes forecast and metadata tensors to disk.
         """
+        # Ensure output directories exist
+        self.fc_tensor_dir.mkdir(parents=True, exist_ok=True)
+        self.meta_tensor_dir.mkdir(parents=True, exist_ok=True)
+
         # Skip entries with already materialized tensors
         filtered_paths: list[Path] = []
         for ens_path in ens_nc_paths:
@@ -507,19 +512,28 @@ class ForecastDataModule(L.LightningDataModule):
         # Build matching ensstd paths for remaining inputs
         std_nc_paths = [Path(str(p).replace("ensmean", "ensstd")) for p in ens_nc_paths]
         # Process mean/std pairs together
-        for paths in tqdm(zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors"):
+        for paths in tqdm(
+            zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors", total=len(ens_nc_paths)
+        ):
             datasets = []
             time_leadtime = "_".join(paths[0].stem.split("_")[1:])
+            missing_var = False
             for path in paths:
-                print(f"Processing path {path}")
                 ds = xr.open_dataset(path).drop_vars(VARS_TO_DROP)
                 for level in LEVELS_TO_FLATTEN:
                     try:
                         ds = flatten_levels(ds, level)
                     except KeyError:
-                        pass
-                da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
-                datasets.append(da)
+                        # Here KeyErrors are fine since a level of a var might be missing but we do not need that var
+                        continue
+                try:
+                    da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
+                    datasets.append(da)
+                except KeyError:
+                    missing_var = True
+            if missing_var:
+                print(f"Skipping {paths} due to missing vars")
+                continue
             da_stacked = xr.concat(datasets, dim="aggregation")
             da_stacked.coords["aggregation"] = ["mean", "std"]
 
@@ -530,7 +544,9 @@ class ForecastDataModule(L.LightningDataModule):
             # Select the auxiliary vars (all vars in x_select_vars) and kick out the
             aux_vars_mean = da_stacked.sel(aggregation="mean", feature=self.x_select_variables_wo_y)
             aux_vars_std = da_stacked.sel(aggregation="std", feature=self.x_select_variables)
-            aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature")
+            aux_vars = xr.concat(
+                [aux_vars_mean, aux_vars_std], dim="feature", coords="different", compat="equals"
+            )
             aux_vars = torch.from_numpy(aux_vars.values)
 
             fc_tensors = {
@@ -540,8 +556,7 @@ class ForecastDataModule(L.LightningDataModule):
             fc_path = self.fc_tensor_dir / f"fc_{time_leadtime}.pt"
             torch.save(fc_tensors, fc_path)
 
-            meta = get_meatdata_features(da_stacked)
-
+            meta = get_metadata_features(da_stacked)
             meta_path = self.meta_tensor_dir / f"meta_{time_leadtime}.pt"
             meta_tensor = torch.from_numpy(meta.values)
             # Meta tensors have shape [c, x, y]
@@ -556,6 +571,9 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             None: Writes reanalysis tensors to disk.
         """
+        # Ensure output directory exists
+        self.rea_tensor_dir.mkdir(parents=True, exist_ok=True)
+
         # Skip entries with already materialized tensors
         filtered_paths: list[Path] = []
         for rea_path in rea_nc_paths:
@@ -571,12 +589,20 @@ class ForecastDataModule(L.LightningDataModule):
             rea = xr.open_dataset(rea_path)
             rea = rea.drop_vars("rotated_pole")
             for dim in ["height", "height_2"]:
-                rea = flatten_levels(rea, level_dim=dim)
-            rea = (
-                rea.to_dataarray("feature")
-                .sel(feature=self.y_select_variables)
-                .transpose(..., *AXIS_ORDER)
-            )
+                try:
+                    rea = flatten_levels(rea, level_dim=dim)
+                except KeyError:
+                    # Some files may not have all dimensions (e.g., early rea files missing height_2)
+                    continue
+            try:
+                rea = (
+                    rea.to_dataarray("feature")
+                    .sel(feature=self.y_select_variables)
+                    .transpose(..., *AXIS_ORDER)
+                )
+            except KeyError:
+                print(f"Skipping {rea_path} due to missing vars")
+                continue
             tens_path = self.rea_tensor_dir / f"rea_{date}.pt"
             tens = torch.from_numpy(rea.values).squeeze()
             # Rea has shape [c, x, y]
