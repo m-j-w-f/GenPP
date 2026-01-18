@@ -9,7 +9,7 @@ NQSV job submissions.
 Usage:
     For forecast tensors:
         JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
-    
+
     For reanalysis tensors:
         JOB_TYPE=rea YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
 
@@ -29,7 +29,6 @@ import xarray as xr
 from tqdm import tqdm
 
 # Import constants from the package
-from genpp import BASE_DIR
 from genpp.data import MetadataVars
 from genpp.data.icon import (
     AXIS_ORDER,
@@ -42,19 +41,49 @@ from genpp.data.utils import flatten_levels
 
 # Variable selection as specified in the comment
 X_SELECT_VARIABLES = [
-    'ALB_RAD', 'ASOB_S', 'ASOB_T', 'ATHB_S', 'ATHB_T', 'CLCH+plev_0.0',
-    'CLCL+plev_2_80000.0', 'CLCM+plev_3_40000.0', 'CLCT', 'HBAS_CON',
-    'HTOP_CON', 'PMSL', 'RAIN_CON', 'RAIN_GSP', 'SNOW_CON', 'SNOW_GSP',
-    'SOBS_RAD', 'TD_2M+height_2.0', 'THBS_RAD', 'TMAX_2M+height_2.0',
-    'TMIN_2M+height_2.0', 'TOT_PREC', 'TQC', 'TQI', 'TQV',
-    'T_2M+height_2.0', 'T_G', 'U_10M+height_2_10.0',
-    'VMAX_10M+height_2_10.0', 'V_10M+height_2_10.0', 'W_SNOW',
-    'W_SO+depth_0.0', 'W_SO+depth_0.01', 'W_SO+depth_0.03',
-    'W_SO+depth_0.09', 'W_SO+depth_0.27', 'W_SO+depth_0.81',
-    'W_SO+depth_2.43', 'W_SO+depth_7.29', 'Z0'
+    "ALB_RAD",
+    "ASOB_S",
+    "ASOB_T",
+    "ATHB_S",
+    "ATHB_T",
+    "CLCH+plev_0.0",
+    "CLCL+plev_2_80000.0",
+    "CLCM+plev_3_40000.0",
+    "CLCT",
+    "HBAS_CON",
+    "HTOP_CON",
+    "PMSL",
+    "RAIN_CON",
+    "RAIN_GSP",
+    "SNOW_CON",
+    "SNOW_GSP",
+    "SOBS_RAD",
+    "TD_2M+height_2.0",
+    "THBS_RAD",
+    "TMAX_2M+height_2.0",
+    "TMIN_2M+height_2.0",
+    "TOT_PREC",
+    "TQC",
+    "TQI",
+    "TQV",
+    "T_2M+height_2.0",
+    "T_G",
+    "U_10M+height_2_10.0",
+    "VMAX_10M+height_2_10.0",
+    "V_10M+height_2_10.0",
+    "W_SNOW",
+    "W_SO+depth_0.0",
+    "W_SO+depth_0.01",
+    "W_SO+depth_0.03",
+    "W_SO+depth_0.09",
+    "W_SO+depth_0.27",
+    "W_SO+depth_0.81",
+    "W_SO+depth_2.43",
+    "W_SO+depth_7.29",
+    "Z0",
 ]
 
-Y_SELECT_VARIABLES = ['T_2M+height_2.0', 'VMAX_10M+height_2_10.0']
+Y_SELECT_VARIABLES = ["T_2M+height_2.0", "VMAX_10M+height_2_10.0"]
 
 # Compute auxiliary variables (x variables without y variables)
 X_SELECT_VARIABLES_WO_Y = [var for var in X_SELECT_VARIABLES if var not in Y_SELECT_VARIABLES]
@@ -70,7 +99,7 @@ def _add_sincos_doy(da: xr.DataArray) -> xr.DataArray:
     doy = da.time.dt.dayofyear
     sin_time = np.sin(doy * 2 * np.pi / 365).astype(np.float32)
     cos_time = np.cos(doy * 2 * np.pi / 365).astype(np.float32)
-    transformed_time = xr.concat([sin_time, cos_time], dim="feature")
+    transformed_time = xr.concat([sin_time, cos_time], dim="feature", coords="minimal")
     transformed_time["feature"] = [
         MetadataVars.SIN_PREDICTION_TIME.value,
         MetadataVars.COS_PREDICTION_TIME.value,
@@ -102,14 +131,14 @@ def _add_xy(da: xr.DataArray) -> xr.DataArray:
     y_grid = y_norm.expand_dims({"x": da.x, "feature": [MetadataVars.LATITUDE.value]})
     y_grid = y_grid.transpose("feature", "x", "y")
 
-    return xr.concat([x_grid, y_grid], dim="feature")
+    return xr.concat([x_grid, y_grid], dim="feature", coords="minimal")
 
 
 def get_metadata_features(da: xr.DataArray) -> xr.DataArray:
     """Get metadata features including day-of-year and coordinates."""
     sincos_doy = _add_sincos_doy(da)
     xy_grid = _add_xy(da)
-    return xr.concat([sincos_doy, xy_grid], dim="feature").transpose(*AXIS_ORDER)
+    return xr.concat([sincos_doy, xy_grid], dim="feature", coords="minimal").transpose(*AXIS_ORDER)
 
 
 def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
@@ -139,7 +168,9 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
     # Build matching ensstd paths for remaining inputs
     std_nc_paths = [Path(str(p).replace("ensmean", "ensstd")) for p in ens_nc_paths]
     # Process mean/std pairs together
-    for paths in tqdm(zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors", total=len(ens_nc_paths)):
+    for paths in tqdm(
+        zip(ens_nc_paths, std_nc_paths), desc="Generating FC Tensors", total=len(ens_nc_paths)
+    ):
         datasets = []
         time_leadtime = "_".join(paths[0].stem.split("_")[1:])
         for path in paths:
@@ -162,7 +193,7 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
         # Select the auxiliary vars (all vars in x_select_vars) and kick out the
         aux_vars_mean = da_stacked.sel(aggregation="mean", feature=X_SELECT_VARIABLES_WO_Y)
         aux_vars_std = da_stacked.sel(aggregation="std", feature=X_SELECT_VARIABLES)
-        aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature")
+        aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature", coords="minimal")
         aux_vars = torch.from_numpy(aux_vars.values)
 
         fc_tensors = {
@@ -208,9 +239,7 @@ def _get_rea_tensors(rea_nc_paths: list[Path]) -> None:
         for dim in ["height", "height_2"]:
             rea = flatten_levels(rea, level_dim=dim)
         rea = (
-            rea.to_dataarray("feature")
-            .sel(feature=Y_SELECT_VARIABLES)
-            .transpose(..., *AXIS_ORDER)
+            rea.to_dataarray("feature").sel(feature=Y_SELECT_VARIABLES).transpose(..., *AXIS_ORDER)
         )
         tens_path = REA_TENSOR_DIR / f"rea_{date}.pt"
         tens = torch.from_numpy(rea.values).squeeze()
@@ -220,12 +249,12 @@ def _get_rea_tensors(rea_nc_paths: list[Path]) -> None:
 
 def filter_paths_by_month(paths: list[Path], year: str, month: str) -> list[Path]:
     """Filter file paths to only include those from a specific year-month.
-    
+
     Args:
         paths: List of file paths where filename contains date like YYYYMMDDHH
         year: String in format 'YYYY'
         month: String in format 'MM'
-    
+
     Returns:
         Filtered list of paths
     """
@@ -236,7 +265,7 @@ def filter_paths_by_month(paths: list[Path], year: str, month: str) -> list[Path
         stem = path.stem
         # For ensmean/ensstd files: ens_YYYYMMDDHH_XXX.nc
         # For rea files: rea_YYYYMMDDHH.nc
-        parts = stem.split('_')
+        parts = stem.split("_")
         for part in parts:
             if len(part) >= 6 and part[:6] == prefix:
                 filtered.append(path)
@@ -247,55 +276,55 @@ def filter_paths_by_month(paths: list[Path], year: str, month: str) -> list[Path
 def main():
     """Main entry point for the script."""
     # Get job type, year and month from environment variables
-    job_type = os.environ.get('JOB_TYPE', '').lower()
-    year = os.environ.get('YEAR', '')
-    month = os.environ.get('MONTH', '')
-    
-    if job_type not in ['fc', 'rea']:
+    job_type = os.environ.get("JOB_TYPE", "").lower()
+    year = os.environ.get("YEAR", "")
+    month = os.environ.get("MONTH", "")
+
+    if job_type not in ["fc", "rea"]:
         print(f"Error: JOB_TYPE must be 'fc' or 'rea', got '{job_type}'")
         print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
         sys.exit(1)
-    
+
     if not year or len(year) != 4 or not year.isdigit():
         print(f"Error: YEAR must be in format YYYY, got '{year}'")
         print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
         sys.exit(1)
-    
+
     if not month or len(month) != 2 or not month.isdigit():
         print(f"Error: MONTH must be in format MM, got '{month}'")
         print("Usage: JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py")
         sys.exit(1)
-    
+
     print(f"Processing {job_type.upper()} tensors for {year}-{month}")
-    
-    if job_type == 'fc':
+
+    if job_type == "fc":
         # Process forecast tensors
         ens_nc_paths = sorted(list((DATA_DIR / "ensmean").glob("*.nc")))
         if not ens_nc_paths:
             print(f"Error: No ensmean files found in {DATA_DIR / 'ensmean'}")
             sys.exit(1)
-        
+
         # Filter to only this month
         ens_nc_paths = filter_paths_by_month(ens_nc_paths, year, month)
         print(f"Found {len(ens_nc_paths)} ensmean files for {year}-{month}")
-        
+
         if ens_nc_paths:
             _get_fc_tensors(ens_nc_paths)
             print(f"Completed processing {len(ens_nc_paths)} FC tensors for {year}-{month}")
         else:
             print(f"No files found for {year}-{month}")
-    
-    elif job_type == 'rea':
+
+    elif job_type == "rea":
         # Process reanalysis tensors
         rea_nc_paths = sorted(list((DATA_DIR / "rea").glob("*.nc")))
         if not rea_nc_paths:
             print(f"Error: No rea files found in {DATA_DIR / 'rea'}")
             sys.exit(1)
-        
+
         # Filter to only this month
         rea_nc_paths = filter_paths_by_month(rea_nc_paths, year, month)
         print(f"Found {len(rea_nc_paths)} rea files for {year}-{month}")
-        
+
         if rea_nc_paths:
             _get_rea_tensors(rea_nc_paths)
             print(f"Completed processing {len(rea_nc_paths)} REA tensors for {year}-{month}")

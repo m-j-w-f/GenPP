@@ -5,7 +5,7 @@
 #PBS -q rc_big
 #PBS -l cpunum_job=4              # use 4 CPUs (for CDO OpenMP)
 #PBS -l memsz_job=8gb            # total memory for job
-#PBS -l vmemsz_job=64gb          # total virtual memory
+#PBS -l vmemsz_job=64gb           # total virtual memory
 #PBS -l elapstim_req=01:00:00         # max runtime: 1 hour (per month)
 #PBS -j o                             # concatenate stderr and stdout
 
