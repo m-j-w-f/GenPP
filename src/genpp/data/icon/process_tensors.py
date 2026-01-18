@@ -173,15 +173,23 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
     ):
         datasets = []
         time_leadtime = "_".join(paths[0].stem.split("_")[1:])
+        missing_var = False
         for path in paths:
             ds = xr.open_dataset(path).drop_vars(VARS_TO_DROP)
             for level in LEVELS_TO_FLATTEN:
                 try:
                     ds = flatten_levels(ds, level)
                 except KeyError:
-                    pass
-            da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
-            datasets.append(da)
+                    # Here KeyErrors are fine since a level of a var might be missing but we do not need that var
+                    continue
+            try:
+                da = ds[VARS_GRID_28].to_dataarray("feature").squeeze().transpose(*AXIS_ORDER)
+                datasets.append(da)
+            except KeyError:
+                missing_var = True
+        if missing_var:
+            print(f"Skipping {paths} due to missing vars")
+            continue
         da_stacked = xr.concat(datasets, dim="aggregation")
         da_stacked.coords["aggregation"] = ["mean", "std"]
 
@@ -192,7 +200,9 @@ def _get_fc_tensors(ens_nc_paths: list[Path]) -> None:
         # Select the auxiliary vars (all vars in x_select_vars) and kick out the
         aux_vars_mean = da_stacked.sel(aggregation="mean", feature=X_SELECT_VARIABLES_WO_Y)
         aux_vars_std = da_stacked.sel(aggregation="std", feature=X_SELECT_VARIABLES)
-        aux_vars = xr.concat([aux_vars_mean, aux_vars_std], dim="feature", coords="different")
+        aux_vars = xr.concat(
+            [aux_vars_mean, aux_vars_std], dim="feature", coords="different", compat="equals"
+        )
         aux_vars = torch.from_numpy(aux_vars.values)
 
         fc_tensors = {
@@ -239,11 +249,16 @@ def _get_rea_tensors(rea_nc_paths: list[Path]) -> None:
             try:
                 rea = flatten_levels(rea, level_dim=dim)
             except KeyError:
-                # Some files may not have all dimensions (e.g., early rea files missing height_2)
-                pass
-        rea = (
-            rea.to_dataarray("feature").sel(feature=Y_SELECT_VARIABLES).transpose(..., *AXIS_ORDER)
-        )
+                continue
+        try:
+            rea = (
+                rea.to_dataarray("feature")
+                .sel(feature=Y_SELECT_VARIABLES)
+                .transpose(..., *AXIS_ORDER)
+            )
+        except KeyError:
+            print(f"Skippint {rea_path} due to missing vars")
+            continue
         tens_path = REA_TENSOR_DIR / f"rea_{date}.pt"
         tens = torch.from_numpy(rea.values).squeeze()
         # Rea has shape [c, x, y]
