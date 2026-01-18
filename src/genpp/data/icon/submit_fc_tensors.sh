@@ -103,7 +103,26 @@ eval "$(pixi shell-hook -e nb)"
 echo "Python path: $(which python)"
 echo "Python version: $(python --version 2>&1)"
 
+# Test Python with a simple command first
+echo "Testing Python with simple command..."
+python -c "import sys; print(f'Python test successful. Sys path: {sys.prefix}')"
+if [ $? -ne 0 ]; then
+    echo "ERROR: Simple Python test failed"
+    exit 1
+fi
+echo "Python test passed."
+
+# Test importing required modules
+echo "Testing required imports..."
+python -c "import numpy, torch, xarray; print('Core imports successful')"
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to import required modules"
+    exit 1
+fi
+echo "Import test passed."
+
 # Run the Python script directly (environment is already activated)
+echo "Running main script: $SCRIPT_DIR/process_tensors.py"
 python "$SCRIPT_DIR/process_tensors.py"
 
 EXIT_CODE=$?
