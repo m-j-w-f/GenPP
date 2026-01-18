@@ -63,3 +63,5 @@ VARS_GRID_28 = [
     "W_SO+depth_7.29",
     "Z0",
 ]
+
+VARS_REA = ["T_2M+height_2.0", "VMAX_10M+height_2_10.0"]
