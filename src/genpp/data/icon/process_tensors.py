@@ -236,7 +236,11 @@ def _get_rea_tensors(rea_nc_paths: list[Path]) -> None:
         rea = xr.open_dataset(rea_path)
         rea = rea.drop_vars("rotated_pole")
         for dim in ["height", "height_2"]:
-            rea = flatten_levels(rea, level_dim=dim)
+            try:
+                rea = flatten_levels(rea, level_dim=dim)
+            except KeyError:
+                # Some files may not have all dimensions (e.g., early rea files missing height_2)
+                pass
         rea = (
             rea.to_dataarray("feature").sel(feature=Y_SELECT_VARIABLES).transpose(..., *AXIS_ORDER)
         )
