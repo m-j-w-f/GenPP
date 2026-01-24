@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from genpp.models.cgm import CNNChenNoiseModel, CNNEngressionNoiseModel
-from genpp.models.loss import EnergyScore
+from genpp.models.scores import EnergyScore
 
 
 class TestNSamplesConfiguration:

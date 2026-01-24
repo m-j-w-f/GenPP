@@ -15,7 +15,7 @@ from genpp.models.cgm.engression.cnn import (
     StochasticEncoder,
     StochasticUNet,
 )
-from genpp.models.loss import EnergyScore
+from genpp.models.scores import EnergyScore
 
 
 class TestStochasticLayer2D:
@@ -289,7 +289,7 @@ class TestCNNEngressionModel:
         td = torch.rand(batch_size)
 
         # Forward pass
-        out = model.forward(x, td)
+        out = model.forward(x, td, n_samples=n_samples)
 
         # Check output shape: [batch, n_samples, out_channels, cropped_height, cropped_width]
         assert out.shape == (
@@ -350,7 +350,7 @@ class TestCNNEngressionModel:
 
         td = torch.rand(batch_size)
 
-        out = model.forward(x, td)
+        out = model.forward(x, td, n_samples=n_samples)
 
         # Check that different samples are different (due to stochastic noise)
         assert not torch.allclose(out[0, 0], out[0, 1]), (

@@ -20,7 +20,7 @@ from genpp.models.cgm.engression.base import (
     StochasticResBlock2D,
 )
 from genpp.models.layers import FourierEncoder, PixelEmbedder
-from genpp.models.loss import EnergyScore
+from genpp.models.scores import EnergyScore
 
 
 class StochasticEncoder(nn.Module):

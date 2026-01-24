@@ -4,7 +4,7 @@ from collections.abc import Sequence
 import torch
 import torch.nn as nn
 
-from genpp.models.loss import CRPS_Normal, CRPS_TruncatedNormal
+from genpp.models.scores import CRPS_Normal, CRPS_TruncatedNormal
 
 dist_param_dict = dict[str, torch.Tensor]
 dist_param_dicts = list[dist_param_dict]

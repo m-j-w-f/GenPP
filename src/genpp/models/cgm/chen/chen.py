@@ -12,7 +12,7 @@ from omegaconf import DictConfig
 from genpp.models.cgm.utils import BaseGenerativeModule
 from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
 from genpp.models.layers import CropND, FourierEncoder, LocallyConnected2D, UNet
-from genpp.models.loss import EnergyScore
+from genpp.models.scores import EnergyScore
 
 
 class BaseChenModel(BaseGenerativeModule, ABC):
@@ -91,10 +91,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         self.use_embedding = embedding_dim > 0
         self.loss_fn = loss_fn
         # We need this for the validation step where we always use Energy Score
-        # and if a different loss is used for training we want to record that too
-        self.loss_is_energy_score = type(self.loss_fn) is EnergyScore
-        if not self.loss_is_energy_score:
-            self.es = EnergyScore()
+        self.es = EnergyScore()
 
         if self.use_embedding:
             self.embedding = nn.Embedding(
@@ -162,9 +159,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         res = self.forward(
             x, td, n_samples=self.n_samples_train
         )  # shape [b, n_samples, out_features, lon, lat]
-        res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
-        y_reshape = rearrange(y, "b c h w -> b (c h w)")
-        loss = self.loss_fn(res_reshape, y_reshape, mode="complete")  # shape [b]
+        loss = self.loss_fn(res, y, mode="complete")  # shape [b]
         loss = torch.mean(loss)  # Take mean across batches
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
@@ -181,22 +176,15 @@ class BaseChenModel(BaseGenerativeModule, ABC):
             stage (str): Log prefix/prefix for metrics.
         """
         res = self.predict_step(batch)  # shape [b, n_samples, out_features, lon, lat]
-
-        # Reshape for per-variable and overall loss computation
-        res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
-
         y = batch["y"]
-        y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
 
         # Compute energy score (always logged as {stage}_loss)
         if self.loss_is_energy_score:
-            es_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
-            es_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+            es_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
+            es_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
         else:
-            es_per_var = self.es(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
-            es_overall = torch.mean(self.es(res_reshape2, y_reshape2, mode="complete"))
+            es_per_var = self.es(res, y, mode="per_var")  # shape [b, c]
+            es_overall = torch.mean(self.es(res, y, mode="complete"))
 
         # Log per-variable energy score
         es_per_var_mean = reduce(es_per_var, "b c -> c", "mean")
@@ -217,7 +205,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
 
         # If using a different loss function, also log it and return it
         if not self.loss_is_energy_score:
-            loss_fn_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")  # shape [b, c]
+            loss_fn_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
             loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
             for i in range(self.out_features):
                 self.log(
@@ -228,7 +216,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
                     prog_bar=True,
                     sync_dist=True,
                 )
-            loss_fn_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+            loss_fn_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
             self.log(
                 f"{stage}_loss_fn",
                 loss_fn_overall,

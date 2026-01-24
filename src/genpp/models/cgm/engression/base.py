@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 from genpp.models.cgm.utils import BaseGenerativeModule
 from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
 from genpp.models.layers import CropND
-from genpp.models.loss import EnergyScore
+from genpp.models.scores import EnergyScore
 
 
 class StochasticLayer2D(nn.Module):
@@ -228,9 +228,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
 
         # Loss function
         self.loss_fn = loss_fn
-        self.loss_is_energy_score = type(self.loss_fn) is EnergyScore
-        if not self.loss_is_energy_score:
-            self.es = EnergyScore()
+        self.es = EnergyScore()
 
     @abstractmethod
     def prepare_input(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -285,11 +283,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
             x, td, n_samples=self.n_samples_train
         )  # [batch, n_samples, out_features, height, width]
 
-        # Reshape for loss computation
-        res_reshape = rearrange(res, "b n c h w -> b n (c h w)")
-        y_reshape = rearrange(y, "b c h w -> b (c h w)")
-
-        loss = self.loss_fn(res_reshape, y_reshape, mode="complete")
+        loss = self.loss_fn(res, y, mode="complete")
         loss = torch.mean(loss)
 
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -306,21 +300,15 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
             torch.Tensor: Loss value.
         """
         res = self.predict_step(batch)  # shape [b, n_samples, out_features, lon, lat]
-
-        # Reshape for per-variable and overall loss computation
-        res_reshape = rearrange(res, "b n c h w -> b c n (h w)")
-        res_reshape2 = rearrange(res, "b n c h w -> b n (c h w)")
         y = batch["y"]
-        y_reshape = rearrange(y, "b c h w -> b c (h w)")
-        y_reshape2 = rearrange(y, "b c h w -> b (c h w)")
 
         # Compute energy score
         if self.loss_is_energy_score:
-            es_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")
-            es_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+            es_per_var = self.loss_fn(res, y, mode="per_var")
+            es_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
         else:
-            es_per_var = self.es(res_reshape, y_reshape, mode="per_var")
-            es_overall = torch.mean(self.es(res_reshape2, y_reshape2, mode="complete"))
+            es_per_var = self.es(res, y, mode="per_var")
+            es_overall = torch.mean(self.es(res, y, mode="complete"))
 
         # Log per-variable energy score
         out_features = res.shape[2]
@@ -347,7 +335,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
 
         # If using a different loss function, also log it
         if not self.loss_is_energy_score:
-            loss_fn_per_var = self.loss_fn(res_reshape, y_reshape, mode="per_var")
+            loss_fn_per_var = self.loss_fn(res, y, mode="per_var")
             loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
             for i in range(out_features):
                 self.log(
@@ -358,7 +346,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
                     prog_bar=True,
                     sync_dist=True,
                 )
-            loss_fn_overall = torch.mean(self.loss_fn(res_reshape2, y_reshape2, mode="complete"))
+            loss_fn_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
             self.log(
                 f"{stage}_loss_fn",
                 loss_fn_overall,
