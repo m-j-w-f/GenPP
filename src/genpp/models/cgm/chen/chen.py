@@ -179,12 +179,8 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         y = batch["y"]
 
         # Compute energy score (always logged as {stage}_loss)
-        if self.loss_is_energy_score:
-            es_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
-            es_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
-        else:
-            es_per_var = self.es(res, y, mode="per_var")  # shape [b, c]
-            es_overall = torch.mean(self.es(res, y, mode="complete"))
+        es_per_var = self.es(res, y, mode="per_var")  # shape [b, c]
+        es_overall = torch.mean(self.es(res, y, mode="complete"))
 
         # Log per-variable energy score
         es_per_var_mean = reduce(es_per_var, "b c -> c", "mean")
@@ -204,27 +200,26 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         )
 
         # If using a different loss function, also log it and return it
-        if not self.loss_is_energy_score:
-            loss_fn_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
-            loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
-            for i in range(self.out_features):
-                self.log(
-                    f"{stage}_loss_fn_var_{i}",
-                    loss_fn_per_var_mean[i],
-                    on_step=False,
-                    on_epoch=True,
-                    prog_bar=True,
-                    sync_dist=True,
-                )
-            loss_fn_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
+        loss_fn_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
+        loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
+        for i in range(self.out_features):
             self.log(
-                f"{stage}_loss_fn",
-                loss_fn_overall,
+                f"{stage}_loss_fn_var_{i}",
+                loss_fn_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
                 sync_dist=True,
             )
+        loss_fn_overall = torch.mean(self.loss_fn(res, y, mode="complete"))
+        self.log(
+            f"{stage}_loss_fn",
+            loss_fn_overall,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
 
         return es_overall
 
