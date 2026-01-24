@@ -25,7 +25,7 @@ class EnergyScore(KernelScore):
     """
 
     def __init__(
-        self, beta: float = 1.0, clamp: bool = True, unbiased: bool = True, normalize: bool = False
+        self, beta: float = 1.0, clamp: bool = True, unbiased: bool = False, normalize: bool = False
     ) -> None:
         kernel = L2_Beta_Kernel(beta=beta, clamp=clamp, normalize=normalize)
         super().__init__(kernel=kernel, unbiased=unbiased)
@@ -47,7 +47,7 @@ class PatchwiseEnergyScore(KernelScore):
         beta: float = 1.0,
         clamp: bool = True,
         patch_size: int = 3,
-        normalize=True,
+        normalize: bool = True,
         unbiased: bool = True,
     ) -> None:
         kernel = PatchwiseL2_Beta_Kernel(
@@ -75,7 +75,7 @@ class MultiScaleEnergyScore(KernelScore):
         clamp: bool = True,
         blur_kernel_sizes: list[int] = [3, 5, 7],
         scale_weights: list[float] | None = None,
-        normalize: bool = False,
+        normalize: bool = True,
         unbiased: bool = True,
     ) -> None:
         kernel = MultiScaleL2_Beta_Kernel(
@@ -110,7 +110,7 @@ class MultiScalePatchwiseEnergyScore(KernelScore):
         blur_kernel_sizes: list[int] = [3, 5, 7],
         scale_weights: list[float] | None = None,
         patch_size: int = 3,
-        normalize: bool = False,
+        normalize: bool = True,
         unbiased: bool = True,
     ) -> None:
         kernel = MultiScalePatchwiseL2_Beta_Kernel(
