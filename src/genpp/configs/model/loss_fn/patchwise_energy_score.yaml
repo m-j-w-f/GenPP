@@ -1,6 +1,6 @@
-_target_: genpp.models.scores.MultiScaleEnergyScore
+_target_: genpp.models.scores.PatchwiseEnergyScore
 beta: 1.0
 clamp: true
-blur_kernel_sizes: [3, 7]
-scale_weights: [1.0, 1.0, 1.0]
+patch_size: 3
+normalize: true
 unbiased: false
