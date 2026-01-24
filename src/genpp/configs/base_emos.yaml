@@ -18,5 +18,5 @@ seed: 42
 
 logger:
   tags:
-    - "test"
-    - "emos"
+    - ${hydra:runtime.choices.data}
+    - ${hydra:runtime.choices.model}

@@ -18,7 +18,5 @@ seed: 42
 
 logger:
   tags:
-    - "test"
-    - "uvit"
-    - "fm"
-    - "multi leadtime"
+    - ${hydra:runtime.choices.data}
+    - ${hydra:runtime.choices.model}
