@@ -78,8 +78,6 @@ def _patchwise_flatten_per_mode(x: torch.Tensor, mode: str, patch_size: int) -> 
             n=N,
         )  # [b, c, n, num_patches, patchsize]
         return x_patchwise
-    else:
-        raise ValueError(f"Mode {mode} not recognized. Use 'complete' or 'per_var'.")
 
 
 def _precompute_blur_kernels(
