@@ -1,3 +1,5 @@
-_target_: genpp.models.loss.EnergyScore
+_target_: genpp.models.scores.EnergyScore
 beta: 1.0
 clamp: true
+normalize: true
+unbiased: false

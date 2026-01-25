@@ -2,13 +2,53 @@ import pytest
 import scoringrules as sr
 import torch
 
-from genpp.models.loss import (
+from genpp.models.scores import (
     CRPS_Normal,
     CRPS_TruncatedNormal,
     EnergyScore,
     EnsembleCRPS,
+    MultiScaleEnergyScore,
+    MultiScalePatchwiseRBFScore,
+    MultiScaleRBFScore,
+    PatchwiseEnergyScore,
+    PatchwiseRBFScore,
+    RBFScore,
     VariogramScore,
 )
+
+
+class TestMultiScaleEnergyScore:
+    """Test cases for MultiScaleEnergyScore class"""
+
+    @pytest.mark.unit
+    def test_multiscale_energy_score_simple_case(self):
+        """Test multi-scale Energy score computation"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_scale_es = MultiScaleEnergyScore(blur_kernel_sizes=[3, 5, 7])
+        es = multi_scale_es(x, y, mode="complete")
+
+        assert es.shape == (batch_size,)
+        assert torch.isfinite(es).all()
+
+    @pytest.mark.unit
+    def test_multiscale_energy_score_per_var_mode(self):
+        """Test multi-scale Energy score in per_var mode"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 3
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_scale_es = MultiScaleEnergyScore(blur_kernel_sizes=[3, 7])
+        es = multi_scale_es(x, y, mode="per_var")
+
+        assert es.shape == (batch_size, out_features)
+        assert torch.isfinite(es).all()
 
 
 class TestEnergyScore:
@@ -22,16 +62,18 @@ class TestEnergyScore:
 
         # Create deterministic test data for reproducibility
         torch.manual_seed(42)
-        # Reshape for EnergyScore: x should be [batch, n_samples, spatial_dims]
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        # New shape: x [batch, n_samples, c, h, w], y [batch, c, h, w]
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         # Compute energy score using our implementation
-        energy_score_model = EnergyScore(beta=1.0, clamp=False)
-        es_custom = energy_score_model(x, y)
+        energy_score_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
+        es_custom = energy_score_model(x, y, mode="complete")
 
-        # Prepare data for scoringrules (already in correct format)
-        es_reference = sr.es_ensemble(y, x, backend="torch")
+        # Prepare data for scoringrules (needs flattened format)
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
 
         # Compare results - they should be close (allowing for numerical differences)
         assert es_custom.shape == (batch_size,)
@@ -43,14 +85,17 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 4, 5, 3, 3, 2
 
         torch.manual_seed(123)
-        # Reshape for EnergyScore
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        # New shape: x [batch, n_samples, c, h, w], y [batch, c, h, w]
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
-        energy_score_model = EnergyScore(beta=1.0, clamp=False)
-        es_custom = energy_score_model(x, y)
+        energy_score_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
+        es_custom = energy_score_model(x, y, mode="complete")
 
-        es_reference = sr.es_ensemble(y, x, backend="torch")
+        # Prepare data for scoringrules (needs flattened format)
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
         torch.testing.assert_close(es_custom, es_reference, rtol=1e-7, atol=1e-7)
 
     @pytest.mark.unit
@@ -59,21 +104,24 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 1, 4, 2, 2, 1
 
         torch.manual_seed(456)
-        # Reshape for EnergyScore
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        # New shape: x [batch, n_samples, c, h, w], y [batch, c, h, w]
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         # Test with beta=1.0 (should match scoringrules)
-        energy_score_beta1 = EnergyScore(beta=1.0, clamp=False)
-        es_custom_beta1 = energy_score_beta1(x, y)
+        energy_score_beta1 = EnergyScore(beta=1.0, clamp=False, unbiased=False)
+        es_custom_beta1 = energy_score_beta1(x, y, mode="complete")
 
-        es_reference = sr.es_ensemble(y, x, backend="torch")
+        # Prepare data for scoringrules
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
 
         torch.testing.assert_close(es_custom_beta1, es_reference, rtol=1e-7, atol=1e-7)
 
         # Test with beta=2.0 (should be different from scoringrules)
         energy_score_beta2 = EnergyScore(beta=2.0, clamp=False)
-        es_custom_beta2 = energy_score_beta2(x, y)
+        es_custom_beta2 = energy_score_beta2(x, y, mode="complete")
 
         # They should not be equal
         assert not torch.allclose(es_custom_beta1, es_custom_beta2)
@@ -85,13 +133,16 @@ class TestEnergyScore:
 
         # Case 1: All ensemble members are identical
         torch.manual_seed(789)
-        y = torch.randn(batch_size, lat * lon * out_features)
-        x = y.unsqueeze(1).repeat(1, n_samples, 1)  # All ensemble members = truth
+        y = torch.randn(batch_size, out_features, lat, lon)
+        x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)  # All ensemble members = truth
 
-        energy_score_model = EnergyScore(beta=1.0, clamp=False)
-        es_custom = energy_score_model(x, y)
+        energy_score_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
+        es_custom = energy_score_model(x, y, mode="complete")
 
-        es_reference = sr.es_ensemble(y, x, backend="torch")
+        # Prepare data for scoringrules
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
 
         torch.testing.assert_close(es_custom, es_reference, rtol=1e-10, atol=1e-10)
 
@@ -104,21 +155,21 @@ class TestEnergyScore:
         n_samples, lat, lon, out_features = 4, 3, 3, 1
 
         torch.manual_seed(101)
-        x1 = torch.randn(1, n_samples, lat * lon * out_features)
-        y1 = torch.randn(1, lat * lon * out_features)
-        x2 = torch.randn(1, n_samples, lat * lon * out_features)
-        y2 = torch.randn(1, lat * lon * out_features)
+        x1 = torch.randn(1, n_samples, out_features, lat, lon)
+        y1 = torch.randn(1, out_features, lat, lon)
+        x2 = torch.randn(1, n_samples, out_features, lat, lon)
+        y2 = torch.randn(1, out_features, lat, lon)
 
-        energy_score_model = EnergyScore(beta=1.0, clamp=False)
+        energy_score_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
 
         # Compute individually
-        es1 = energy_score_model(x1, y1)
-        es2 = energy_score_model(x2, y2)
+        es1 = energy_score_model(x1, y1, mode="complete")
+        es2 = energy_score_model(x2, y2, mode="complete")
 
         # Compute batched
         x_batch = torch.cat([x1, x2], dim=0)
         y_batch = torch.cat([y1, y2], dim=0)
-        es_batch = energy_score_model(x_batch, y_batch)
+        es_batch = energy_score_model(x_batch, y_batch, mode="complete")
 
         # Results should be identical
         torch.testing.assert_close(es_batch[0:1], es1, rtol=1e-10, atol=1e-10)
@@ -131,11 +182,11 @@ class TestEnergyScore:
         batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
 
         torch.manual_seed(303)
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
-        energy_score_model = EnergyScore(beta=beta, clamp=False)
-        es_custom = energy_score_model(x, y)
+        energy_score_model = EnergyScore(beta=beta, clamp=False, unbiased=False)
+        es_custom = energy_score_model(x, y, mode="complete")
 
         # Check that result is finite and has correct shape
         assert torch.isfinite(es_custom).all()
@@ -143,7 +194,9 @@ class TestEnergyScore:
 
         # For beta=1, compare with scoringrules
         if beta == 1.0:
-            es_reference = sr.es_ensemble(y, x, backend="torch")
+            x_flat = x.reshape(batch_size, n_samples, -1)
+            y_flat = y.reshape(batch_size, -1)
+            es_reference = sr.es_ensemble(y_flat, x_flat, backend="torch")
             torch.testing.assert_close(es_custom, es_reference, rtol=1e-10, atol=1e-10)
 
 
@@ -158,16 +211,18 @@ class TestVariogramScore:
 
         # Create deterministic test data for reproducibility
         torch.manual_seed(42)
-        # Reshape for VariogramScore: x should be [batch, n_samples, spatial_dims]
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        # New shape: x [batch, n_samples, c, h, w], y [batch, c, h, w]
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         # Compute variogram score using our implementation
         variogram_score_model = VariogramScore(p=0.5)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
-        # Compute variogram score using scoringrules
-        vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+        # Prepare data for scoringrules (needs flattened format)
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
         # Compare results
         assert vs_custom.shape == (batch_size,)
@@ -179,13 +234,15 @@ class TestVariogramScore:
         batch_size, n_samples, lat, lon, out_features = 4, 5, 3, 3, 2
 
         torch.manual_seed(123)
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=0.5)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
-        vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
@@ -196,13 +253,15 @@ class TestVariogramScore:
         batch_size, n_samples, lat, lon, out_features = 2, 4, 3, 3, 1
 
         torch.manual_seed(456)
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=p)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
-        vs_reference = sr.vs_ensemble(y, x, p=p, m_axis=1, backend="torch")
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=p, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
@@ -213,13 +272,15 @@ class TestVariogramScore:
 
         # Case 1: All ensemble members are identical to the truth
         torch.manual_seed(789)
-        y = torch.randn(batch_size, lat * lon * out_features)
-        x = y.unsqueeze(1).repeat(1, n_samples, 1)  # All ensemble members = truth
+        y = torch.randn(batch_size, out_features, lat, lon)
+        x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)  # All ensemble members = truth
 
         variogram_score_model = VariogramScore(p=0.5)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
-        vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
@@ -228,12 +289,14 @@ class TestVariogramScore:
 
         # Case 2: All ensemble members are identical but different from truth
         x_constant = torch.ones_like(x) * 2.0  # All ensemble members = 2.0
-        y_different = torch.zeros(batch_size, lat * lon * out_features)  # Truth = 0
+        y_different = torch.zeros(batch_size, out_features, lat, lon)  # Truth = 0
 
-        vs_custom_constant = variogram_score_model(x_constant, y_different)
+        vs_custom_constant = variogram_score_model(x_constant, y_different, mode="complete")
 
+        x_const_flat = x_constant.reshape(batch_size, n_samples, -1)
+        y_diff_flat = y_different.reshape(batch_size, -1)
         vs_reference_constant = sr.vs_ensemble(
-            y_different, x_constant, p=0.5, m_axis=1, backend="torch"
+            y_diff_flat, x_const_flat, p=0.5, m_axis=1, backend="torch"
         )
 
         torch.testing.assert_close(
@@ -246,21 +309,21 @@ class TestVariogramScore:
         n_samples, lat, lon, out_features = 4, 3, 3, 1
 
         torch.manual_seed(101)
-        x1 = torch.randn(1, n_samples, lat * lon * out_features)
-        y1 = torch.randn(1, lat * lon * out_features)
-        x2 = torch.randn(1, n_samples, lat * lon * out_features)
-        y2 = torch.randn(1, lat * lon * out_features)
+        x1 = torch.randn(1, n_samples, out_features, lat, lon)
+        y1 = torch.randn(1, out_features, lat, lon)
+        x2 = torch.randn(1, n_samples, out_features, lat, lon)
+        y2 = torch.randn(1, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=0.5)
 
         # Compute individually
-        vs1 = variogram_score_model(x1, y1)
-        vs2 = variogram_score_model(x2, y2)
+        vs1 = variogram_score_model(x1, y1, mode="complete")
+        vs2 = variogram_score_model(x2, y2, mode="complete")
 
         # Compute batched
         x_batch = torch.cat([x1, x2], dim=0)
         y_batch = torch.cat([y1, y2], dim=0)
-        vs_batch = variogram_score_model(x_batch, y_batch)
+        vs_batch = variogram_score_model(x_batch, y_batch, mode="complete")
 
         # Results should be identical
         torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-10, atol=1e-10)
@@ -273,28 +336,31 @@ class TestVariogramScore:
 
         torch.manual_seed(202)
 
-        # Create spatially structured truth - flatten directly
-        y = torch.zeros(batch_size, lat * lon * out_features)
+        # Create spatially structured truth with shape [b, c, h, w]
+        y = torch.zeros(batch_size, out_features, lat, lon)
         for i in range(lat):
             for j in range(lon):
-                y[0, i * lon + j] = i + j  # Linear gradient
+                y[0, 0, i, j] = i + j  # Linear gradient
 
         # Case 1: Predictions that preserve spatial structure
-        x_structured = y.unsqueeze(1).repeat(1, n_samples, 1) + 0.1 * torch.randn(
-            batch_size, n_samples, lat * lon * out_features
+        x_structured = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1) + 0.1 * torch.randn(
+            batch_size, n_samples, out_features, lat, lon
         )
 
         # Case 2: Predictions that destroy spatial structure (random)
-        x_random = torch.randn(batch_size, n_samples, lat * lon * out_features)
+        x_random = torch.randn(batch_size, n_samples, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=0.5)
 
-        vs_structured = variogram_score_model(x_structured, y)
-        vs_random = variogram_score_model(x_random, y)
+        vs_structured = variogram_score_model(x_structured, y, mode="complete")
+        vs_random = variogram_score_model(x_random, y, mode="complete")
 
-        # Verify against scoringrules
-        vs_structured_ref = sr.vs_ensemble(y, x_structured, p=0.5, m_axis=1, backend="torch")
-        vs_random_ref = sr.vs_ensemble(y, x_random, p=0.5, m_axis=1, backend="torch")
+        # Verify against scoringrules (needs flattened format)
+        x_struct_flat = x_structured.reshape(batch_size, n_samples, -1)
+        x_rand_flat = x_random.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_structured_ref = sr.vs_ensemble(y_flat, x_struct_flat, p=0.5, m_axis=1, backend="torch")
+        vs_random_ref = sr.vs_ensemble(y_flat, x_rand_flat, p=0.5, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_structured, vs_structured_ref, rtol=1e-10, atol=1e-10)
         torch.testing.assert_close(vs_random, vs_random_ref, rtol=1e-10, atol=1e-10)
@@ -313,14 +379,16 @@ class TestVariogramScore:
 
         for lat, lon in spatial_sizes:
             torch.manual_seed(303)
-            x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-            y = torch.randn(batch_size, lat * lon * out_features)
+            x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+            y = torch.randn(batch_size, out_features, lat, lon)
 
             variogram_score_model = VariogramScore(p=0.5)
-            vs_custom = variogram_score_model(x, y)
+            vs_custom = variogram_score_model(x, y, mode="complete")
 
             # Verify against scoringrules
-            vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+            x_flat = x.reshape(batch_size, n_samples, -1)
+            y_flat = y.reshape(batch_size, -1)
+            vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
             torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
             assert vs_custom.shape == (batch_size,)
@@ -331,14 +399,16 @@ class TestVariogramScore:
         batch_size, n_samples, lat, lon, out_features = 2, 1, 3, 3, 1
 
         torch.manual_seed(404)
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=0.5)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
         # Verify against scoringrules
-        vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
@@ -348,14 +418,16 @@ class TestVariogramScore:
         batch_size, n_samples, lat, lon, out_features = 1, 50, 4, 4, 1
 
         torch.manual_seed(505)
-        x = torch.randn(batch_size, n_samples, lat * lon * out_features)
-        y = torch.randn(batch_size, lat * lon * out_features)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
 
         variogram_score_model = VariogramScore(p=0.5)
-        vs_custom = variogram_score_model(x, y)
+        vs_custom = variogram_score_model(x, y, mode="complete")
 
         # Verify against scoringrules
-        vs_reference = sr.vs_ensemble(y, x, p=0.5, m_axis=1, backend="torch")
+        x_flat = x.reshape(batch_size, n_samples, -1)
+        y_flat = y.reshape(batch_size, -1)
+        vs_reference = sr.vs_ensemble(y_flat, x_flat, p=0.5, m_axis=1, backend="torch")
 
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
@@ -850,3 +922,293 @@ class TestEnsembleCRPS:
         # Verify against scoringrules
         crps_reference = sr.crps_ensemble(y, x, m_axis=-4, estimator="nrg", backend="torch")
         torch.testing.assert_close(crps_custom, crps_reference, rtol=1e-10, atol=1e-10)
+
+
+class TestRBFScore:
+    """Test cases for RBFScore class"""
+
+    @pytest.mark.unit
+    def test_rbf_score_simple_case(self):
+        """Test RBF score computation for a simple case"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 4, 4, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        rbf_score_model = RBFScore(lengthscales=1.0)
+        rbf = rbf_score_model(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_rbf_score_perfect_prediction(self):
+        """Test RBF score when all predictions equal the target"""
+        batch_size, n_samples, lat, lon, out_features = 1, 3, 2, 2, 1
+
+        torch.manual_seed(789)
+        y = torch.randn(batch_size, out_features, lat, lon)
+        x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)
+
+        rbf_score_model = RBFScore(lengthscales=1.0)
+        rbf = rbf_score_model(x, y, mode="complete")
+
+        # Perfect prediction should give score close to -0.5
+        assert torch.allclose(rbf, torch.ones_like(rbf) * -0.5, atol=1e-6)
+
+    @pytest.mark.unit
+    def test_rbf_score_multiple_lengthscales(self):
+        """Test RBF score with multiple lengthscales"""
+        batch_size, n_samples, lat, lon, out_features = 2, 4, 3, 3, 1
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        rbf_score_model = RBFScore(lengthscales=[0.5, 1.0, 2.0])
+        rbf = rbf_score_model(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_rbf_score_per_var_mode(self):
+        """Test RBF score in per_var mode"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 4, 4, 3
+
+        torch.manual_seed(456)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        rbf_score_model = RBFScore(lengthscales=1.0)
+        rbf = rbf_score_model(x, y, mode="per_var")
+
+        assert rbf.shape == (batch_size, out_features)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_rbf_score_batch_consistency(self):
+        """Test that batched computation gives same results as individual computations"""
+        n_samples, lat, lon, out_features = 4, 3, 3, 1
+
+        torch.manual_seed(101)
+        x1 = torch.randn(1, n_samples, out_features, lat, lon)
+        y1 = torch.randn(1, out_features, lat, lon)
+        x2 = torch.randn(1, n_samples, out_features, lat, lon)
+        y2 = torch.randn(1, out_features, lat, lon)
+
+        rbf_score_model = RBFScore(lengthscales=1.0)
+
+        rbf1 = rbf_score_model(x1, y1, mode="complete")
+        rbf2 = rbf_score_model(x2, y2, mode="complete")
+
+        x_batch = torch.cat([x1, x2], dim=0)
+        y_batch = torch.cat([y1, y2], dim=0)
+        rbf_batch = rbf_score_model(x_batch, y_batch, mode="complete")
+
+        torch.testing.assert_close(rbf_batch[0:1], rbf1, rtol=1e-10, atol=1e-10)
+        torch.testing.assert_close(rbf_batch[1:2], rbf2, rtol=1e-10, atol=1e-10)
+
+
+class TestPatchwiseEnergyScore:
+    """Test cases for PatchwiseEnergyScore class"""
+
+    @pytest.mark.unit
+    def test_patchwise_energy_score_simple_case(self):
+        """Test patchwise energy score computation"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_es = PatchwiseEnergyScore(patch_size=3)
+        es = patchwise_es(x, y, mode="complete")
+
+        assert es.shape == (batch_size,)
+        assert torch.isfinite(es).all()
+
+    @pytest.mark.unit
+    def test_patchwise_energy_score_per_var_mode(self):
+        """Test patchwise energy score in per_var mode"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 3
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_es = PatchwiseEnergyScore(patch_size=3)
+        es = patchwise_es(x, y, mode="per_var")
+
+        assert es.shape == (batch_size, out_features)
+        assert torch.isfinite(es).all()
+
+    @pytest.mark.unit
+    def test_patchwise_energy_score_different_patch_sizes(self):
+        """Test patchwise energy score with different patch sizes"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 12, 12, 1
+
+        torch.manual_seed(456)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        for patch_size in [3, 5, 7]:
+            patchwise_es = PatchwiseEnergyScore(patch_size=patch_size)
+            es = patchwise_es(x, y, mode="complete")
+
+            assert es.shape == (batch_size,)
+            assert torch.isfinite(es).all()
+
+    @pytest.mark.unit
+    def test_patchwise_energy_score_normalization(self):
+        """Test that normalization affects the score magnitude"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 1
+
+        torch.manual_seed(789)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_es_normalized = PatchwiseEnergyScore(patch_size=3, normalize=True)
+        patchwise_es_unnormalized = PatchwiseEnergyScore(patch_size=3, normalize=False)
+
+        es_norm = patchwise_es_normalized(x, y, mode="complete")
+        es_unnorm = patchwise_es_unnormalized(x, y, mode="complete")
+
+        # Normalized and unnormalized should be different
+        assert not torch.allclose(es_norm, es_unnorm)
+
+
+class TestPatchwiseRBFScore:
+    """Test cases for PatchwiseRBFScore class"""
+
+    @pytest.mark.unit
+    def test_patchwise_rbf_score_simple_case(self):
+        """Test patchwise RBF score computation"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_rbf = PatchwiseRBFScore(patch_size=3)
+        rbf = patchwise_rbf(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_patchwise_rbf_score_per_var_mode(self):
+        """Test patchwise RBF score in per_var mode"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 3
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_rbf = PatchwiseRBFScore(patch_size=3)
+        rbf = patchwise_rbf(x, y, mode="per_var")
+
+        assert rbf.shape == (batch_size, out_features)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_patchwise_rbf_score_custom_lengthscales(self):
+        """Test patchwise RBF score with custom lengthscales"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 8, 8, 1
+
+        torch.manual_seed(456)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        patchwise_rbf = PatchwiseRBFScore(patch_size=3, lengthscales=[1.0, 5.0, 10.0])
+        rbf = patchwise_rbf(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_patchwise_rbf_score_perfect_prediction(self):
+        """Test patchwise RBF score when predictions equal target"""
+        batch_size, n_samples, lat, lon, out_features = 1, 3, 8, 8, 1
+
+        torch.manual_seed(789)
+        y = torch.randn(batch_size, out_features, lat, lon)
+        x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)
+
+        patchwise_rbf = PatchwiseRBFScore(patch_size=3)
+        rbf = patchwise_rbf(x, y, mode="complete")
+
+        # Perfect prediction should give score close to -0.5
+        assert torch.allclose(rbf, torch.ones_like(rbf) * -0.5, atol=1e-6)
+
+
+class TestMultiPatchwiseRBFScore:
+    """Test cases for MultiPatchwiseRBFScore class"""
+
+    @pytest.mark.unit
+    def test_multipatchwise_rbf_score_simple_case(self):
+        """Test multi-patchwise RBF score computation"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_rbf = MultiScalePatchwiseRBFScore(blur_kernel_sizes=[3, 7], patch_size=3)
+        rbf = multi_rbf(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_multipatchwise_rbf_score_per_var_mode(self):
+        """Test multi-patchwise RBF score in per_var mode"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 3
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_rbf = MultiScalePatchwiseRBFScore(blur_kernel_sizes=[3, 7], patch_size=3)
+        rbf = multi_rbf(x, y, mode="per_var")
+
+        assert rbf.shape == (batch_size, out_features)
+        assert torch.isfinite(rbf).all()
+
+    @pytest.mark.unit
+    def test_multipatchwise_rbf_score_custom_lengthscales(self):
+        """Test multi-patchwise RBF score with custom lengthscales per patch size"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 1
+
+        torch.manual_seed(456)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_rbf = MultiScalePatchwiseRBFScore(
+            blur_kernel_sizes=[3, 5],
+            lengthscales=[1.0, 5.0],  # Different lengthscales per patch size
+        )
+        rbf = multi_rbf(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
+
+
+class TestMultiScaleRBFScore:
+    """Test cases for MultiScaleRBFScore class"""
+
+    @pytest.mark.unit
+    def test_multiscale_rbf_score_simple_case(self):
+        """Test multi-scale RBF score computation"""
+        batch_size, n_samples, lat, lon, out_features = 2, 3, 16, 16, 1
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        multi_scale_rbf = MultiScaleRBFScore(blur_kernel_sizes=[3, 7])
+        rbf = multi_scale_rbf(x, y, mode="complete")
+
+        assert rbf.shape == (batch_size,)
+        assert torch.isfinite(rbf).all()
