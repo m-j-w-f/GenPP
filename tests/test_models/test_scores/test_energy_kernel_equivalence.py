@@ -30,7 +30,7 @@ def test_kernel_unbiased_complete():
     y = torch.randn(b, c, h, w)
     x = torch.randn(b, n, c, h, w)
 
-    es_new = ES_NEW(unbiased=False)
+    es_new = ES_NEW(unbiased=True)
 
     res_new = es_new(x, y, mode="complete")
     expected = manual_unbiased_complete(x, y)
@@ -44,7 +44,7 @@ def test_kernel_unbiased_per_var():
     y = torch.randn(b, c, h, w)
     x = torch.randn(b, n, c, h, w)
 
-    es_new = ES_NEW(unbiased=False)
+    es_new = ES_NEW(unbiased=True)
 
     res_new = es_new(x, y, mode="per_var")
     expected = manual_unbiased_per_var(x, y)
