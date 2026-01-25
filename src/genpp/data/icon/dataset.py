@@ -267,6 +267,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.meta_tensor_dir = DATA_DIR / "tensors" / "meta"
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
+        self.norm_stats_file: Path | None = None
 
     def _get_train_set_identifier(self) -> str:
         """Generate a unique identifier for the train set configuration.
@@ -286,12 +287,13 @@ class ForecastDataModule(L.LightningDataModule):
             parts = fc_path.stem.split("_")
             if len(parts) >= 2:
                 date_str = parts[1]  # YYYYMMDDHH
-                year = int(date_str[:4])
-                if year <= 2021:
-                    train_paths.append(fc_path.name)
+                if len(date_str) >= 4:
+                    year = int(date_str[:4])
+                    if year <= 2021:
+                        train_paths.append(fc_path.name)
         
-        # Create a hash from the sorted list of train paths
-        train_paths_str = ",".join(sorted(train_paths))
+        # Create a hash from the list of train paths (already sorted from fc_paths)
+        train_paths_str = ",".join(train_paths)
         hash_obj = hashlib.sha256(train_paths_str.encode())
         return hash_obj.hexdigest()[:16]  # Use first 16 chars of hash
     
@@ -508,7 +510,7 @@ class ForecastDataModule(L.LightningDataModule):
         # Load normalization statistics if not already loaded
         if self.norm_stats is None:
             # Set norm_stats_file path with train set identifier if not already set
-            if not hasattr(self, 'norm_stats_file') or self.norm_stats_file is None:
+            if self.norm_stats_file is None:
                 train_set_id = self._get_train_set_identifier()
                 self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
             
