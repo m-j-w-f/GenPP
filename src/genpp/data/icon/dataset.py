@@ -273,18 +273,24 @@ class ForecastDataModule(L.LightningDataModule):
         This method collects samples, splits them, and computes mean, std, min, max
         from the test set for normalization.
         """
-        ens_nc_paths = sorted(list((DATA_DIR / "ensmean").glob("*.nc")))
-        self._get_fc_tensors(ens_nc_paths)
+        # TODO fix some error here
+        # For now this does not concern us as much as the data is complete
+        # However some file errors here and should be skipped
+        # ens_nc_paths = sorted(list((DATA_DIR / "ensmean").glob("*.nc")))
+        # self._get_fc_tensors(ens_nc_paths)
 
-        rea_nc_paths = sorted(list((DATA_DIR / "rea").glob("*.nc")))
-        self._get_rea_tensors(rea_nc_paths)
+        # rea_nc_paths = sorted(list((DATA_DIR / "rea").glob("*.nc")))
+        # self._get_rea_tensors(rea_nc_paths)
 
         if not self.norm_stats_file.exists():
+            print("Computing norm stats...")
             self._compute_norm_stats()
 
         if self.feature_metadata is None:
-            print("Computing feature metadata")
+            print("Computing feature metadata...")
             self._compute_feature_metadata()
+
+        # TODO if on gpu cluster, move files to specific locations
 
     def _compute_feature_metadata(self) -> None:
         """Compute feature metadata for storing max timedelta."""
@@ -376,6 +382,7 @@ class ForecastDataModule(L.LightningDataModule):
         - Auxiliary var statistics: [c1, 1, 1]
         - REA statistics: [c, 1, 1]
         """
+        # TODO make sure these stats are only computed on the triain set
         self.norm_stats = {}
 
         # Compute statistics for predicted variables in FC tensors
@@ -510,7 +517,9 @@ class ForecastDataModule(L.LightningDataModule):
         meta_tensor_dir.mkdir(parents=True, exist_ok=True)
 
         # Compute auxiliary variables
-        x_select_variables_wo_y = [var for var in x_select_variables if var not in y_select_variables]
+        x_select_variables_wo_y = [
+            var for var in x_select_variables if var not in y_select_variables
+        ]
 
         # Skip entries with already materialized tensors
         filtered_paths: list[Path] = []

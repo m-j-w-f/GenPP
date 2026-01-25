@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from genpp import BASE_DIR
 
@@ -65,3 +66,29 @@ VARS_GRID_28 = [
 ]
 
 VARS_REA = ["T_2M+height_2.0", "VMAX_10M+height_2_10.0"]
+
+# Allow type checkers to see the class while avoiding runtime import
+if TYPE_CHECKING:
+    from .dataset import ForecastDataModule  # pragma: no cover
+
+
+def __getattr__(name: str):
+    """Lazy import to avoid circular import when accessing ForecastDataModule."""
+    if name == "ForecastDataModule":
+        from .dataset import ForecastDataModule
+
+        return ForecastDataModule
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "ForecastDataModule",
+    "ICON_EU_REA_PATH",
+    "ICON_EU_ENS_PATH",
+    "DATA_DIR",
+    "LEVELS_TO_FLATTEN",
+    "VARS_TO_DROP",
+    "AXIS_ORDER",
+    "VARS_GRID_28",
+    "VARS_REA",
+]
