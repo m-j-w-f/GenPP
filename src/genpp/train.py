@@ -7,10 +7,20 @@ from omegaconf import DictConfig, OmegaConf
 
 from genpp.configs import register_resolvers
 
+# Silence warnings from some libraries
+try:
+    from pydantic.warnings import UnsupportedFieldAttributeWarning
+except Exception:
+    UnsupportedFieldAttributeWarning = None
+
+if UnsupportedFieldAttributeWarning is not None:
+    warnings.filterwarnings("ignore", category=UnsupportedFieldAttributeWarning)
+
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+
 
 @hydra.main(version_base=None, config_path="configs", config_name="DUMMY")
 def train(cfg: DictConfig) -> None:
-    warnings.filterwarnings("ignore", category=SyntaxWarning)
     register_resolvers()
     torch.set_float32_matmul_precision("high")
     # Set seed for reproducibility

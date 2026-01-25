@@ -19,7 +19,6 @@ seed: 42
 
 logger:
   tags:
-    - "test"
-    - "cnn"
-    - "chen"
-    - "multi leadtime"
+    - ${hydra:runtime.choices.data}
+    - ${hydra:runtime.choices.model/loss_fn}
+    - ${hydra:runtime.choices.model}

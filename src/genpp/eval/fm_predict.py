@@ -29,7 +29,6 @@ import torch
 import xarray as xr
 from einops import rearrange, reduce
 from omegaconf import DictConfig
-from tqdm import tqdm
 
 import wandb
 from genpp import BASE_DIR
@@ -43,7 +42,7 @@ from genpp.eval.utils import (
     update_wandb_run,
 )
 from genpp.models.cgm.chen import CNNChenModel
-from genpp.models.loss import EnergyScore, EnsembleCRPS, VariogramScore
+from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
 
 
 def parse_args() -> argparse.Namespace:
@@ -361,39 +360,25 @@ def main() -> None:
 
     crps_per_margin = crps_ens(predictions_rescaled, y_t)
 
+    # predictions_rescaled: [t, n, d, lat, lon] -> [b, n_samples, c, h, w]
+    # y_t: [t, d, lat, lon] -> [b, c, h, w]
+    # The loss functions now handle reshaping internally with mode parameter
+
     # Per-variable scores
-    x_spatial = rearrange(predictions_rescaled, "t n d lat lon -> t d n (lat lon)")
-    y_spatial = rearrange(y_t, "t d lat lon -> t d (lat lon)")
-    energy_score_per_var_u = es(x_spatial, y_spatial)
+    energy_score_per_var_u = es(predictions_rescaled, y_t, mode="per_var")
 
     variogram_score_per_var_u = None
     if not args.skip_variogram:
         log_msg("Computing per-variable variogram scores...", args.verbose)
-        vss = []
-        for x_i, y_i in tqdm(
-            zip(x_spatial, y_spatial),
-            total=predictions_rescaled.shape[0],
-            desc="Variogram (per-var)",
-        ):
-            vss.append(vs(x_i, y_i))
-        variogram_score_per_var_u = torch.stack(vss)
+        variogram_score_per_var_u = vs(predictions_rescaled, y_t, mode="per_var")
 
     # Full (combined) scores
-    x_full = rearrange(predictions_rescaled, "t n d lat lon -> t n (d lat lon)")
-    y_full = rearrange(y_t, "t d lat lon -> t (d lat lon)")
-    energy_score_full_u = es(x_full, y_full)
+    energy_score_full_u = es(predictions_rescaled, y_t, mode="complete")
 
     variogram_score_full_u = None
     if not args.skip_variogram:
         log_msg("Computing full variogram scores...", args.verbose)
-        vss = []
-        for x_i, y_i in tqdm(
-            zip(x_full, y_full),
-            total=predictions_rescaled.shape[0],
-            desc="Variogram (full)",
-        ):
-            vss.append(vs(x_i, y_i))
-        variogram_score_full_u = torch.stack(vss)
+        variogram_score_full_u = vs(predictions_rescaled, y_t, mode="complete")
 
     # Reduce scores
     log_msg("Reducing scores...", args.verbose)

@@ -23,6 +23,6 @@ data:
 
 logger:
   tags:
-    - "engression"
-    - "cnn"
-    - "multi leadtime"
+    - ${hydra:runtime.choices.data}
+    - ${hydra:runtime.choices.model}
+    - ${hydra:runtime.choices.model/loss_fn}
