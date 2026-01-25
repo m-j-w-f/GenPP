@@ -1,6 +1,7 @@
 # %%
 from pathlib import Path
 from typing import Any
+import hashlib
 
 import lightning as L
 import numpy as np
@@ -265,13 +266,66 @@ class ForecastDataModule(L.LightningDataModule):
         self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
         self.meta_tensor_dir = DATA_DIR / "tensors" / "meta"
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
-        self.norm_stats_file = DATA_DIR / "tensors" / "norm_stats.pt"
+        # norm_stats_file will be set with train set identifier in prepare_data
+        self.norm_stats_file: Path | None = None
+
+    def _get_train_set_identifier(self) -> str:
+        """Generate a unique identifier for the train set configuration.
+        
+        The identifier is based on the tensor paths that belong to the train set
+        (year <= 2021). This allows us to detect if the train set has changed.
+        
+        Returns:
+            str: A hash string representing the train set configuration.
+        """
+        # Collect all FC tensor paths
+        fc_paths = sorted(list(self.fc_tensor_dir.glob("fc_*.pt")))
+        
+        # Filter to only train set samples (year <= 2021)
+        train_paths = []
+        for fc_path in fc_paths:
+            parts = fc_path.stem.split("_")
+            if len(parts) >= 2:
+                date_str = parts[1]  # YYYYMMDDHH
+                if len(date_str) >= 4:
+                    year = int(date_str[:4])
+                    if year <= 2021:
+                        train_paths.append(fc_path.name)
+        
+        # Create a hash from the list of train paths (already sorted from fc_paths)
+        train_paths_str = ",".join(train_paths)
+        hash_obj = hashlib.sha256(train_paths_str.encode())
+        return hash_obj.hexdigest()[:16]  # Use first 16 chars of hash
+    
+    def _filter_train_tensor_paths(self, tensor_paths: list[Path]) -> list[Path]:
+        """Filter tensor paths to only include train set samples (year <= 2021).
+        
+        Args:
+            tensor_paths: List of tensor file paths to filter.
+            
+        Returns:
+            List of tensor paths that belong to the train set.
+        """
+        train_paths = []
+        for tensor_path in tensor_paths:
+            # Extract year from filename
+            # Format: fc_YYYYMMDDHH_LT.pt or rea_YYYYMMDDHH_LT.pt
+            parts = tensor_path.stem.split("_")
+            if len(parts) >= 2:
+                date_str = parts[1]  # YYYYMMDDHH
+                if len(date_str) >= 4:
+                    year = int(date_str[:4])
+                    if year <= 2021:
+                        train_paths.append(tensor_path)
+        
+        return train_paths
 
     def prepare_data(self) -> None:
-        """Prepare data by computing normalization statistics from the test set.
+        """Prepare data by computing normalization statistics from the train set.
 
         This method collects samples, splits them, and computes mean, std, min, max
-        from the test set for normalization.
+        from the train set for normalization. The stats file includes a train set
+        identifier to ensure we recompute if the train set changes.
         """
         # TODO fix some error here
         # For now this does not concern us as much as the data is complete
@@ -282,9 +336,15 @@ class ForecastDataModule(L.LightningDataModule):
         # rea_nc_paths = sorted(list((DATA_DIR / "rea").glob("*.nc")))
         # self._get_rea_tensors(rea_nc_paths)
 
+        # Generate train set identifier and set norm_stats_file path
+        train_set_id = self._get_train_set_identifier()
+        self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+        
         if not self.norm_stats_file.exists():
-            print("Computing norm stats...")
+            print(f"Computing norm stats for train set (id: {train_set_id})...")
             self._compute_norm_stats()
+        else:
+            print(f"Norm stats file already exists for train set (id: {train_set_id})")
 
         if self.feature_metadata is None:
             print("Computing feature metadata...")
@@ -376,19 +436,23 @@ class ForecastDataModule(L.LightningDataModule):
 
         Computes statistics across all spatial dimensions in a single pass through the data
         to minimize I/O overhead. Results are stored in self.norm_stats and saved to disk.
+        
+        Statistics are computed ONLY on the train set (year <= 2021).
 
         The computed statistics have shapes:
         - Predicted var statistics: [c0, 1, 1]
         - Auxiliary var statistics: [c1, 1, 1]
         - REA statistics: [c, 1, 1]
         """
-        # TODO make sure these stats are only computed on the triain set
         self.norm_stats = {}
 
         # Compute statistics for predicted variables in FC tensors
         fc_tensor_paths = list(self.fc_tensor_dir.glob("fc_*.pt"))
+        # Filter to only train set samples
+        fc_tensor_paths = self._filter_train_tensor_paths(fc_tensor_paths)
+        
         if fc_tensor_paths:
-            print("Computing predicted_vars stats")
+            print(f"Computing predicted_vars stats from {len(fc_tensor_paths)} train set FC tensors")
             pred_mean, pred_std, pred_min, pred_max = self._compute_tensor_stats(
                 fc_tensor_paths, tensor_key="predicted_vars"
             )
@@ -402,7 +466,7 @@ class ForecastDataModule(L.LightningDataModule):
             )
 
             # Compute statistics for auxiliary variables in FC tensors
-            print("Computing aux_vars stats")
+            print(f"Computing aux_vars stats from {len(fc_tensor_paths)} train set FC tensors")
             aux_mean, aux_std, aux_min, aux_max = self._compute_tensor_stats(
                 fc_tensor_paths, tensor_key="auxiliary_vars"
             )
@@ -417,8 +481,11 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Compute statistics for REA tensors
         rea_tensor_paths = list(self.rea_tensor_dir.glob("rea_*.pt"))
+        # Filter to only train set samples
+        rea_tensor_paths = self._filter_train_tensor_paths(rea_tensor_paths)
+        
         if rea_tensor_paths:
-            print("Computing rea stats")
+            print(f"Computing rea stats from {len(rea_tensor_paths)} train set REA tensors")
             rea_mean, rea_std, rea_min, rea_max = self._compute_tensor_stats(
                 rea_tensor_paths, tensor_key=None
             )
@@ -432,6 +499,7 @@ class ForecastDataModule(L.LightningDataModule):
             )
 
         torch.save(self.norm_stats, self.norm_stats_file)
+        print(f"Saved norm stats to {self.norm_stats_file}")
 
     def setup(self, stage: str) -> None:
         """Set up datasets for training, validation, and testing.
@@ -441,6 +509,11 @@ class ForecastDataModule(L.LightningDataModule):
         """
         # Load normalization statistics if not already loaded
         if self.norm_stats is None:
+            # Set norm_stats_file path with train set identifier if not already set
+            if self.norm_stats_file is None:
+                train_set_id = self._get_train_set_identifier()
+                self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+            
             if self.norm_stats_file.exists():
                 self.norm_stats = torch.load(self.norm_stats_file)
             else:
