@@ -4,7 +4,7 @@ defaults:
   - data/spatial: standard
   - data/splits: standard
   - data/preprocess: minMaxWind
-  - data: weatherbench2_full_fast
+  - data: weatherbench2/weatherbench2_full_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: drn

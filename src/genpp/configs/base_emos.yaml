@@ -4,7 +4,7 @@ defaults:
   - data/spatial: standard
   - data/splits: standard
   - data/preprocess: none
-  - data: weatherbench2_cut_fast
+  - data: weatherbench2/weatherbench2_cut_fast
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: emos

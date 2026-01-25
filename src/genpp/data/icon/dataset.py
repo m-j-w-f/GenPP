@@ -1,7 +1,7 @@
 # %%
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import lightning as L
 import numpy as np
@@ -132,6 +132,8 @@ class ForecastDataset(Dataset):
         norm_stats: dict[str, torch.Tensor],
         feature_metadata: dict[str, float],
         normalize_type: str = "zscore",
+        x_transform: Callable | None = None,
+        y_transform: Callable | None = None,
     ) -> None:
         """Initialize the ForecastDataset.
 
@@ -143,11 +145,17 @@ class ForecastDataset(Dataset):
             feature_metadata (dict[str, torch.Tensor]): Dictionary containing feature categorization info
                 (predicted_var_indices, auxiliary_var_indices, meta_var_indices).
             normalize_type (str): Type of normalization, either 'zscore' or 'minmax'.
+            x_transform (Callable | None): Optional transform to apply to input features (predicted_vars, 
+                auxiliary_vars, meta_vars) after normalization. Can be a function or nn.Module.
+            y_transform (Callable | None): Optional transform to apply to target (rea) after normalization.
+                Can be a function or nn.Module.
         """
         self.samples = samples
         self.norm_stats = norm_stats
         self.feature_metadata = feature_metadata
         self.normalize_type = normalize_type
+        self.x_transform = x_transform
+        self.y_transform = y_transform
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -208,6 +216,15 @@ class ForecastDataset(Dataset):
                 self.norm_stats["rea_max"] - self.norm_stats["rea_min"]
             )
 
+        # Apply transforms if provided (after normalization)
+        if self.x_transform is not None:
+            predicted_vars = self.x_transform(predicted_vars)
+            auxiliary_vars = self.x_transform(auxiliary_vars)
+            meta = self.x_transform(meta)
+
+        if self.y_transform is not None:
+            rea = self.y_transform(rea)
+
         # Convert timedelta to hours and normalize
         timedelta_hours = leadtime / np.timedelta64(1, "h")
         max_timedelta = self.feature_metadata.get("max_timedelta", 120.0)
@@ -236,6 +253,8 @@ class ForecastDataModule(L.LightningDataModule):
         batch_size: int = 32,
         normalize_type: str = "zscore",
         num_workers: int = 4,
+        x_transform: Callable | None = None,
+        y_transform: Callable | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -248,6 +267,8 @@ class ForecastDataModule(L.LightningDataModule):
             batch_size (int): Batch size for DataLoaders.
             normalize_type (str): Type of normalization ('zscore' or 'minmax').
             num_workers (int): Number of workers for DataLoaders.
+            x_transform (Callable | None): Optional transform to apply to input features.
+            y_transform (Callable | None): Optional transform to apply to targets.
         """
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -260,6 +281,8 @@ class ForecastDataModule(L.LightningDataModule):
         self.x_select_variables_wo_y = [
             var for var in self.x_select_variables if var not in self.y_select_variables
         ]
+        self.x_transform = x_transform
+        self.y_transform = y_transform
         self.norm_stats: dict[str, torch.Tensor] | None = None
         self.feature_metadata = None
 
@@ -561,18 +584,24 @@ class ForecastDataModule(L.LightningDataModule):
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
         self.val_dataset = ForecastDataset(
             val_samples,
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
         self.test_dataset = ForecastDataset(
             test_samples,
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
 
     @staticmethod

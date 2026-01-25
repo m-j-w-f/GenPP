@@ -2,7 +2,7 @@
 defaults:
   - data/dataloader: simple
   - data/splits: standard
-  - data: ae_dataset
+  - data: weatherbench2/ae_dataset
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: autoencoder
