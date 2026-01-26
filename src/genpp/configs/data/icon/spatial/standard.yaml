@@ -1,0 +1,6 @@
+# Standard spatial configuration for ICON dataset
+# ICON uses dynamic spatial dimensions based on grid type
+# No padding or transforms by default
+
+x_transform: null
+y_transform: null

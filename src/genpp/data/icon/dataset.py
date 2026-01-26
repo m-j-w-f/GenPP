@@ -1,7 +1,8 @@
 # %%
 import hashlib
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import lightning as L
 import numpy as np
@@ -22,6 +23,9 @@ from genpp.data.utils import flatten_levels
 
 # %%
 DATA_DIR = BASE_DIR / "data" / "icon" / "data"
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 # %%
@@ -132,6 +136,8 @@ class ForecastDataset(Dataset):
         norm_stats: dict[str, torch.Tensor],
         feature_metadata: dict[str, float],
         normalize_type: str = "zscore",
+        x_transform: Callable | None = None,
+        y_transform: Callable | None = None,
     ) -> None:
         """Initialize the ForecastDataset.
 
@@ -143,11 +149,17 @@ class ForecastDataset(Dataset):
             feature_metadata (dict[str, torch.Tensor]): Dictionary containing feature categorization info
                 (predicted_var_indices, auxiliary_var_indices, meta_var_indices).
             normalize_type (str): Type of normalization, either 'zscore' or 'minmax'.
+            x_transform (Callable | None): Optional transform to apply to input features (predicted_vars, 
+                auxiliary_vars, meta_vars) after normalization. Can be a function or nn.Module.
+            y_transform (Callable | None): Optional transform to apply to target (rea) after normalization.
+                Can be a function or nn.Module.
         """
         self.samples = samples
         self.norm_stats = norm_stats
         self.feature_metadata = feature_metadata
         self.normalize_type = normalize_type
+        self.x_transform = x_transform
+        self.y_transform = y_transform
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -208,6 +220,15 @@ class ForecastDataset(Dataset):
                 self.norm_stats["rea_max"] - self.norm_stats["rea_min"]
             )
 
+        # Apply transforms if provided (after normalization)
+        if self.x_transform is not None:
+            predicted_vars = self.x_transform(predicted_vars)
+            auxiliary_vars = self.x_transform(auxiliary_vars)
+            meta = self.x_transform(meta)
+
+        if self.y_transform is not None:
+            rea = self.y_transform(rea)
+
         # Convert timedelta to hours and normalize
         timedelta_hours = leadtime / np.timedelta64(1, "h")
         max_timedelta = self.feature_metadata.get("max_timedelta", 120.0)
@@ -236,6 +257,15 @@ class ForecastDataModule(L.LightningDataModule):
         batch_size: int = 32,
         normalize_type: str = "zscore",
         num_workers: int = 4,
+        x_transform: Callable | None = None,
+        y_transform: Callable | None = None,
+        prefetch_factor: int | None = None,
+        multiprocessing_context: str | None = None,
+        pin_memory: bool = True,
+        persistent_workers: bool = True,
+        train_split: dict[str, str] | None = None,
+        val_split: dict[str, str] | None = None,
+        test_split: dict[str, str] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -248,6 +278,15 @@ class ForecastDataModule(L.LightningDataModule):
             batch_size (int): Batch size for DataLoaders.
             normalize_type (str): Type of normalization ('zscore' or 'minmax').
             num_workers (int): Number of workers for DataLoaders.
+            x_transform (Callable | None): Optional transform to apply to input features.
+            y_transform (Callable | None): Optional transform to apply to targets.
+            prefetch_factor (int | None): Number of batches to prefetch per worker.
+            multiprocessing_context (str | None): Multiprocessing context ('fork', 'spawn', 'forkserver').
+            pin_memory (bool): Whether to pin memory in DataLoader.
+            persistent_workers (bool): Whether to keep workers alive between epochs.
+            train_split (dict[str, str] | None): Train split config with 'start' and 'end' dates.
+            val_split (dict[str, str] | None): Validation split config with 'start' and 'end' dates.
+            test_split (dict[str, str] | None): Test split config with 'start' and 'end' dates.
         """
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -260,6 +299,12 @@ class ForecastDataModule(L.LightningDataModule):
         self.x_select_variables_wo_y = [
             var for var in self.x_select_variables if var not in self.y_select_variables
         ]
+        self.x_transform = x_transform
+        self.y_transform = y_transform
+        self.prefetch_factor = prefetch_factor
+        self.multiprocessing_context = multiprocessing_context
+        self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
         self.norm_stats: dict[str, torch.Tensor] | None = None
         self.feature_metadata = None
 
@@ -268,20 +313,19 @@ class ForecastDataModule(L.LightningDataModule):
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
         self.norm_stats_file: Path | None = None
-        # TODO built datasets based off slices
-        # The slices will contain start and stop like this "2021-12-31"
-        # based on src/genpp/configs/data/splits/standard.yaml
-        self.train_dates: slice
-        self.val_dates: slice
-        self.test_dates: slice
-        assert self.train_dates.stop < self.val_dates.start
-        assert self.val_dates.stop < self.train_dates.stop
+        
+        # Store split configurations (dates for valid_time filtering)
+        # Default to old year-based splits if not provided
+        self.train_split = train_split or {"start": "2019-01-01", "end": "2021-12-31"}
+        self.val_split = val_split or {"start": "2022-01-01", "end": "2022-12-31"}
+        self.test_split = test_split or {"start": "2023-01-01", "end": "2023-12-31"}
 
     def _get_train_set_identifier(self) -> str:
         """Generate a unique identifier for the train set configuration.
 
         The identifier is based on the tensor paths that belong to the train set
-        (year <= 2021). This allows us to detect if the train set has changed.
+        based on valid_time (init_date + leadtime) within the train split range.
+        This allows us to detect if the train set has changed.
 
         Returns:
             str: A hash string representing the train set configuration.
@@ -289,16 +333,31 @@ class ForecastDataModule(L.LightningDataModule):
         # Collect all FC tensor paths
         fc_paths = sorted(list(self.fc_tensor_dir.glob("fc_*.pt")))
 
-        # Filter to only train set samples (year <= 2021)
+        # Parse train split dates
+        train_start = np.datetime64(self.train_split["start"])
+        train_end = np.datetime64(self.train_split["end"])
+
+        # Filter to only train set samples (valid_time within train range)
         train_paths = []
         for fc_path in fc_paths:
             parts = fc_path.stem.split("_")
-            if len(parts) >= 2:
+            if len(parts) >= 3:
                 date_str = parts[1]  # YYYYMMDDHH
-                if len(date_str) >= 4:
-                    year = int(date_str[:4])
-                    if year <= 2021:
+                leadtime_str = parts[2]  # leadtime in hours
+                try:
+                    # Parse init_date
+                    init_date = np.datetime64(
+                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T{date_str[8:10]}:00:00"
+                    )
+                    # Parse leadtime
+                    leadtime = np.timedelta64(int(leadtime_str), "h")
+                    # Calculate valid_time
+                    valid_time = init_date + leadtime
+                    
+                    if train_start <= valid_time <= train_end:
                         train_paths.append(fc_path.name)
+                except (ValueError, IndexError):
+                    continue
 
         # Create a hash from the list of train paths (already sorted from fc_paths)
         train_paths_str = ",".join(train_paths)
@@ -306,7 +365,7 @@ class ForecastDataModule(L.LightningDataModule):
         return hash_obj.hexdigest()[:16]  # Use first 16 chars of hash
 
     def _filter_train_tensor_paths(self, tensor_paths: list[Path]) -> list[Path]:
-        """Filter tensor paths to only include train set samples (year <= 2021).
+        """Filter tensor paths to only include train set samples based on valid_time.
 
         Args:
             tensor_paths: List of tensor file paths to filter.
@@ -314,17 +373,32 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             List of tensor paths that belong to the train set.
         """
+        # Parse train split dates
+        train_start = np.datetime64(self.train_split["start"])
+        train_end = np.datetime64(self.train_split["end"])
+        
         train_paths = []
         for tensor_path in tensor_paths:
-            # Extract year from filename
-            # Format: fc_YYYYMMDDHH_LT.pt or rea_YYYYMMDDHH_LT.pt
+            # Extract date and leadtime from filename
+            # Format: fc_YYYYMMDDHH_LT.pt or rea_YYYYMMDD.pt
             parts = tensor_path.stem.split("_")
-            if len(parts) >= 2:
+            if len(parts) >= 3:
                 date_str = parts[1]  # YYYYMMDDHH
-                if len(date_str) >= 4:
-                    year = int(date_str[:4])
-                    if year <= 2021:
+                leadtime_str = parts[2]  # leadtime in hours
+                try:
+                    # Parse init_date
+                    init_date = np.datetime64(
+                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T{date_str[8:10]}:00:00"
+                    )
+                    # Parse leadtime
+                    leadtime = np.timedelta64(int(leadtime_str), "h")
+                    # Calculate valid_time
+                    valid_time = init_date + leadtime
+                    
+                    if train_start <= valid_time <= train_end:
                         train_paths.append(tensor_path)
+                except (ValueError, IndexError):
+                    continue
 
         return train_paths
 
@@ -539,40 +613,66 @@ class ForecastDataModule(L.LightningDataModule):
                 "Run prepare_data() first."
             )
 
-        # Collect and sort samples by init_date
+        # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
-        all_samples.sort(key=lambda x: x[3])  # Sort by init_date (index 3)
+        all_samples.sort(key=lambda x: x[3] + x[4])  # Sort by valid_time (init_date + leadtime)
 
-        # Split by init_date year
+        # Parse split date ranges
+        train_start = np.datetime64(self.train_split["start"])
+        train_end = np.datetime64(self.train_split["end"])
+        val_start = np.datetime64(self.val_split["start"])
+        val_end = np.datetime64(self.val_split["end"])
+        test_start = np.datetime64(self.test_split["start"])
+        test_end = np.datetime64(self.test_split["end"])
+
+        # Split by valid_time (forecast valid time = init_date + leadtime)
         train_samples, val_samples, test_samples = [], [], []
+        dropped_samples = []
         for sample in all_samples:
             init_date = sample[3]  # np.datetime64
-            year = init_date.astype("datetime64[Y]").astype(int) + 1970
+            leadtime = sample[4]  # np.timedelta64
+            valid_time = init_date + leadtime  # Forecast valid time
 
-            if year <= 2021:
+            if train_start <= valid_time <= train_end:
                 train_samples.append(sample)
-            elif year == 2022:
+            elif val_start <= valid_time <= val_end:
                 val_samples.append(sample)
-            else:
+            elif test_start <= valid_time <= test_end:
                 test_samples.append(sample)
+            else:
+                # Sample falls outside all split ranges
+                dropped_samples.append((sample[0].name, valid_time))
+        
+        # Log dropped samples if any
+        if dropped_samples:
+            logger.warning(
+                f"Dropped {len(dropped_samples)} samples that fall outside all split ranges. "
+                f"First few: {dropped_samples[:5]}"
+            )
 
         self.train_dataset = ForecastDataset(
             train_samples,
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
         self.val_dataset = ForecastDataset(
             val_samples,
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
         self.test_dataset = ForecastDataset(
             test_samples,
             self.norm_stats,  # type: ignore
             self.feature_metadata,
             self.normalize_type,
+            self.x_transform,
+            self.y_transform,
         )
 
     @staticmethod
@@ -806,12 +906,18 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for training data.
         """
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": True,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.train_dataset, **dataloader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
         """Create the validation DataLoader.
@@ -819,9 +925,17 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for validation data.
         """
-        return DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.val_dataset, **dataloader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
         """Create the test DataLoader.
@@ -829,6 +943,14 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for test data.
         """
-        return DataLoader(
-            self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.test_dataset, **dataloader_kwargs)
