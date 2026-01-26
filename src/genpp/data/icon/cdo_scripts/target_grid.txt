@@ -12,5 +12,5 @@ xinc = 0.13
 yfirst = -15
 yinc = 0.13
 grid_mapping_name = rotated_latitude_longitude
-grid_north_pole_longitude = -90
-grid_north_pole_latitude  = 35
+grid_north_pole_longitude = -170
+grid_north_pole_latitude  = 40
