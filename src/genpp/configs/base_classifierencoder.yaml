@@ -1,8 +1,8 @@
 # Main configuration file for Classifier training (FID)
 defaults:
   - data/dataloader: simple
-  - data/splits: standard
-  - data: classification_dataset
+  - data/weatherbench2/splits: standard
+  - data: weatherbench2/classification_dataset
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: classifierencoder

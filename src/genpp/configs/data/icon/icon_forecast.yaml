@@ -1,0 +1,73 @@
+# ICON Forecast DataModule Configuration
+# Configuration for the ICON weather prediction model dataset
+
+# Select variables for input (x) and target (y)
+x_select_variables:
+  - 'ALB_RAD'
+  - 'ASOB_S'
+  - 'ASOB_T'
+  - 'ATHB_S'
+  - 'ATHB_T'
+  - 'CLCH+plev_0.0'
+  - 'CLCL+plev_2_80000.0'
+  - 'CLCM+plev_3_40000.0'
+  - 'CLCT'
+  - 'HBAS_CON'
+  - 'HTOP_CON'
+  - 'PMSL'
+  - 'RAIN_CON'
+  - 'RAIN_GSP'
+  - 'SNOW_CON'
+  - 'SNOW_GSP'
+  - 'SOBS_RAD'
+  - 'TD_2M+height_2.0'
+  - 'THBS_RAD'
+  - 'TMAX_2M+height_2.0'
+  - 'TMIN_2M+height_2.0'
+  - 'TOT_PREC'
+  - 'TQC'
+  - 'TQI'
+  - 'TQV'
+  - 'T_2M+height_2.0'
+  - 'T_G'
+  - 'U_10M+height_2_10.0'
+  - 'VMAX_10M+height_2_10.0'
+  - 'V_10M+height_2_10.0'
+  - 'W_SNOW'
+  - 'W_SO+depth_0.0'
+  - 'W_SO+depth_0.01'
+  - 'W_SO+depth_0.03'
+  - 'W_SO+depth_0.09'
+  - 'W_SO+depth_0.27'
+  - 'W_SO+depth_0.81'
+  - 'W_SO+depth_2.43'
+  - 'W_SO+depth_7.29'
+  - 'Z0'
+
+y_select_variables:
+  - 'T_2M+height_2.0'
+  - 'VMAX_10M+height_2_10.0'
+
+# Batch size for training
+batch_size: 32
+
+# Normalization type: 'zscore' or 'minmax'
+normalize_type: zscore
+
+module:
+  _target_: genpp.data.icon.dataset.ForecastDataModule
+  x_select_variables: ${data.x_select_variables}
+  y_select_variables: ${data.y_select_variables}
+  batch_size: ${data.batch_size}
+  normalize_type: ${data.normalize_type}
+  num_workers: ${data.dataloader.num_workers}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
+  persistent_workers: ${data.dataloader.persistent_workers}
+  x_transform: ${data.spatial.x_transform}
+  y_transform: ${data.spatial.y_transform}
+  train_split: ${data.splits.train}
+  val_split: ${data.splits.val}
+  test_split: ${data.splits.test}
+
