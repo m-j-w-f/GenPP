@@ -54,20 +54,18 @@ batch_size: 32
 # Normalization type: 'zscore' or 'minmax'
 normalize_type: zscore
 
-# Number of DataLoader workers
-num_workers: 4
-
-# Optional transforms (can be overridden in experiments)
-# x_transform: null
-# y_transform: null
-
 module:
   _target_: genpp.data.icon.dataset.ForecastDataModule
   x_select_variables: ${data.x_select_variables}
   y_select_variables: ${data.y_select_variables}
   batch_size: ${data.batch_size}
   normalize_type: ${data.normalize_type}
-  num_workers: ${data.num_workers}
-  # Uncomment to add transforms
-  # x_transform: ${data.x_transform}
-  # y_transform: ${data.y_transform}
+  num_workers: ${data.dataloader.num_workers}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
+  persistent_workers: ${data.dataloader.persistent_workers}
+  x_transform: ${data.spatial.x_transform}
+  y_transform: ${data.spatial.y_transform}
+
+

@@ -255,6 +255,10 @@ class ForecastDataModule(L.LightningDataModule):
         num_workers: int = 4,
         x_transform: Callable | None = None,
         y_transform: Callable | None = None,
+        prefetch_factor: int | None = None,
+        multiprocessing_context: str | None = None,
+        pin_memory: bool = True,
+        persistent_workers: bool = True,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -269,6 +273,10 @@ class ForecastDataModule(L.LightningDataModule):
             num_workers (int): Number of workers for DataLoaders.
             x_transform (Callable | None): Optional transform to apply to input features.
             y_transform (Callable | None): Optional transform to apply to targets.
+            prefetch_factor (int | None): Number of batches to prefetch per worker.
+            multiprocessing_context (str | None): Multiprocessing context ('fork', 'spawn', 'forkserver').
+            pin_memory (bool): Whether to pin memory in DataLoader.
+            persistent_workers (bool): Whether to keep workers alive between epochs.
         """
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -283,6 +291,10 @@ class ForecastDataModule(L.LightningDataModule):
         ]
         self.x_transform = x_transform
         self.y_transform = y_transform
+        self.prefetch_factor = prefetch_factor
+        self.multiprocessing_context = multiprocessing_context
+        self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
         self.norm_stats: dict[str, torch.Tensor] | None = None
         self.feature_metadata = None
 
@@ -835,12 +847,18 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for training data.
         """
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": True,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.train_dataset, **dataloader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
         """Create the validation DataLoader.
@@ -848,9 +866,17 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for validation data.
         """
-        return DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.val_dataset, **dataloader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
         """Create the test DataLoader.
@@ -858,6 +884,14 @@ class ForecastDataModule(L.LightningDataModule):
         Returns:
             DataLoader: DataLoader for test data.
         """
-        return DataLoader(
-            self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers
-        )
+        dataloader_kwargs = {
+            "batch_size": self.batch_size,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(self.test_dataset, **dataloader_kwargs)

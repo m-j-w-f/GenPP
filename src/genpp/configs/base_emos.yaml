@@ -1,8 +1,8 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/spatial: standard
-  - data/splits: standard
+  - data/weatherbench2/spatial: standard
+  - data/weatherbench2/splits: standard
   - data/preprocess: none
   - data: weatherbench2/weatherbench2_cut_fast
   - model/optimizer: adamW
