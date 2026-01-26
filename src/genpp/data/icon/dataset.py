@@ -1,5 +1,6 @@
 # %%
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +23,9 @@ from genpp.data.utils import flatten_levels
 
 # %%
 DATA_DIR = BASE_DIR / "data" / "icon" / "data"
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 # %%
@@ -623,6 +627,7 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Split by valid_time (forecast valid time = init_date + leadtime)
         train_samples, val_samples, test_samples = [], [], []
+        dropped_samples = []
         for sample in all_samples:
             init_date = sample[3]  # np.datetime64
             leadtime = sample[4]  # np.timedelta64
@@ -634,6 +639,16 @@ class ForecastDataModule(L.LightningDataModule):
                 val_samples.append(sample)
             elif test_start <= valid_time <= test_end:
                 test_samples.append(sample)
+            else:
+                # Sample falls outside all split ranges
+                dropped_samples.append((sample[0].name, valid_time))
+        
+        # Log dropped samples if any
+        if dropped_samples:
+            logger.warning(
+                f"Dropped {len(dropped_samples)} samples that fall outside all split ranges. "
+                f"First few: {dropped_samples[:5]}"
+            )
 
         self.train_dataset = ForecastDataset(
             train_samples,
