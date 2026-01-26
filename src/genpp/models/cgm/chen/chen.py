@@ -508,7 +508,6 @@ class CNNChenNoiseModel(InternalTDScalingMixin, _CNNChenModelBase):
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
     ) -> None:
-        self.save_hyperparameters()
         _CNNChenModelBase.__init__(
             self,
             in_features=in_features,
@@ -532,6 +531,7 @@ class CNNChenNoiseModel(InternalTDScalingMixin, _CNNChenModelBase):
             n_samples_predict=n_samples_predict,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
+        self.save_hyperparameters()
 
         self.noise_decoder = nn.Sequential(
             UNet(
@@ -686,7 +686,6 @@ class CNNChenDirectModel(_CNNChenModelBase):
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
     ) -> None:
-        self.save_hyperparameters()
         _CNNChenModelBase.__init__(
             self,
             in_features=in_features,
@@ -709,6 +708,7 @@ class CNNChenDirectModel(_CNNChenModelBase):
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
         )
+        self.save_hyperparameters()
         # Setup td_embedder
         if td_embedding_dim > 0:
             self.td_embedding_dim = td_embedding_dim

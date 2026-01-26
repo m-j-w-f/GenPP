@@ -368,7 +368,6 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
             n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
             n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
         """
-        self.save_hyperparameters()
         # Calculate total input channels
         use_embedding = embedding_dim > 0
         if use_embedding:
@@ -401,6 +400,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
             rescaler=rescaler,
             loss_fn=loss_fn,
         )
+        self.save_hyperparameters()
 
         # Create pixel embedder after super().__init__() call
         self.use_embedding = use_embedding
@@ -499,7 +499,6 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
             n_samples_predict (int | None): Number of samples during prediction. If None, defaults
         """
-        self.save_hyperparameters()
         # Check required parameters
         if optimizer is None:
             raise ValueError("optimizer is required for CNNEngressionDirectModel")
@@ -546,6 +545,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
         )
+        self.save_hyperparameters()
 
         # NOW assign instance variables and module attributes after super().__init__()
         self.in_channels = in_channels
