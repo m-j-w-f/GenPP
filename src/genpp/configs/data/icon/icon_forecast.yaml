@@ -67,5 +67,7 @@ module:
   persistent_workers: ${data.dataloader.persistent_workers}
   x_transform: ${data.spatial.x_transform}
   y_transform: ${data.spatial.y_transform}
-
+  train_split: ${data.splits.train}
+  val_split: ${data.splits.val}
+  test_split: ${data.splits.test}
 

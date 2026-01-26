@@ -1,12 +1,15 @@
 # Standard time splits for ICON dataset
-# Split by year: train <= 2021, val = 2022, test >= 2023
-# Note: ICON ForecastDataModule handles splits internally based on init_date year
+# Split by forecast valid time (init_time + lead_time)
+# Note: ICON ForecastDataModule handles splits internally based on valid_time
 
 train:
-  years: [2019, 2020, 2021]
+  start: "2019-01-01"
+  end: "2021-12-31"
   
 val:
-  years: [2022]
+  start: "2022-01-01"
+  end: "2022-12-31"
   
 test:
-  years: [2023]
+  start: "2023-01-01"
+  end: "2023-12-31"
