@@ -2,15 +2,15 @@
 x_preprocessing:
   - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
     meta_features:
-      - ${enum:genpp.data.MetadataVars.LATITUDE}
-      - ${enum:genpp.data.MetadataVars.LONGITUDE}
+      - ${enum:genpp.data.weatherbench2.MetadataVars.LATITUDE}
+      - ${enum:genpp.data.weatherbench2.MetadataVars.LONGITUDE}
   - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
     dim: ["time", "prediction_timedelta" , "latitude", "longitude"]
   - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
     meta_features:
-      - ${enum:genpp.data.MetadataVars.SIN_PREDICTION_TIME}
-      - ${enum:genpp.data.MetadataVars.COS_PREDICTION_TIME}
-      - ${enum:genpp.data.MetadataVars.PIXEL_IDX}
+      - ${enum:genpp.data.weatherbench2.MetadataVars.SIN_PREDICTION_TIME}
+      - ${enum:genpp.data.weatherbench2.MetadataVars.COS_PREDICTION_TIME}
+      - ${enum:genpp.data.weatherbench2.MetadataVars.PIXEL_IDX}
 
 y_preprocessing:
   - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor

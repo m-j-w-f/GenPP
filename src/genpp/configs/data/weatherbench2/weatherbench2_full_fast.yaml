@@ -75,7 +75,7 @@ _dataloader_template: &dataloader_template
   persistent_workers: ${data.dataloader.persistent_workers}
 
 module:
-  _target_: genpp.data.fast_dataset_simple.FastWeatherBench2DataModule
+  _target_: genpp.data.weatherbench2.fast_dataset_simple.FastWeatherBench2DataModule
   # Dataset configuration using templates and interpolation
   dataset_config:
     train:

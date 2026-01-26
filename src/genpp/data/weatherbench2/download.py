@@ -12,7 +12,7 @@ import subprocess
 import xarray as xr
 from dask.distributed import Client, LocalCluster
 
-from genpp.data import (
+from genpp.data.weatherbench2 import (
     FORECAST_ENS_SLICE,
     FORECAST_ENS_URL,
     OBSERVATIONS_SLICE,

@@ -8,7 +8,7 @@ import torch
 import xarray as xr
 from xarray.core.types import Dims
 
-from genpp.data import MetadataVars
+from genpp.data.weatherbench2 import MetadataVars
 from genpp.models.layers import ReverseAffineTransform
 
 

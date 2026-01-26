@@ -17,7 +17,7 @@ from warnings import warn
 import xarray as xr
 from dask.distributed import Client
 
-from genpp.data import (
+from genpp.data.weatherbench2 import (
     FC_VARS,
     FORECAST_ENS_FLAT_AGG_NAME,
     FORECAST_ENS_PATH,
@@ -26,7 +26,7 @@ from genpp.data import (
     OBSERVATIONS_PATH,
     OUTPUT_DIR,
 )
-from genpp.data.utils import flatten_levels
+from genpp.data.weatherbench2.utils import flatten_levels
 
 
 def main(base_dir: Path = OUTPUT_DIR) -> None:

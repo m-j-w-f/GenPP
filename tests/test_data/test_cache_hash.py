@@ -3,7 +3,7 @@
 import pytest
 from omegaconf import OmegaConf
 
-from genpp.data.fast_dataset_simple import _compute_config_hash
+from genpp.data.weatherbench2.fast_dataset_simple import _compute_config_hash
 
 
 @pytest.mark.unit

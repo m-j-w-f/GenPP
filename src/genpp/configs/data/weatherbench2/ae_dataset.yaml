@@ -10,7 +10,7 @@ _dataloader_template: &dataloader_template
   persistent_workers: ${data.dataloader.persistent_workers}
 
 module:
-  _target_: genpp.data.zarr_dataset.ZarrDataModule
+  _target_: genpp.data.weatherbench2.zarr_dataset.ZarrDataModule
   x_select_variables:
     - '2m_temperature'
     - '10m_wind_speed'

@@ -20,7 +20,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
 from xbatcher.loaders.torch import to_tensor
 
-from genpp.data import (
+from genpp.data.weatherbench2 import (
     FORECAST_ENS_FLAT_AGG_NAME,
     FORECAST_ENS_NAME,
     OBSERVATIONS_FLAT_NAME,
@@ -28,7 +28,7 @@ from genpp.data import (
     OUTPUT_DIR,
     MetadataVars,
 )
-from genpp.data.utils import flatten_levels
+from genpp.data.weatherbench2.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
 
 
@@ -402,7 +402,7 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
                     "Please download the dataset first."
                 )
 
-            from genpp.data.flat_and_aggr import main as preprocess_main
+            from genpp.data.weatherbench2.flat_and_aggr import main as preprocess_main
 
             preprocess_main(base_dir=self.path)
 

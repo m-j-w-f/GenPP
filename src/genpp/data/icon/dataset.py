@@ -19,7 +19,7 @@ from genpp.data.icon import (
     VARS_GRID_28,
     VARS_TO_DROP,
 )
-from genpp.data.utils import flatten_levels
+from genpp.data.icon.utils import flatten_levels
 
 # %%
 DATA_DIR = BASE_DIR / "data" / "icon" / "data"
