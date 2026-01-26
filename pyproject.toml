@@ -59,11 +59,7 @@ gh = ">=2.83.0,<3"
 [tool.pixi.feature.nb.dependencies]
 ipykernel = ">=6.29.5,<7"
 jupyterlab = ">=4.5.0,<5"
-catppuccin-jupyterlab = ">=0.2.4,<0.3"
-jupyterlab-lsp = ">=5.2.0,<6"
-python-lsp-server = ">=1.14.0,<2"
-basedpyright = ">=1.36.1,<2"
-jupytext = ">=1.18.1,<2"
+cartopy = ">=0.25.0,<0.26"
 
 [tool.pixi.tasks]
 train = "python src/genpp/train.py" # Specify file by using --config-name ...

@@ -33,7 +33,6 @@ class EMOS(DistributionRegression):
         n_lead_times: int = 5,
         **kwargs: Any,
     ) -> None:
-        self.save_hyperparameters()
         super().__init__(
             out_distribution=out_distribution,
             height=height,
@@ -43,6 +42,7 @@ class EMOS(DistributionRegression):
             lr_scheduler=lr_scheduler,
             rescaler=rescaler if use_rescaler else None,
         )
+        self.save_hyperparameters()
         if kwargs:
             warn(f"Ignoring additional arguments: {kwargs}")
         if self.embedding_dim != 0:

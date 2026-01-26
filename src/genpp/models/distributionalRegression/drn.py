@@ -56,7 +56,6 @@ class DRNModel(DistributionRegression):
         use_rescaler: bool = True,  # NOTE difference to emos
         **kwargs: Any,
     ) -> None:
-        self.save_hyperparameters()
         super().__init__(
             out_distribution=out_distribution,
             height=height,
@@ -66,6 +65,7 @@ class DRNModel(DistributionRegression):
             lr_scheduler=lr_scheduler,
             rescaler=rescaler if use_rescaler else None,
         )
+        self.save_hyperparameters()
         if kwargs:
             warn(f"Ignoring additional arguments: {kwargs}")
 
