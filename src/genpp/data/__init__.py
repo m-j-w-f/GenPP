@@ -39,6 +39,14 @@ from genpp.data.weatherbench2 import (
     _get_MapDataset,
 )
 
+# Issue deprecation warning when importing from genpp.data
+warnings.warn(
+    "Importing from 'genpp.data' is deprecated. "
+    "Please use 'genpp.data.weatherbench2' or 'genpp.data.icon' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 __all__ = [
     "FORECAST_URL",
     "FORECAST_ENS_URL",
