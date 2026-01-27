@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,20 @@ import pandas as pd
 import torch
 import xarray as xr
 from einops import reduce
+
+# Suppress Pydantic warnings from WandB/Hydra interaction
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="pydantic.*",
+    message=".*'repr' attribute.*has no effect.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="pydantic.*",
+    message=".*'frozen' attribute.*has no effect.*",
+)
 
 try:
     import wandb
