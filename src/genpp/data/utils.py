@@ -72,10 +72,10 @@ def get_time_intersection(
     """Get the intersection of the prediction time in the ensemble dataset and the observation time.
 
     Args:
-        ens (xr.Dataset): The ensemble dataset with a 'prediction_time' coordinate.
-        obs (xr.Dataset): The observation dataset with a 'time' coordinate.
+        ds1 (xr.Dataset): The first dataset with a time coordinate.
+        ds2 (xr.Dataset): The second dataset with a time coordinate.
         time_dim1 (str, optional): The name of the time dimension in the first dataset. Defaults to "prediction_time".
-        time_dim2 (str, optional): The name of the time dimension in the second dataset
+        time_dim2 (str, optional): The name of the time dimension in the second dataset. Defaults to "time".
 
     Returns:
         pd.Index: The intersection of the two time coordinates.
