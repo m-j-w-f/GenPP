@@ -1,9 +1,10 @@
 """Backward compatibility module for weatherbench2 data.
 
 This module re-exports all weatherbench2 data components for backward compatibility.
-New code should import from genpp.data.weatherbench2 directly.
+New code should import from genpp.data.weatherbench2, genpp.data.icon, or genpp.data.utils directly.
 """
 import warnings
+from genpp.data.utils import MetadataVars
 from genpp.data.weatherbench2 import (
     FORECAST_URL,
     FORECAST_ENS_URL,
@@ -32,7 +33,6 @@ from genpp.data.weatherbench2 import (
     OBSERVATIONS_SLICE,
     FC_VARS,
     ALL_VARS,
-    MetadataVars,
     TRAIN_PREDICTIONS,
     VAL_PREDICTIONS,
     TEST_PREDICTIONS,

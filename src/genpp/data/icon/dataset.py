@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from genpp import BASE_DIR
-from genpp.data import MetadataVars
+from genpp.data.utils import MetadataVars
 from genpp.data.icon import (
     AXIS_ORDER,
     LEVELS_TO_FLATTEN,

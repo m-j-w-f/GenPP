@@ -1,7 +1,17 @@
+from enum import Enum
 from warnings import warn
 
 import pandas as pd
 import xarray as xr
+
+
+class MetadataVars(Enum):
+    """Metadata variable names used across datasets."""
+    PIXEL_IDX = "pixel_idx"
+    LATITUDE = "latitude"
+    LONGITUDE = "longitude"
+    SIN_PREDICTION_TIME = "sin_prediction_time"
+    COS_PREDICTION_TIME = "cos_prediction_time"
 
 
 def flatten_levels(ds: xr.Dataset, level_dim: str = "level", interleave=True) -> xr.Dataset:

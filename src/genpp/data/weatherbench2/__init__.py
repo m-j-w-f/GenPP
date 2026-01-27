@@ -1,7 +1,6 @@
 import pickle
 from collections.abc import Callable
 from datetime import timedelta
-from enum import Enum
 
 import numpy as np
 import xarray as xr
@@ -9,6 +8,7 @@ import xbatcher
 from xbatcher.loaders.torch import MapDataset, to_tensor
 
 from genpp import BASE_DIR
+from genpp.data.utils import MetadataVars
 
 FORECAST_URL = "gs://weatherbench2/datasets/hres/2016-2022-0012-1440x721.zarr"
 FORECAST_ENS_URL = "gs://weatherbench2/datasets/ifs_ens/2018-2022-1440x721.zarr"  # This is from 2018-2022, not 2016-2022
@@ -102,14 +102,6 @@ ALL_VARS = [
     "wind_speed_lev700",
     "wind_speed_lev850",
 ]
-
-
-class MetadataVars(Enum):
-    PIXEL_IDX = "pixel_idx"
-    LATITUDE = "latitude"
-    LONGITUDE = "longitude"
-    SIN_PREDICTION_TIME = "sin_prediction_time"
-    COS_PREDICTION_TIME = "cos_prediction_time"
 
 
 _save_path = BASE_DIR / "data" / "weatherbench2" / "standard_split" / "weatherbench2_standard_split.pkl"
