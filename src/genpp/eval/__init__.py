@@ -103,10 +103,14 @@ best_models: BestModels = BestModels(
     emos=[ModelEntry(id="k32mygar")],
     drn=[ModelEntry(id="hn0gdrqm")],
     chen=[
-        ModelEntry(id="2f1vpjz0", tag="standard"),
-        ModelEntry(id="23phjuuc", tag="chen_spatial_3"),
-        ModelEntry(id="ynl8hbdr", tag="chen_spatial_5"),
-        ModelEntry(id="eu94vgqa", tag="chen_spatial_7"),
+        # ModelEntry(id="2f1vpjz0", tag="standard"),
+        # ModelEntry(id="23phjuuc", tag="chen_spatial_3"),
+        # ModelEntry(id="ynl8hbdr", tag="chen_spatial_5"),
+        # ModelEntry(id="eu94vgqa", tag="chen_spatial_7"),
+        ModelEntry(id="e4oxnxiy", tag="es"),
+        ModelEntry(id="f327mrxm", tag="pes"),
+        ModelEntry(id="k3i9kcxd", tag="mes"),
+        ModelEntry(id="upfya4wp", tag="pmes"),
     ],
     fm=[
         ModelEntry(id="pwb8kh5a", tag="unet_std"),
