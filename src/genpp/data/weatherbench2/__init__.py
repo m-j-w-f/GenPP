@@ -112,7 +112,7 @@ class MetadataVars(Enum):
     COS_PREDICTION_TIME = "cos_prediction_time"
 
 
-_save_path = BASE_DIR / "data" / "standard_split" / "weatherbench2_standard_split.pkl"
+_save_path = BASE_DIR / "data" / "weatherbench2" / "standard_split" / "weatherbench2_standard_split.pkl"
 with open(_save_path, "rb") as f:
     _metadata = pickle.load(f)
 
