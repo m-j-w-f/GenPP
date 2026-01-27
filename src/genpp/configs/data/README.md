@@ -1,83 +1,80 @@
 # Data Configurations
 
-This directory contains dataset-specific configurations organized by dataset type.
+This directory contains dataset-specific configurations organized as flat config files.
 
 ## Directory Structure
 
-### Dataset-Specific Configurations
+### Dataset Configurations
 
-- **icon/** - Configuration files for ICON dataset
-  - `icon_forecast.yaml` - Main ICON forecast configuration
-  - `spatial/` - ICON-specific spatial configurations
-    - `standard.yaml` - Standard spatial config (no padding/transforms)
-  - `splits/` - ICON-specific train/val/test splits
-    - `standard.yaml` - Standard time splits (train: <=2021, val: 2022, test: >=2023)
-  - Uses `ForecastDataModule` from `genpp.data.icon.dataset`
-  
-- **weatherbench2/** - Configuration files for WeatherBench2 dataset
-  - `weatherbench2_full_fast.yaml` - Full variable set configuration
-  - `weatherbench2_cut_fast.yaml` - Reduced variable set (inherits from full)
+- **WeatherBench2 Configs:**
+  - `wb2_full.yaml` - Full variable set with standard spatial and standard preprocessing
+  - `wb2_full_minmax.yaml` - Full variables with minmax wind preprocessing (for DRN)
+  - `wb2_full_pad_x.yaml` - Full variables with X padding (for CNN models)
+  - `wb2_full_pad_xy.yaml` - Full variables with X and Y padding (for flow matching)
+  - `wb2_cut.yaml` - Reduced variables with no preprocessing (for EMOS)
   - `ae_dataset.yaml` - Configuration for AutoEncoder (used in FID computation)
   - `classification_dataset.yaml` - Configuration for classifier
-  - `spatial/` - WeatherBench2-specific spatial configurations
-    - `standard.yaml` - Standard spatial config (31x37 grid, no padding)
-    - `padded_x.yaml` - Padded in x dimension only
-    - `padded_xy.yaml` - Padded in both x and y dimensions
-  - `splits/` - WeatherBench2-specific train/val/test splits
-    - `standard.yaml` - Standard time-based splits
-  - Uses various data modules including:
-    - `FastWeatherBench2DataModule` for optimized tensor loading
-    - `ZarrDataModule` for zarr-based datasets
-    - `ZarrClassificationDataModule` for classification tasks
+  - Uses `FastWeatherBench2DataModule` for optimized tensor loading
 
-### Shared Configurations
-
-- **dataloader/** - DataLoader configurations (shared across datasets)
-  - `standard.yaml` - Standard settings (4 workers, prefetch, forkserver)
-  - `simple.yaml` - Simple settings (4 workers, basic options)
-  - `debug.yaml` - Debug settings (minimal workers for debugging)
-  
-- **preprocess/** - Preprocessing configurations (shared across datasets)
-  - `standard.yaml` - Standard preprocessing with meta features
-  - `minMaxWind.yaml` - Min-max normalization for wind variables
-  - `none.yaml` - No preprocessing
+- **ICON Configs:**
+  - `icon_full.yaml` - Full ICON forecast configuration
+  - Uses `ForecastDataModule` from `genpp.data.icon.dataset`
 
 ## Usage
 
-Configurations are referenced in Hydra using the dataset-specific paths:
+Each dataset configuration is completely self-contained with spatial, splits, preprocessing, and dataloader settings:
 
 ```yaml
-# For WeatherBench2 with spatial/splits configs
+# WeatherBench2 with padding on X (for CNN models)
 defaults:
-  - data/dataloader: standard
-  - data/weatherbench2/spatial: padded_xy
-  - data/weatherbench2/splits: standard
-  - data/preprocess: standard
-  - data: weatherbench2/weatherbench2_full_fast
+  - data: wb2_full_pad_x
 
-# For ICON with spatial/splits configs
+# WeatherBench2 with reduced variables and no preprocessing (for EMOS)
 defaults:
-  - data/dataloader: standard
-  - data/icon/spatial: standard
-  - data/icon/splits: standard
-  - data/preprocess: standard  # Optional, ICON doesn't use preprocess by default
-  - data: icon/icon_forecast
+  - data: wb2_cut
+
+# WeatherBench2 with minmax preprocessing (for DRN)
+defaults:
+  - data: wb2_full_minmax
+
+# ICON forecast
+defaults:
+  - data: icon_full
 ```
 
-## Config Structure Rules
+### Switching Datasets via Command Line
 
-1. **Spatial and splits configs are dataset-specific** - Each dataset has its own `spatial/` and `splits/` subdirectories with configs tailored to that dataset's characteristics (grid dimensions, time ranges, etc.)
+```bash
+# Use WeatherBench2 full with X padding
+python train.py -cn base_chen data=wb2_full_pad_x
 
-2. **Dataloader and preprocess configs are shared** - These configs contain general settings that work across datasets and are located directly under `data/`.
+# Use WeatherBench2 cut (reduced variables, no preprocessing)
+python train.py -cn base_emos data=wb2_cut
 
-3. **Config references** - Dataset configs reference shared configs using `${data.dataloader.*}` and `${data.preprocess.*}`, and reference their own spatial/splits using `${data.spatial.*}` and `${data.splits.*}`.
+# Use ICON
+python train.py -cn base_chen data=icon_full
+```
 
-## Dataset-Specific Keys
+## Available Configs Summary
 
-Configurations differ between datasets based on their specific requirements:
-- **Grid dimensions**: WeatherBench2 uses 31x37 grid, ICON uses dynamic dimensions
-- **Variable naming**: Different naming conventions for weather variables
-- **Time splits**: Different year ranges and splitting logic
-- **Spatial transforms**: Dataset-specific padding and transformation needs
+| Config | Dataset | Variables | Spatial | Preprocessing |
+|--------|---------|-----------|---------|---------------|
+| `wb2_full` | WeatherBench2 | Full (30) | Standard (31x37) | Standard |
+| `wb2_full_minmax` | WeatherBench2 | Full (30) | Standard (31x37) | MinMax Wind |
+| `wb2_full_pad_x` | WeatherBench2 | Full (30) | Padded X (32x40) | Standard |
+| `wb2_full_pad_xy` | WeatherBench2 | Full (30) | Padded X+Y (32x40) | Standard |
+| `wb2_cut` | WeatherBench2 | Reduced (2) | Standard (31x37) | None |
+| `icon_full` | ICON | Full (43) | Dynamic grid | N/A |
+| `ae_dataset` | WeatherBench2 | 2 vars | N/A | N/A |
+| `classification_dataset` | WeatherBench2 | 2 vars | N/A | N/A |
 
-When creating new configs, place them in the appropriate dataset subdirectory.
+## Config Structure
+
+Each dataset config contains all necessary settings:
+- **spatial**: Grid dimensions and transforms (padding)
+- **splits**: Train/val/test time ranges
+- **preprocess**: Preprocessing pipelines (x_preprocessing, y_preprocessing)
+- **x_select_variables / y_select_variables**: Input/output variable selection
+- **features**: Feature configuration
+- **dataloader settings**: Workers, prefetch, pin_memory, etc.
+- **module**: DataModule target and parameters

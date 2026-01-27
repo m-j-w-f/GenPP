@@ -8,7 +8,6 @@ import xbatcher
 from xbatcher.loaders.torch import MapDataset, to_tensor
 
 from genpp import BASE_DIR
-from genpp.data.utils import MetadataVars
 
 FORECAST_URL = "gs://weatherbench2/datasets/hres/2016-2022-0012-1440x721.zarr"
 FORECAST_ENS_URL = "gs://weatherbench2/datasets/ifs_ens/2018-2022-1440x721.zarr"  # This is from 2018-2022, not 2016-2022
@@ -104,7 +103,9 @@ ALL_VARS = [
 ]
 
 
-_save_path = BASE_DIR / "data" / "weatherbench2" / "standard_split" / "weatherbench2_standard_split.pkl"
+_save_path = (
+    BASE_DIR / "data" / "weatherbench2" / "standard_split" / "weatherbench2_standard_split.pkl"
+)
 with open(_save_path, "rb") as f:
     _metadata = pickle.load(f)
 

@@ -1,10 +1,7 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/weatherbench2/spatial: padded_x
-  - data/weatherbench2/splits: standard
-  - data/preprocess: standard
-  - data: weatherbench2/weatherbench2_full_fast
+  - data: wb2_full_pad_x
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model/loss_fn: energy_score

@@ -1,8 +1,7 @@
 # Main configuration file for AutoEncoder training (FID)
 defaults:
   - data/dataloader: simple
-  - data/weatherbench2/splits: standard
-  - data: weatherbench2/ae_dataset
+  - data: ae_dataset
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: autoencoder
