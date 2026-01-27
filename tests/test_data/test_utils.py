@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from genpp.data.weatherbench2.utils import flatten_levels, get_time_intersection
+from genpp.data.utils import flatten_levels, get_time_intersection
 
 
 class TestFlattenLevels:

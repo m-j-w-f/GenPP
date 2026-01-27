@@ -26,7 +26,7 @@ from genpp.data.weatherbench2 import (
     OBSERVATIONS_PATH,
     OUTPUT_DIR,
 )
-from genpp.data.weatherbench2.utils import flatten_levels
+from genpp.data.utils import flatten_levels
 
 
 def main(base_dir: Path = OUTPUT_DIR) -> None:

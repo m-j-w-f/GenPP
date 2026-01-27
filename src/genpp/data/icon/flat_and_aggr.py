@@ -26,7 +26,7 @@ from genpp.data import (
     OBSERVATIONS_PATH,
     OUTPUT_DIR,
 )
-from genpp.data.icon.utils import flatten_levels
+from genpp.data.utils import flatten_levels
 
 
 def main(base_dir: Path = OUTPUT_DIR) -> None:

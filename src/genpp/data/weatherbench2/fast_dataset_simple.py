@@ -28,7 +28,7 @@ from genpp.data.weatherbench2 import (
     OUTPUT_DIR,
     MetadataVars,
 )
-from genpp.data.weatherbench2.utils import flatten_levels
+from genpp.data.utils import flatten_levels
 from genpp.preproc.preprocessors import Preprocessor
 
 
