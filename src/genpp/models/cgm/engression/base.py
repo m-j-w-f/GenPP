@@ -188,20 +188,28 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
     with different noise realizations.
 
     Args:
+        height (int): Height of the input grid.
+        width (int): Width of the input grid.
+        num_in_vars (int): Number of input variables (without any aggregation level
+            and without meta features added).
+        out_channels (int): Number of output channels.
         backbone (StochasticBackbone): Stochastic neural network backbone.
-        n_samples (int): Number of samples to generate during training/inference.
         padding (Sequence[int]): Padding values to crop from the output.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
         lr_scheduler (DictConfig): Learning rate scheduler config.
         use_rescaler (bool): Whether to use rescaling modules.
         rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
-        loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
+        loss_fn (nn.Module): Loss function. Defaults to EnergyScore.
+        n_samples (int | None): Number of samples to generate during training/inference.
+        n_samples_train (int | None): Number of samples during training.
+        n_samples_predict (int | None): Number of samples during prediction.
     """
 
     def __init__(
         self,
         height: int,
         width: int,
+        num_in_vars: int,
         out_channels: int,
         backbone: StochasticBackbone,
         padding: Sequence[int],
@@ -237,7 +245,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         self.mean_correction = LocallyConnected2D(
             height=height_no_pad,
             width=width_no_pad,
-            in_features=out_channels,
+            in_features=num_in_vars,
             out_features=out_channels,
         )
 
@@ -404,6 +412,7 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         self,
         height: int,
         width: int,
+        num_in_vars: int,
         out_channels: int,
         backbone: StochasticBackbone,
         padding: Sequence[int],
@@ -436,6 +445,7 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
             self,
             height=height,
             width=width,
+            num_in_vars=num_in_vars,
             out_channels=out_channels,
             backbone=backbone,
             padding=padding,
@@ -475,8 +485,12 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         )  # [batch, n_samples, out_features, height, width]
 
         # Get NWP forecast mean for residual connection
-        nwp_mean = self.crop(x["predicted_vars"])
-        nwp_mean = nwp_mean + self.mean_correction(nwp_mean)  # [batch, channels, height, width]
+        # Get means of all vars (predicted + auxiliary)
+        means, _ = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1).chunk(2, dim=1)
+        nwp_mean = self.crop(means)
+        nwp_mean = self.crop(x["predicted_vars"]) + self.mean_correction(
+            nwp_mean
+        )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
 
         result = nwp_mean_expanded + scaled_samples
@@ -509,8 +523,11 @@ class BaseEngressionDirectModel(BaseEngressionModel, ABC):
         samples = self.backbone.sample(backbone_input, n_samples)
 
         # Get NWP forecast mean for residual connection
-        nwp_mean = self.crop(x["predicted_vars"])
-        nwp_mean = nwp_mean + self.mean_correction(nwp_mean)  # [batch, channels, height, width]
+        means, _ = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1).chunk(2, dim=1)
+        nwp_mean = self.crop(means)
+        nwp_mean = self.crop(x["predicted_vars"]) + self.mean_correction(
+            nwp_mean
+        )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
 
         result = nwp_mean_expanded + self.crop(samples)

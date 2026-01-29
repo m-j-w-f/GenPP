@@ -323,6 +323,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
     def __init__(
         self,
         in_channels: int,
+        num_in_vars: int,
         out_channels: int,
         height: int,
         width: int,
@@ -391,6 +392,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         super().__init__(
             height=height,
             width=width,
+            num_in_vars=num_in_vars,
             out_channels=out_channels,
             backbone=backbone,
             n_samples=n_samples,
@@ -456,6 +458,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
     def __init__(
         self,
+        num_in_vars: int,
         in_channels: int,
         out_channels: int,
         height: int,
@@ -540,6 +543,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         super().__init__(
             height=height,
             width=width,
+            num_in_vars=num_in_vars,
             out_channels=out_channels,
             backbone=backbone,
             padding=padding,
@@ -555,6 +559,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
         # NOW assign instance variables and module attributes after super().__init__()
         self.in_channels = in_channels
+        self.num_in_vars = num_in_vars
         self.out_channels = out_channels
         self.height = height
         self.width = width
