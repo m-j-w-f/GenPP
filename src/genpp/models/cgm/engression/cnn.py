@@ -389,6 +389,9 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         )
 
         super().__init__(
+            height=height,
+            width=width,
+            out_channels=out_channels,
             backbone=backbone,
             n_samples=n_samples,
             n_samples_train=n_samples_train,
@@ -535,6 +538,9 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
         # Call super().__init__() before assigning any module attributes
         super().__init__(
+            height=height,
+            width=width,
+            out_channels=out_channels,
             backbone=backbone,
             padding=padding,
             optimizer=optimizer,
