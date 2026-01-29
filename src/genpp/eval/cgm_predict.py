@@ -7,10 +7,10 @@ specified data split, computes evaluation metrics (CRPS, Energy Score,
 Variogram Score), and logs results to WandB and local files.
 
 Usage:
-    python fm_predict.py --run-path feik/genpp/abc123 --split val
-    python fm_predict.py --run-path feik/genpp/abc123 --split test --skip-variogram
-    python fm_predict.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
-    python fm_predict.py --run-path feik/genpp/hbuy7eio --split val --device 0,1 --batch-size 32 --skip-variogram --save-predictions -v
+    python cgm_predict.py --run-path feik/genpp/abc123 --split val
+    python cgm_predict.py --run-path feik/genpp/abc123 --split test --skip-variogram
+    python cgm_predict.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
+    python cgm_predict.py --run-path feik/genpp/hbuy7eio --split val --device 0,1 --batch-size 32 --skip-variogram --save-predictions -v
 """
 
 from __future__ import annotations
@@ -278,25 +278,46 @@ def main() -> None:
     ModelClass = getattr(module, class_name)
 
     if ModelClass is CNNChenModel:
+        # For CNNChenModel (and its aliases), pass all required parameters from config
+        # This is needed for old checkpoints that don't have hyperparameters saved
+        model_kwargs = {
+            "in_features": cfg.model.in_features,
+            "meta_features": cfg.model.meta_features,
+            "out_features": cfg.model.out_features,
+            "width": cfg.model.width,
+            "height": cfg.model.height,
+            "noise_dim": cfg.model.noise_dim,
+            "embedding_dim": cfg.model.embedding_dim,
+            "final_activation": hydra.utils.instantiate(cfg.model.final_activation),
+            "loss_fn": hydra.utils.instantiate(cfg.model.loss_fn),
+            "optimizer": hydra.utils.instantiate(cfg.model.optimizer),
+            "lr_scheduler": cfg.model.lr_scheduler,
+            "internal_td_scaling": cfg.model.internal_td_scaling,
+            "use_rescaler": cfg.model.get("use_rescaler", False),
+            "rescaler": cfg.model.get("rescaler", None),
+            "padding": tuple(cfg.model.padding),
+            "std_unet_channels": tuple(cfg.model.get("std_unet_channels", (32, 64, 64))),
+            "std_unet_kernel_size": cfg.model.get("std_unet_kernel_size", 3),
+            "std_unet_use_batchnorm": cfg.model.get("std_unet_use_batchnorm", False),
+            "std_unet_pool_type": cfg.model.get("std_unet_pool_type", "max"),
+            "decoder_unet_channels": tuple(cfg.model.get("decoder_unet_channels", (32, 64, 64))),
+            "decoder_unet_kernel_size": cfg.model.get("decoder_unet_kernel_size", 3),
+            "decoder_unet_use_batchnorm": cfg.model.get("decoder_unet_use_batchnorm", False),
+            "decoder_unet_pool_type": cfg.model.get("decoder_unet_pool_type", "max"),
+            "n_samples": 50,
+        }
         try:
+            model = ModelClass.load_from_checkpoint(model_checkpoint, **model_kwargs)  # type: ignore
+        except (pickle.UnpicklingError, TypeError):
             model = ModelClass.load_from_checkpoint(
                 model_checkpoint,
-                final_activation=hydra.utils.instantiate(cfg.model.final_activation),
-                loss_fn=hydra.utils.instantiate(cfg.model.loss_fn),
-                n_samples=50,
-            )
-        except pickle.UnpicklingError:
-            model = ModelClass.load_from_checkpoint(
-                model_checkpoint,
-                final_activation=hydra.utils.instantiate(cfg.model.final_activation),
-                loss_fn=hydra.utils.instantiate(cfg.model.loss_fn),
-                n_samples=50,
                 weights_only=False,
+                **model_kwargs,  # type: ignore
             )
     else:
         try:
             model = ModelClass.load_from_checkpoint(model_checkpoint)
-        except pickle.UnpicklingError:
+        except (pickle.UnpicklingError, TypeError):
             model = ModelClass.load_from_checkpoint(model_checkpoint, weights_only=False)
 
     # Fix internal_td_scaling if needed
