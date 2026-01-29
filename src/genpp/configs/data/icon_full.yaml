@@ -1,7 +1,34 @@
-# ICON Forecast DataModule Configuration
-# Configuration for the ICON weather prediction model dataset
+# ICON Full Forecast DataModule Configuration
+# Flattened config combining icon_forecast + spatial/standard + splits/standard
 
-# Select variables for input (x) and target (y)
+# ============================================================================
+# SPATIAL CONFIGURATION
+# ============================================================================
+# ICON uses dynamic spatial dimensions based on grid type
+# No padding or transforms by default
+spatial:
+  x_transform: null
+  y_transform: null
+
+# ============================================================================
+# TIME SPLITS CONFIGURATION
+# ============================================================================
+# Split by forecast valid time (init_time + lead_time)
+# Note: ICON ForecastDataModule handles splits internally based on valid_time
+splits:
+  train:
+    start: "2019-01-01"
+    end: "2021-12-31"
+  val:
+    start: "2022-01-01"
+    end: "2022-12-31"
+  test:
+    start: "2023-01-01"
+    end: "2023-12-31"
+
+# ============================================================================
+# VARIABLE SELECTION
+# ============================================================================
 x_select_variables:
   - 'ALB_RAD'
   - 'ASOB_S'
@@ -48,12 +75,17 @@ y_select_variables:
   - 'T_2M+height_2.0'
   - 'VMAX_10M+height_2_10.0'
 
-# Batch size for training
+# ============================================================================
+# BATCH CONFIGURATION
+# ============================================================================
 batch_size: 32
 
 # Normalization type: 'zscore' or 'minmax'
 normalize_type: zscore
 
+# ============================================================================
+# DATA MODULE
+# ============================================================================
 module:
   _target_: genpp.data.icon.dataset.ForecastDataModule
   x_select_variables: ${data.x_select_variables}
@@ -70,4 +102,3 @@ module:
   train_split: ${data.splits.train}
   val_split: ${data.splits.val}
   test_split: ${data.splits.test}
-

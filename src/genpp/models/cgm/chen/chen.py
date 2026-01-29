@@ -361,7 +361,7 @@ class _CNNChenModelBase(BaseChenModel, ABC):
         """Prepare common inputs for forward pass.
 
         Args:
-            x: Input dictionary with predicted_vars, auxiliary_vars, meta_vars, and optionally pixel_idx.
+            x: Input dictionary with all_vars_mean, all_vars_std, meta_vars, and optionally pixel_idx.
             n_samples: Number of samples to generate.
 
         Returns:
@@ -374,9 +374,9 @@ class _CNNChenModelBase(BaseChenModel, ABC):
             - meta: Metadata tensor [batch_size, meta_dim, height, width]
             - emb: Embedding tensor or None [batch_size, embedding_dim, height, width]
         """
-        batch_size = x["predicted_vars"].shape[0]
-        x_cat = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1)
-        mean, std = torch.chunk(x_cat, 2, dim=1)
+        batch_size = x["all_vars_mean"].shape[0]
+        mean = x["all_vars_mean"]
+        std = x["all_vars_std"]
         meta = x["meta_vars"]
 
         if self.use_embedding:

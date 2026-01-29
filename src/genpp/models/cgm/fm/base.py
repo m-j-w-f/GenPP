@@ -196,9 +196,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
             use_rescaler (bool): Whether to use rescaling modules.
             rescaler (Sequence[nn.Module | None] | nn.Module | None, optional): Rescaling modules.
         """
-        # Initialize mixin first
-        InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
-        # Then initialize base class
+        # Initialize base class first (calls nn.Module.__init__)
         BaseFlowMatchingModel.__init__(
             self,
             backbone=backbone,
@@ -210,13 +208,15 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
             use_rescaler=use_rescaler,
             rescaler=rescaler,
         )
+        # Then initialize mixin (which assigns nn.Module attributes)
+        InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
 
     def _calc_loss(self, batch) -> torch.Tensor:
         # Sample Data (X_0,X_1) ~ π(X_0,X_1) = N(X_0|0,I)q(X_1)
         nwp_fc, ground_truth, td = batch["x"], batch["y"], batch["timedelta"]
         # We want to predict the errors of the NWP forecasts
         # Now x_1 contains the errors
-        x_1 = ground_truth - nwp_fc["predicted_vars"]
+        x_1 = ground_truth - nwp_fc["predicted_vars_mean"]
         # x_1 should always have roughly the same magnitude, independent of the lead time
         # NOTE a larger scale leads to smaller loss values, as the model has to predict smaller deviations
         # this effect should be counteracted by the internal_td_scaling that is learned beforehand
@@ -264,7 +264,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
         scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
         # Rescale the deviations according to the lead time (inverse of what was done during training)
         sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
-        ens_mean = rearrange(nwp_fc["predicted_vars"], "b c h w -> b 1 c h w")
+        ens_mean = rearrange(nwp_fc["predicted_vars_mean"], "b c h w -> b 1 c h w")
         res = ens_mean + sol  # Add the nwp forecasts to the deviations to get the final samples
         res_cropped = self.crop(res)
         return res_cropped

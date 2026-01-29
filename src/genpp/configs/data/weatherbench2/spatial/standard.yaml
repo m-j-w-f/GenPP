@@ -1,8 +1,0 @@
-# Standard spatial configuration for WeatherBench2
-# Original data dimensions
-original:
-  latitude: 31
-  longitude: 37
-
-x_transform: null
-y_transform: null

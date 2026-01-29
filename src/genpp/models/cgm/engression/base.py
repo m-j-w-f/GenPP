@@ -14,7 +14,7 @@ from omegaconf import DictConfig
 
 from genpp.models.cgm.utils import BaseGenerativeModule
 from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
-from genpp.models.layers import CropND
+from genpp.models.layers import CropND, LocallyConnected2D
 from genpp.models.scores import EnergyScore
 
 
@@ -188,18 +188,29 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
     with different noise realizations.
 
     Args:
+        height (int): Height of the input grid.
+        width (int): Width of the input grid.
+        num_in_vars (int): Number of input variables (without any aggregation level
+            and without meta features added).
+        out_channels (int): Number of output channels.
         backbone (StochasticBackbone): Stochastic neural network backbone.
-        n_samples (int): Number of samples to generate during training/inference.
         padding (Sequence[int]): Padding values to crop from the output.
         optimizer (Callable[..., torch.optim.Optimizer]): Optimizer factory.
         lr_scheduler (DictConfig): Learning rate scheduler config.
         use_rescaler (bool): Whether to use rescaling modules.
         rescaler (Sequence[nn.Module | None] | nn.Module | None): Rescaling modules.
-        loss_fn (nn.Module | None): Loss function. Defaults to EnergyScore.
+        loss_fn (nn.Module): Loss function. Defaults to EnergyScore.
+        n_samples (int | None): Number of samples to generate during training/inference.
+        n_samples_train (int | None): Number of samples during training.
+        n_samples_predict (int | None): Number of samples during prediction.
     """
 
     def __init__(
         self,
+        height: int,
+        width: int,
+        num_in_vars: int,
+        out_channels: int,
         backbone: StochasticBackbone,
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -226,6 +237,18 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         self.padding = padding
         self.crop = CropND(padding=padding) if padding else nn.Identity()
 
+        # Mean Correction Module
+        # padding order is (pad_lat_left, pad_lat_right, pad_lon_top, pad_lon_bottom)
+        # where lat is width (last dim) and lon is height (second-to-last dim)
+        height_no_pad = height - sum(padding[2:4])
+        width_no_pad = width - sum(padding[0:2])
+        self.mean_correction = LocallyConnected2D(
+            height=height_no_pad,
+            width=width_no_pad,
+            in_features=num_in_vars,
+            out_features=out_channels,
+        )
+
         # Loss function
         self.loss_fn = loss_fn
         self.es = EnergyScore()
@@ -235,8 +258,8 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         """Prepare input for the backbone.
 
         Args:
-            x (dict[str, torch.Tensor]): Input dictionary with predicted_vars,
-                auxiliary_vars, meta_vars, and pixel_idx.
+            x (dict[str, torch.Tensor]): Input dictionary with predicted_vars_mean,
+                predicted_vars_std, all_vars_mean, all_vars_std, meta_vars, and pixel_idx.
 
         Returns:
             torch.Tensor: Prepared input tensor.
@@ -387,6 +410,10 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
 
     def __init__(
         self,
+        height: int,
+        width: int,
+        num_in_vars: int,
+        out_channels: int,
         backbone: StochasticBackbone,
         padding: Sequence[int],
         optimizer: Callable[..., torch.optim.Optimizer],
@@ -416,6 +443,10 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         """
         BaseEngressionModel.__init__(
             self,
+            height=height,
+            width=width,
+            num_in_vars=num_in_vars,
+            out_channels=out_channels,
             backbone=backbone,
             padding=padding,
             optimizer=optimizer,
@@ -446,19 +477,22 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         # Generate samples using the stochastic backbone
         samples = self.backbone.sample(backbone_input, n_samples)
 
-        # Get NWP forecast mean for residual connection
-        nwp_mean = x["predicted_vars"]  # [batch, channels, height, width]
-
         # Scale by TD and add to NWP mean
         scale = self.internal_td_scaling.get_scale(td=td)  # [batch, n_vars, 1, 1]
         scale = rearrange(scale, "b c 1 1 -> b 1 c 1 1")
+        scaled_samples = scale * self.crop(
+            samples
+        )  # [batch, n_samples, out_features, height, width]
 
-        # samples contains the deviation from NWP mean
+        # Get NWP forecast mean for residual connection
+        nwp_mean = self.crop(x["all_vars_mean"])
+        nwp_mean = self.crop(x["predicted_vars_mean"]) + self.mean_correction(
+            nwp_mean
+        )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
-        result = nwp_mean_expanded + scale * samples
 
-        # Crop padding
-        result = self.crop(result)
+        result = nwp_mean_expanded + scaled_samples
+
         return result
 
 
@@ -487,10 +521,12 @@ class BaseEngressionDirectModel(BaseEngressionModel, ABC):
         samples = self.backbone.sample(backbone_input, n_samples)
 
         # Get NWP forecast mean for residual connection
-        nwp_mean = x["predicted_vars"]  # [batch, channels, height, width]
+        nwp_mean = self.crop(x["all_vars_mean"])
+        nwp_mean = self.crop(x["predicted_vars_mean"]) + self.mean_correction(
+            nwp_mean
+        )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
-        result = nwp_mean_expanded + samples
 
-        # Crop padding
-        result = self.crop(result)
+        result = nwp_mean_expanded + self.crop(samples)
+
         return result
