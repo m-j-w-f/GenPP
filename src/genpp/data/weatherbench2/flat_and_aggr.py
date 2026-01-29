@@ -17,6 +17,7 @@ from warnings import warn
 import xarray as xr
 from dask.distributed import Client
 
+from genpp.data.utils import flatten_levels
 from genpp.data.weatherbench2 import (
     FC_VARS,
     FORECAST_ENS_FLAT_AGG_NAME,
@@ -26,7 +27,6 @@ from genpp.data.weatherbench2 import (
     OBSERVATIONS_PATH,
     OUTPUT_DIR,
 )
-from genpp.data.utils import flatten_levels
 
 
 def main(base_dir: Path = OUTPUT_DIR) -> None:
@@ -44,7 +44,7 @@ def main(base_dir: Path = OUTPUT_DIR) -> None:
     if (ENS_OUTPUT := base_dir / FORECAST_ENS_FLAT_AGG_NAME).exists():
         warn(f"Output path {ENS_OUTPUT} exists and will be removed.")
         shutil.rmtree(ENS_OUTPUT)
-    flat_ens_aggr.to_zarr(ENS_OUTPUT, consolidated=True)
+    flat_ens_aggr.to_zarr(ENS_OUTPUT, consolidated=True)  # type: ignore
 
     obs = xr.open_zarr(OBSERVATIONS_PATH, consolidated=True)
     obs = obs[FC_VARS]
@@ -52,7 +52,7 @@ def main(base_dir: Path = OUTPUT_DIR) -> None:
     if (OBS_OUTPUT := base_dir / OBSERVATIONS_FLAT_NAME).exists():
         warn(f"Output path {OBS_OUTPUT} exists and will be removed.")
         shutil.rmtree(OBS_OUTPUT)
-    flat_obs.to_zarr(OBS_OUTPUT, consolidated=True)
+    flat_obs.to_zarr(OBS_OUTPUT, consolidated=True)  # type: ignore
 
 
 if __name__ == "__main__":
