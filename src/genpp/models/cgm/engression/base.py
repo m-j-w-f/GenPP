@@ -258,8 +258,8 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         """Prepare input for the backbone.
 
         Args:
-            x (dict[str, torch.Tensor]): Input dictionary with predicted_vars,
-                auxiliary_vars, meta_vars, and pixel_idx.
+            x (dict[str, torch.Tensor]): Input dictionary with predicted_vars_mean,
+                predicted_vars_std, all_vars_mean, all_vars_std, meta_vars, and pixel_idx.
 
         Returns:
             torch.Tensor: Prepared input tensor.
@@ -485,10 +485,8 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         )  # [batch, n_samples, out_features, height, width]
 
         # Get NWP forecast mean for residual connection
-        # Get means of all vars (predicted + auxiliary)
-        means, _ = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1).chunk(2, dim=1)
-        nwp_mean = self.crop(means)
-        nwp_mean = self.crop(x["predicted_vars"]) + self.mean_correction(
+        nwp_mean = self.crop(x["all_vars_mean"])
+        nwp_mean = self.crop(x["predicted_vars_mean"]) + self.mean_correction(
             nwp_mean
         )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")
@@ -523,9 +521,8 @@ class BaseEngressionDirectModel(BaseEngressionModel, ABC):
         samples = self.backbone.sample(backbone_input, n_samples)
 
         # Get NWP forecast mean for residual connection
-        means, _ = torch.cat([x["predicted_vars"], x["auxiliary_vars"]], dim=1).chunk(2, dim=1)
-        nwp_mean = self.crop(means)
-        nwp_mean = self.crop(x["predicted_vars"]) + self.mean_correction(
+        nwp_mean = self.crop(x["all_vars_mean"])
+        nwp_mean = self.crop(x["predicted_vars_mean"]) + self.mean_correction(
             nwp_mean
         )  # [batch, channels, height, width]
         nwp_mean_expanded = rearrange(nwp_mean, "b c h w -> b 1 c h w")

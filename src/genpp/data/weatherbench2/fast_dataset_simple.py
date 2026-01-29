@@ -20,6 +20,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
 from xbatcher.loaders.torch import to_tensor
 
+from genpp.data.utils import MetadataVars, flatten_levels
 from genpp.data.weatherbench2 import (
     FORECAST_ENS_FLAT_AGG_NAME,
     FORECAST_ENS_NAME,
@@ -27,7 +28,6 @@ from genpp.data.weatherbench2 import (
     OBSERVATIONS_NAME,
     OUTPUT_DIR,
 )
-from genpp.data.utils import flatten_levels, MetadataVars
 from genpp.preproc.preprocessors import Preprocessor
 
 
@@ -108,28 +108,63 @@ def _cache_data(
     all_y_features = y_da.feature.values.tolist()
     meta_var_values = [v.value for v in MetadataVars]
 
-    # Identify feature categories
-    meta_var_names = [f for f in all_x_features if f in meta_var_values and f != "pixel_idx"]
-    predicted_var_names = [
-        f for f in all_x_features if f.removesuffix("+statistic_mean") in all_y_features
-    ]
-    auxiliary_var_names = [
-        f
-        for f in all_x_features
-        if f not in predicted_var_names and f not in meta_var_names and f != "pixel_idx"
-    ]
+    # Identify feature categories based on suffixes
+    # Features ending with +statistic_mean are means, +statistic_std are stds
+    mean_suffix = "+statistic_mean"
+    std_suffix = "+statistic_std"
 
-    # Get feature indices for each category
+    # Meta variables (latitude, longitude, sin/cos time, etc.) - no mean/std suffix
+    meta_var_names = [f for f in all_x_features if f in meta_var_values and f != "pixel_idx"]
     meta_var_indices = [i for i, f in enumerate(all_x_features) if f in meta_var_names]
-    predicted_var_indices = [i for i, f in enumerate(all_x_features) if f in predicted_var_names]
-    auxiliary_var_indices = [i for i, f in enumerate(all_x_features) if f in auxiliary_var_names]
+
+    # Pixel index (special case)
     pixel_idx_index = [all_x_features.index("pixel_idx")] if "pixel_idx" in all_x_features else None
 
+    # All variables with mean suffix (excluding meta vars and pixel_idx)
+    all_var_mean_names = [
+        f
+        for f in all_x_features
+        if f.endswith(mean_suffix) and f not in meta_var_names and f != "pixel_idx"
+    ]
+    all_var_mean_indices = [i for i, f in enumerate(all_x_features) if f in all_var_mean_names]
+
+    # All variables with std suffix (excluding meta vars and pixel_idx)
+    all_var_std_names = [
+        f
+        for f in all_x_features
+        if f.endswith(std_suffix) and f not in meta_var_names and f != "pixel_idx"
+    ]
+    all_var_std_indices = [i for i, f in enumerate(all_x_features) if f in all_var_std_names]
+
+    # Predicted variables: those whose base name (without suffix) is in y_features
+    # For mean: remove +statistic_mean and check if base is in y
+    predicted_var_mean_names = [
+        f for f in all_var_mean_names if f.removesuffix(mean_suffix) in all_y_features
+    ]
+    predicted_var_mean_indices = [
+        i for i, f in enumerate(all_x_features) if f in predicted_var_mean_names
+    ]
+
+    # For std: remove +statistic_std and check if base is in y
+    predicted_var_std_names = [
+        f for f in all_var_std_names if f.removesuffix(std_suffix) in all_y_features
+    ]
+    predicted_var_std_indices = [
+        i for i, f in enumerate(all_x_features) if f in predicted_var_std_names
+    ]
+
     feature_metadata = {
-        "predicted_var_names": predicted_var_names,
-        "predicted_var_indices": predicted_var_indices,
-        "auxiliary_var_names": auxiliary_var_names,
-        "auxiliary_var_indices": auxiliary_var_indices,
+        # Predicted variables (subset of all_vars that correspond to y targets)
+        "predicted_var_mean_names": predicted_var_mean_names,
+        "predicted_var_mean_indices": predicted_var_mean_indices,
+        "predicted_var_std_names": predicted_var_std_names,
+        "predicted_var_std_indices": predicted_var_std_indices,
+        # All input variables (means and stds separately)
+        "all_var_mean_names": all_var_mean_names,
+        "all_var_mean_indices": all_var_mean_indices,
+        "all_var_std_names": all_var_std_names,
+        "all_var_std_indices": all_var_std_indices,
+        # Meta variables and pixel index
         "meta_var_names": meta_var_names,
         "meta_var_indices": meta_var_indices,
         "pixel_idx_index": pixel_idx_index,
@@ -277,23 +312,36 @@ class TransformTensorDataset(Dataset):
         if self.y_transform is not None:
             y = self.y_transform(y)
 
-        # Split x into predicted, auxiliary, and meta variables
-        predicted_var_indices = self.feature_metadata["predicted_var_indices"]
-        auxiliary_var_indices = self.feature_metadata["auxiliary_var_indices"]
+        # Get feature indices from metadata
+        predicted_var_mean_indices = self.feature_metadata["predicted_var_mean_indices"]
+        predicted_var_std_indices = self.feature_metadata["predicted_var_std_indices"]
+        all_var_mean_indices = self.feature_metadata["all_var_mean_indices"]
+        all_var_std_indices = self.feature_metadata["all_var_std_indices"]
         meta_var_indices = self.feature_metadata["meta_var_indices"]
         pixel_idx_index = self.feature_metadata.get("pixel_idx_index", None)
 
         # Extract tensors for each category
         # x shape: [feature, ...] (the collate is not called yet -> no batch dimension)
-        predicted_vars = x[predicted_var_indices] if predicted_var_indices else torch.tensor([])
-        auxiliary_vars = x[auxiliary_var_indices] if auxiliary_var_indices else torch.tensor([])
+        # Predicted variables (subset of all_vars that correspond to y targets)
+        predicted_vars_mean = (
+            x[predicted_var_mean_indices] if predicted_var_mean_indices else torch.tensor([])
+        )
+        predicted_vars_std = (
+            x[predicted_var_std_indices] if predicted_var_std_indices else torch.tensor([])
+        )
+        # All input variables (means and stds)
+        all_vars_mean = x[all_var_mean_indices] if all_var_mean_indices else torch.tensor([])
+        all_vars_std = x[all_var_std_indices] if all_var_std_indices else torch.tensor([])
+        # Meta variables and pixel index
         meta_vars = x[meta_var_indices] if meta_var_indices else torch.tensor([])
         pixel_idx = x[pixel_idx_index] if pixel_idx_index else torch.tensor([])
 
         return {
             "x": {
-                "predicted_vars": predicted_vars,
-                "auxiliary_vars": auxiliary_vars,
+                "predicted_vars_mean": predicted_vars_mean,
+                "predicted_vars_std": predicted_vars_std,
+                "all_vars_mean": all_vars_mean,
+                "all_vars_std": all_vars_std,
                 "meta_vars": meta_vars,
                 "pixel_idx": pixel_idx.int(),
             },

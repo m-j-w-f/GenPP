@@ -2,7 +2,8 @@
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import lightning as L
 import numpy as np
@@ -12,14 +13,13 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from genpp import BASE_DIR
-from genpp.data.utils import MetadataVars
 from genpp.data.icon import (
     AXIS_ORDER,
     LEVELS_TO_FLATTEN,
     VARS_GRID_28,
     VARS_TO_DROP,
 )
-from genpp.data.utils import flatten_levels
+from genpp.data.utils import MetadataVars, flatten_levels
 
 # %%
 DATA_DIR = BASE_DIR / "data" / "icon" / "data"
@@ -149,7 +149,7 @@ class ForecastDataset(Dataset):
             feature_metadata (dict[str, torch.Tensor]): Dictionary containing feature categorization info
                 (predicted_var_indices, auxiliary_var_indices, meta_var_indices).
             normalize_type (str): Type of normalization, either 'zscore' or 'minmax'.
-            x_transform (Callable | None): Optional transform to apply to input features (predicted_vars, 
+            x_transform (Callable | None): Optional transform to apply to input features (predicted_vars,
                 auxiliary_vars, meta_vars) after normalization. Can be a function or nn.Module.
             y_transform (Callable | None): Optional transform to apply to target (rea) after normalization.
                 Can be a function or nn.Module.
@@ -177,7 +177,7 @@ class ForecastDataset(Dataset):
 
         Returns:
             dict[str, Any]: Dictionary containing:
-                - x: dict with predicted_vars, auxiliary_vars, meta_vars, pixel_idx
+                - x: dict with predicted_vars_mean, predicted_vars_std, all_vars_mean, all_vars_std, meta_vars, pixel_idx
                 - y: target tensor
                 - timedelta: normalized prediction timedelta
         """
@@ -189,28 +189,36 @@ class ForecastDataset(Dataset):
         rea = torch.load(rea_path)  # shape [c, x, y]
 
         # Extract predicted and auxiliary variables
-        predicted_vars = fc_dict["predicted_vars"]  # shape [c0, x, y]
-        auxiliary_vars = fc_dict["auxiliary_vars"]  # shape [c1, x, y]
+        # For ICON data, predicted_vars contains means and auxiliary_vars contains stds
+        predicted_vars_mean = fc_dict["predicted_vars"]  # shape [c0, x, y]
+        predicted_vars_std = fc_dict["auxiliary_vars"]  # shape [c1, x, y]
+        # For ICON, all_vars are the same as predicted_vars (no extra auxiliary variables)
+        all_vars_mean = predicted_vars_mean
+        all_vars_std = predicted_vars_std
 
-        # Normalize predicted variables
+        # Normalize predicted variables (means)
         if self.normalize_type == "zscore":
-            predicted_vars = (predicted_vars - self.norm_stats["pred_mean"]) / self.norm_stats[
-                "pred_std"
-            ]
+            predicted_vars_mean = (
+                predicted_vars_mean - self.norm_stats["pred_mean"]
+            ) / self.norm_stats["pred_std"]
+            all_vars_mean = predicted_vars_mean
         elif self.normalize_type == "minmax":
-            predicted_vars = (predicted_vars - self.norm_stats["pred_min"]) / (
+            predicted_vars_mean = (predicted_vars_mean - self.norm_stats["pred_min"]) / (
                 self.norm_stats["pred_max"] - self.norm_stats["pred_min"]
             )
+            all_vars_mean = predicted_vars_mean
 
-        # Normalize auxiliary variables
+        # Normalize predicted variables (stds)
         if self.normalize_type == "zscore":
-            auxiliary_vars = (auxiliary_vars - self.norm_stats["aux_mean"]) / self.norm_stats[
-                "aux_std"
-            ]
+            predicted_vars_std = (
+                predicted_vars_std - self.norm_stats["aux_mean"]
+            ) / self.norm_stats["aux_std"]
+            all_vars_std = predicted_vars_std
         elif self.normalize_type == "minmax":
-            auxiliary_vars = (auxiliary_vars - self.norm_stats["aux_min"]) / (
+            predicted_vars_std = (predicted_vars_std - self.norm_stats["aux_min"]) / (
                 self.norm_stats["aux_max"] - self.norm_stats["aux_min"]
             )
+            all_vars_std = predicted_vars_std
 
         # Normalize REA (reanalysis target)
         if self.normalize_type == "zscore":
@@ -222,8 +230,10 @@ class ForecastDataset(Dataset):
 
         # Apply transforms if provided (after normalization)
         if self.x_transform is not None:
-            predicted_vars = self.x_transform(predicted_vars)
-            auxiliary_vars = self.x_transform(auxiliary_vars)
+            predicted_vars_mean = self.x_transform(predicted_vars_mean)
+            predicted_vars_std = self.x_transform(predicted_vars_std)
+            all_vars_mean = self.x_transform(all_vars_mean)
+            all_vars_std = self.x_transform(all_vars_std)
             meta = self.x_transform(meta)
 
         if self.y_transform is not None:
@@ -236,8 +246,10 @@ class ForecastDataset(Dataset):
 
         return {
             "x": {
-                "predicted_vars": predicted_vars,
-                "auxiliary_vars": auxiliary_vars,
+                "predicted_vars_mean": predicted_vars_mean,
+                "predicted_vars_std": predicted_vars_std,
+                "all_vars_mean": all_vars_mean,
+                "all_vars_std": all_vars_std,
                 "meta_vars": meta,
                 "pixel_idx": None,
             },
@@ -313,7 +325,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
         self.norm_stats_file: Path | None = None
-        
+
         # Store split configurations (dates for valid_time filtering)
         # Default to old year-based splits if not provided
         self.train_split = train_split or {"start": "2019-01-01", "end": "2021-12-31"}
@@ -353,7 +365,7 @@ class ForecastDataModule(L.LightningDataModule):
                     leadtime = np.timedelta64(int(leadtime_str), "h")
                     # Calculate valid_time
                     valid_time = init_date + leadtime
-                    
+
                     if train_start <= valid_time <= train_end:
                         train_paths.append(fc_path.name)
                 except (ValueError, IndexError):
@@ -376,7 +388,7 @@ class ForecastDataModule(L.LightningDataModule):
         # Parse train split dates
         train_start = np.datetime64(self.train_split["start"])
         train_end = np.datetime64(self.train_split["end"])
-        
+
         train_paths = []
         for tensor_path in tensor_paths:
             # Extract date and leadtime from filename
@@ -394,7 +406,7 @@ class ForecastDataModule(L.LightningDataModule):
                     leadtime = np.timedelta64(int(leadtime_str), "h")
                     # Calculate valid_time
                     valid_time = init_date + leadtime
-                    
+
                     if train_start <= valid_time <= train_end:
                         train_paths.append(tensor_path)
                 except (ValueError, IndexError):
@@ -642,7 +654,7 @@ class ForecastDataModule(L.LightningDataModule):
             else:
                 # Sample falls outside all split ranges
                 dropped_samples.append((sample[0].name, valid_time))
-        
+
         # Log dropped samples if any
         if dropped_samples:
             logger.warning(

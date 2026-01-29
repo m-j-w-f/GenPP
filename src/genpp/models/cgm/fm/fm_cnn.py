@@ -308,8 +308,8 @@ class UNetCVF(ConditionalVectorField):
 
         # Build conditioning_embed with all components
         conditioning_parts = [
-            conditioning["predicted_vars"],
-            conditioning["auxiliary_vars"],
+            conditioning["all_vars_mean"],
+            conditioning["all_vars_std"],
             conditioning["meta_vars"],
             self.conditioning_embedder(conditioning["pixel_idx"]),
         ]
@@ -319,7 +319,7 @@ class UNetCVF(ConditionalVectorField):
             td = conditioning["timedelta"]  # [bs]
             td_embed = self.td_embedder(td)  # [bs, 1 | td_embedding_dim]
             # Expand spatially to match conditioning dimensions
-            *_, h, w = conditioning["predicted_vars"].shape
+            *_, h, w = conditioning["all_vars_mean"].shape
             td_embed = td_embed[..., None, None].expand(-1, -1, h, w)  # [bs, td_dim, h, w]
             conditioning_parts.append(td_embed)
 

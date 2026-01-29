@@ -428,8 +428,8 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary with:
-                - predicted_vars: [batch, pred_channels, height, width]
-                - auxiliary_vars: [batch, aux_channels, height, width]
+                - all_vars_mean: [batch, n_vars, height, width]
+                - all_vars_std: [batch, n_vars, height, width]
                 - meta_vars: [batch, meta_channels, height, width]
                 - pixel_idx: [batch, 1, height, width]
 
@@ -437,8 +437,8 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
             torch.Tensor: Concatenated input tensor.
         """
         inputs = [
-            x["predicted_vars"],
-            x["auxiliary_vars"],
+            x["all_vars_mean"],
+            x["all_vars_std"],
             x["meta_vars"],
         ]
 
@@ -586,8 +586,8 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
         Args:
             x (dict[str, torch.Tensor]): Input dictionary with:
-                - predicted_vars: [batch, pred_channels, height, width]
-                - auxiliary_vars: [batch, aux_channels, height, width]
+                - all_vars_mean: [batch, n_vars, height, width]
+                - all_vars_std: [batch, n_vars, height, width]
                 - meta_vars: [batch, meta_channels, height, width]
                 - pixel_idx: [batch, 1, height, width]
 
@@ -595,8 +595,8 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             torch.Tensor: Concatenated input tensor.
         """
         inputs = [
-            x["predicted_vars"],
-            x["auxiliary_vars"],
+            x["all_vars_mean"],
+            x["all_vars_std"],
             x["meta_vars"],
         ]
 
@@ -623,7 +623,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
 
         # Encode timedelta and expand spatially
         enc_timedelta = self.td_encoder(td)  # [batch, td_encoding_dim]
-        *_, h, w = x["predicted_vars"].shape
+        *_, h, w = x["all_vars_mean"].shape
         enc_timedelta = enc_timedelta[..., None, None].expand(
             -1, -1, h, w
         )  # [batch, td_encoding_dim, height, width]
@@ -635,7 +635,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         samples = self.backbone.sample(backbone_input, n_samples)
 
         # Residual Connection
-        means = x["predicted_vars"].unsqueeze(1)  # [batch, 1, out_channels, height, width]
+        means = x["predicted_vars_mean"].unsqueeze(1)  # [batch, 1, out_channels, height, width]
         res = means + samples
 
         # Crop padding

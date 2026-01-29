@@ -15,7 +15,10 @@ class InternalTDScalingMixin:
     - setup() method to fit the scaling model during training
 
     This should be used with noise-based models that predict deviations from NWP forecasts.
-    Use this as the first base class in multiple inheritance to ensure proper initialization order.
+
+    IMPORTANT: The base class must be initialized BEFORE this mixin, because this mixin
+    assigns nn.Module attributes (self.internal_td_scaling), which requires nn.Module.__init__()
+    to have been called first.
 
     Args:
         internal_td_scaling (str): Scaling strategy to normalize (predicted) deviations based on
@@ -25,10 +28,10 @@ class InternalTDScalingMixin:
     Example:
         class MyNoiseModel(InternalTDScalingMixin, BaseModel):
             def __init__(self, internal_td_scaling: str, other_param: int, **kwargs):
-                # Initialize mixin explicitly
-                InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
-                # Then initialize base class
+                # Initialize base class FIRST (calls nn.Module.__init__)
                 BaseModel.__init__(self, other_param=other_param, **kwargs)
+                # Then initialize mixin (assigns nn.Module attributes)
+                InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
     """
 
     def __init__(self, internal_td_scaling: str) -> None:
@@ -96,7 +99,7 @@ class LinearAbsTDScaling(BaseInternalTDScaling):
             pbar = tqdm(train_loader, desc="Fitting abs(err)~TD")
             for batch in pbar:
                 nwp, obs, td = batch["x"], batch["y"], batch["timedelta"]
-                nwp = nwp["predicted_vars"]  # We only need these vars
+                nwp = nwp["predicted_vars_mean"]  # We only need these vars
 
                 # Initialize A and b
                 if A is None:
@@ -206,7 +209,7 @@ class FixedTDScaling(LinearAbsTDScaling):
             pbar = tqdm(train_loader, desc="Fitting fixed TD scaling")
             for batch in pbar:
                 nwp, obs, td = batch["x"], batch["y"], batch["timedelta"]
-                nwp = nwp["predicted_vars"]
+                nwp = nwp["predicted_vars_mean"]
 
                 if crop_layer is not None:
                     nwp = crop_layer(nwp)  # type: ignore
