@@ -133,7 +133,7 @@ def get_metadata_features(da: xr.DataArray) -> xr.DataArray:
 class ForecastDataset(Dataset):
     def __init__(
         self,
-        samples: list[tuple[Path, Path | None, Path, np.datetime64, np.timedelta64]],
+        samples: list[tuple[Path, Path, np.datetime64, np.timedelta64]],
         norm_stats: dict[str, torch.Tensor],
         feature_metadata: dict[str, Any],
         normalize_type: str = "zscore",
@@ -143,15 +143,16 @@ class ForecastDataset(Dataset):
         """Initialize the ForecastDataset.
 
         Args:
-            samples (list[tuple[Path, Path | None, Path, np.datetime64, np.timedelta64]]): List of tuples containing
-                (fc_path, meta_path, rea_path, init_date, leadtime). meta_path is None in the new unified format.
+            samples (list[tuple[Path, Path, np.datetime64, np.timedelta64]]): List of tuples containing
+                (fc_path, rea_path, init_date, leadtime). Meta features are embedded in fc_path.
             norm_stats (dict[str, torch.Tensor]): Dictionary with normalization statistics
-                ('fc_mean', 'fc_std', 'fc_min', 'fc_max', 'rea_mean', 'rea_std', 'rea_min', 'rea_max').
+                ('all_mean', 'all_std', 'all_min', 'all_max', 'aux_mean', 'aux_std', 'aux_min', 'aux_max',
+                'rea_mean', 'rea_std', 'rea_min', 'rea_max').
             feature_metadata (dict[str, Any]): Dictionary containing feature categorization info
-                (predicted_var_indices, auxiliary_var_indices, meta_var_indices).
+                (predicted_var_indices, all_var_indices, meta_var_indices).
             normalize_type (str): Type of normalization, either 'zscore' or 'minmax'.
             x_transform (Callable | None): Optional transform to apply to input features (predicted_vars,
-                auxiliary_vars, meta_vars) after normalization. Can be a function or nn.Module.
+                all_vars, meta_vars) after normalization. Can be a function or nn.Module.
             y_transform (Callable | None): Optional transform to apply to target (rea) after normalization.
                 Can be a function or nn.Module.
         """
@@ -182,82 +183,52 @@ class ForecastDataset(Dataset):
                 - y: target tensor
                 - timedelta: normalized prediction timedelta
         """
-        fc_path, meta_path, rea_path, _, leadtime = self.samples[idx]
+        fc_path, rea_path, _, leadtime = self.samples[idx]
 
         # Load tensors (new unified format)
         fc_tensor = torch.load(fc_path)  # unified tensor with all features [c_total, x, y]
         rea = torch.load(rea_path)  # shape [c, x, y]
 
         # Extract features using indices from metadata
+        # Note: predicted_var indices point INTO the all_var arrays (subset relationship)
         predicted_var_mean_indices = self.feature_metadata["predicted_var_mean_indices"]
         predicted_var_std_indices = self.feature_metadata["predicted_var_std_indices"]
         all_var_mean_indices = self.feature_metadata["all_var_mean_indices"]
         all_var_std_indices = self.feature_metadata["all_var_std_indices"]
         meta_var_indices = self.feature_metadata["meta_var_indices"]
 
-        # Slice the unified tensor
-        predicted_vars_mean = fc_tensor[predicted_var_mean_indices]  # shape [c_pred, x, y]
-        predicted_vars_std = fc_tensor[predicted_var_std_indices]  # shape [c_pred, x, y]
+        # Slice the unified tensor to get all_vars and meta
         all_vars_mean = fc_tensor[all_var_mean_indices]  # shape [c_all, x, y]
         all_vars_std = fc_tensor[all_var_std_indices]  # shape [c_all, x, y]
         meta = fc_tensor[meta_var_indices]  # shape [c_meta, x, y]
-
-        # Normalize predicted variables (means) - these are just the y variables
+        
+        # Normalize all variables (means)
         if self.normalize_type == "zscore":
-            predicted_vars_mean = (
-                predicted_vars_mean - self.norm_stats["pred_mean"]
-            ) / self.norm_stats["pred_std"]
-        elif self.normalize_type == "minmax":
-            predicted_vars_mean = (predicted_vars_mean - self.norm_stats["pred_min"]) / (
-                self.norm_stats["pred_max"] - self.norm_stats["pred_min"]
-            )
-
-        # Normalize all variables (means) - these are all x variables
-        # The aux_stats are ordered as: [predicted_vars_std, all_vars_mean, all_vars_std]
-        # all_vars_mean stats are in the middle section
-        if self.normalize_type == "zscore":
-            offset = len(predicted_var_std_indices)
             all_vars_mean = (
-                all_vars_mean - self.norm_stats["aux_mean"][offset:offset+len(all_var_mean_indices)]
-            ) / self.norm_stats["aux_std"][offset:offset+len(all_var_mean_indices)]
+                all_vars_mean - self.norm_stats["all_mean"]
+            ) / self.norm_stats["all_std"]
         elif self.normalize_type == "minmax":
-            offset = len(predicted_var_std_indices)
             all_vars_mean = (
-                all_vars_mean - self.norm_stats["aux_min"][offset:offset+len(all_var_mean_indices)]
+                all_vars_mean - self.norm_stats["all_min"]
             ) / (
-                self.norm_stats["aux_max"][offset:offset+len(all_var_mean_indices)] 
-                - self.norm_stats["aux_min"][offset:offset+len(all_var_mean_indices)]
+                self.norm_stats["all_max"] - self.norm_stats["all_min"]
             )
 
-        # Normalize std variables - these are auxiliary features
-        # The aux_stats are ordered as: [predicted_vars_std, all_vars_mean, all_vars_std]
-        # with respective lengths for each section
+        # Normalize all variables (stds)
         if self.normalize_type == "zscore":
-            # For predicted_vars_std, use the first portion of aux stats
-            predicted_vars_std = (
-                predicted_vars_std - self.norm_stats["aux_mean"][:len(predicted_var_std_indices)]
-            ) / self.norm_stats["aux_std"][:len(predicted_var_std_indices)]
-            
-            # For all_vars_std, use the last portion after predicted_vars_std and all_vars_mean
-            offset = len(predicted_var_std_indices) + len(all_var_mean_indices)
             all_vars_std = (
-                all_vars_std - self.norm_stats["aux_mean"][offset:]
-            ) / self.norm_stats["aux_std"][offset:]
+                all_vars_std - self.norm_stats["aux_mean"]
+            ) / self.norm_stats["aux_std"]
         elif self.normalize_type == "minmax":
-            predicted_vars_std = (
-                predicted_vars_std - self.norm_stats["aux_min"][:len(predicted_var_std_indices)]
-            ) / (
-                self.norm_stats["aux_max"][:len(predicted_var_std_indices)] 
-                - self.norm_stats["aux_min"][:len(predicted_var_std_indices)]
-            )
-            
-            offset = len(predicted_var_std_indices) + len(all_var_mean_indices)
             all_vars_std = (
-                all_vars_std - self.norm_stats["aux_min"][offset:]
+                all_vars_std - self.norm_stats["aux_min"]
             ) / (
-                self.norm_stats["aux_max"][offset:] 
-                - self.norm_stats["aux_min"][offset:]
+                self.norm_stats["aux_max"] - self.norm_stats["aux_min"]
             )
+
+        # Extract predicted vars AFTER normalization (they're subsets of normalized all_vars)
+        predicted_vars_mean = all_vars_mean[predicted_var_mean_indices]
+        predicted_vars_std = all_vars_std[[i - len(all_var_mean_indices) for i in predicted_var_std_indices]]
 
         # Normalize REA (reanalysis target)
         if self.normalize_type == "zscore":
@@ -586,11 +557,11 @@ class ForecastDataModule(L.LightningDataModule):
         Computes statistics across all spatial dimensions in a single pass through the data
         to minimize I/O overhead. Results are stored in self.norm_stats and saved to disk.
 
-        Statistics are computed ONLY on the train set (year <= 2021).
+        Statistics are computed ONLY on the train set.
 
         The computed statistics have shapes:
-        - Predicted var statistics: [c0, 1, 1]
-        - Auxiliary var statistics: [c1, 1, 1]
+        - All var (mean) statistics: [c_all, 1, 1]
+        - All var (std) statistics: [c_all, 1, 1]
         - REA statistics: [c, 1, 1]
         """
         # Load feature metadata first
@@ -599,38 +570,33 @@ class ForecastDataModule(L.LightningDataModule):
         
         self.norm_stats = {}
 
-        # Compute statistics for predicted variables in FC tensors
+        # Compute statistics for all variables (mean) in FC tensors
         fc_tensor_paths = list(self.fc_tensor_dir.glob("fc_*.pt"))
         # Filter to only train set samples
         fc_tensor_paths = self._filter_train_tensor_paths(fc_tensor_paths)
 
         if fc_tensor_paths:
             print(
-                f"Computing predicted_vars stats from {len(fc_tensor_paths)} train set FC tensors"
+                f"Computing all_vars_mean stats from {len(fc_tensor_paths)} train set FC tensors"
             )
-            # Use predicted_var_mean_indices to extract only those features
-            pred_mean, pred_std, pred_min, pred_max = self._compute_tensor_stats(
-                fc_tensor_paths, feature_indices=self.feature_metadata["predicted_var_mean_indices"]
+            # all_vars_mean are at the beginning of the tensor
+            all_mean, all_std, all_min, all_max = self._compute_tensor_stats(
+                fc_tensor_paths, feature_indices=self.feature_metadata["all_var_mean_indices"]
             )
             self.norm_stats.update(
                 {
-                    "pred_mean": pred_mean,
-                    "pred_std": pred_std,
-                    "pred_min": pred_min,
-                    "pred_max": pred_max,
+                    "all_mean": all_mean,
+                    "all_std": all_std,
+                    "all_min": all_min,
+                    "all_max": all_max,
                 }
             )
 
-            # Compute statistics for auxiliary variables in FC tensors
-            print(f"Computing aux_vars stats from {len(fc_tensor_paths)} train set FC tensors")
-            # Use predicted_var_std_indices + all_var_mean/std_indices for auxiliary stats
-            aux_indices = (
-                self.feature_metadata["predicted_var_std_indices"]
-                + self.feature_metadata["all_var_mean_indices"]
-                + self.feature_metadata["all_var_std_indices"]
-            )
+            # Compute statistics for all variables (std) in FC tensors
+            print(f"Computing all_vars_std stats from {len(fc_tensor_paths)} train set FC tensors")
+            # all_vars_std come after all_vars_mean
             aux_mean, aux_std, aux_min, aux_max = self._compute_tensor_stats(
-                fc_tensor_paths, feature_indices=aux_indices
+                fc_tensor_paths, feature_indices=self.feature_metadata["all_var_std_indices"]
             )
             self.norm_stats.update(
                 {
@@ -763,14 +729,16 @@ class ForecastDataModule(L.LightningDataModule):
     ) -> dict[str, Any]:
         """Build and store forecast tensors from ensemble NetCDF paths.
 
-        Creates unified tensor files where all features (predicted_vars_mean, predicted_vars_std,
-        all_vars_mean, all_vars_std, meta_vars) are concatenated into a single tensor.
+        Creates unified tensor files where all features (all_vars_mean, all_vars_std, meta_vars) 
+        are concatenated into a single tensor. predicted_vars are identified as a subset of 
+        all_vars via indices in the metadata.
+        
         Also creates a metadata pickle file that maps feature names to their indices in the tensor.
 
         Args:
             ens_nc_paths (list[Path]): Paths to ensmean NetCDF files to process.
-            x_select_variables (list[str]): List of input variable names.
-            y_select_variables (list[str]): List of target variable names.
+            x_select_variables (list[str]): List of input variable names (all variables).
+            y_select_variables (list[str]): List of target variable names (predicted variables, subset of x).
             fc_tensor_dir (Path): Directory to store forecast tensors.
             meta_tensor_dir (Path): Directory to store metadata tensors (not used in new format).
 
@@ -830,31 +798,22 @@ class ForecastDataModule(L.LightningDataModule):
             meta = get_metadata_features(da_stacked)
             
             # Build unified tensor with all features
-            # Order: predicted_vars_mean, predicted_vars_std, all_vars_mean, all_vars_std, meta_vars
+            # Order: all_vars_mean, all_vars_std, meta_vars
+            # Note: predicted_vars are a SUBSET of all_vars (identified by indices)
             
-            # 1. predicted_vars_mean (y variables from mean aggregation)
-            predicted_vars_mean = da_stacked.sel(aggregation="mean", feature=y_select_variables)
-            predicted_vars_mean_tensor = torch.from_numpy(predicted_vars_mean.values)
-            
-            # 2. predicted_vars_std (y variables from std aggregation)
-            predicted_vars_std = da_stacked.sel(aggregation="std", feature=y_select_variables)
-            predicted_vars_std_tensor = torch.from_numpy(predicted_vars_std.values)
-            
-            # 3. all_vars_mean (all x variables from mean aggregation)
+            # 1. all_vars_mean (all x variables from mean aggregation)
             all_vars_mean = da_stacked.sel(aggregation="mean", feature=x_select_variables)
             all_vars_mean_tensor = torch.from_numpy(all_vars_mean.values)
             
-            # 4. all_vars_std (all x variables from std aggregation)
+            # 2. all_vars_std (all x variables from std aggregation)
             all_vars_std = da_stacked.sel(aggregation="std", feature=x_select_variables)
             all_vars_std_tensor = torch.from_numpy(all_vars_std.values)
             
-            # 5. meta_vars
+            # 3. meta_vars
             meta_tensor = torch.from_numpy(meta.values)
             
             # Concatenate all features into a single tensor along feature dimension
             unified_tensor = torch.cat([
-                predicted_vars_mean_tensor,
-                predicted_vars_std_tensor,
                 all_vars_mean_tensor,
                 all_vars_std_tensor,
                 meta_tensor,
@@ -864,16 +823,6 @@ class ForecastDataModule(L.LightningDataModule):
             if feature_metadata is None:
                 # Track indices for each feature category
                 idx = 0
-                
-                # Predicted vars mean
-                predicted_var_mean_names = y_select_variables
-                predicted_var_mean_indices = list(range(idx, idx + len(predicted_var_mean_names)))
-                idx += len(predicted_var_mean_names)
-                
-                # Predicted vars std
-                predicted_var_std_names = y_select_variables
-                predicted_var_std_indices = list(range(idx, idx + len(predicted_var_std_names)))
-                idx += len(predicted_var_std_names)
                 
                 # All vars mean
                 all_var_mean_names = x_select_variables
@@ -890,15 +839,31 @@ class ForecastDataModule(L.LightningDataModule):
                 meta_var_indices = list(range(idx, idx + len(meta_var_names)))
                 idx += len(meta_var_names)
                 
+                # Predicted vars are a SUBSET of all_vars
+                # Find which indices in all_var_mean/std correspond to y_select_variables
+                predicted_var_mean_names = y_select_variables
+                predicted_var_mean_indices = [
+                    i for i, name in enumerate(all_var_mean_names) if name in y_select_variables
+                ]
+                
+                predicted_var_std_names = y_select_variables
+                predicted_var_std_indices = [
+                    len(all_var_mean_names) + i 
+                    for i, name in enumerate(all_var_std_names) if name in y_select_variables
+                ]
+                
                 feature_metadata = {
+                    # Predicted variables (indices into all_vars arrays, not separate storage)
                     "predicted_var_mean_names": predicted_var_mean_names,
                     "predicted_var_mean_indices": predicted_var_mean_indices,
                     "predicted_var_std_names": predicted_var_std_names,
                     "predicted_var_std_indices": predicted_var_std_indices,
+                    # All input variables (means and stds separately)
                     "all_var_mean_names": all_var_mean_names,
                     "all_var_mean_indices": all_var_mean_indices,
                     "all_var_std_names": all_var_std_names,
                     "all_var_std_indices": all_var_std_indices,
+                    # Meta variables
                     "meta_var_names": meta_var_names,
                     "meta_var_indices": meta_var_indices,
                     "pixel_idx_index": None,  # ICON doesn't use pixel_idx
@@ -1024,16 +989,16 @@ class ForecastDataModule(L.LightningDataModule):
             self.rea_tensor_dir,
         )
 
-    def _collect_samples(self) -> list[tuple[Path, Path | None, Path, np.datetime64, np.timedelta64]]:
+    def _collect_samples(self) -> list[tuple[Path, Path, np.datetime64, np.timedelta64]]:
         """Collect valid samples from the data directories.
 
-        Parses filenames in the tensors file to generate tuples of (fc_path, meta_path, rea_path, init_date, leadtime).
-        Note: meta_path is now set to None since metadata is embedded in fc_path.
+        Parses filenames in the tensors file to generate tuples of (fc_path, rea_path, init_date, leadtime).
+        Meta features are embedded in fc_path.
 
         Returns:
-            list[tuple[Path, Path | None, Path, np.datetime64, np.timedelta64]]: List of tuples (fc_path, meta_path, rea_path, init_date, leadtime).
+            list[tuple[Path, Path, np.datetime64, np.timedelta64]]: List of tuples (fc_path, rea_path, init_date, leadtime).
         """
-        samples: list[tuple[Path, Path | None, Path, np.datetime64, np.timedelta64]] = []
+        samples: list[tuple[Path, Path, np.datetime64, np.timedelta64]] = []
 
         # Get all FC tensor files
         for fc_path in self.fc_tensor_dir.glob("fc_*.pt"):
@@ -1058,13 +1023,12 @@ class ForecastDataModule(L.LightningDataModule):
                 target_date = init_date + leadtime
                 target_date_str = str(target_date)[:10].replace("-", "")  # YYYYMMDD
 
-                # Build corresponding rea path (meta is now embedded in fc)
+                # Build corresponding rea path
                 rea_path = self.rea_tensor_dir / f"rea_{target_date_str}.pt"
 
-                # Check if both files exist (meta no longer needed)
+                # Check if both files exist
                 if fc_path.exists() and rea_path.exists():
-                    # meta_path is set to None since it's now embedded in fc_path
-                    samples.append((fc_path, None, rea_path, init_date, leadtime))
+                    samples.append((fc_path, rea_path, init_date, leadtime))
 
             except (ValueError, IndexError):
                 # Skip malformed filenames
