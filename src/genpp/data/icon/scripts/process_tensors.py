@@ -5,6 +5,9 @@ Standalone script for processing ICON forecast and reanalysis data into tensors.
 This script uses static methods from dataset.py to process tensors, enabling
 parallel processing via NQSV job submissions.
 
+The new version creates unified tensor files where all features are concatenated
+into a single tensor, with a metadata pickle file that maps feature names to indices.
+
 Usage:
     For forecast tensors:
         JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
@@ -79,7 +82,7 @@ def main():
 
     # Setup tensor directories
     fc_tensor_dir = DATA_DIR / "tensors" / "fc"
-    meta_tensor_dir = DATA_DIR / "tensors" / "meta"
+    meta_tensor_dir = DATA_DIR / "tensors" / "meta"  # Not used in new format but kept for compatibility
     rea_tensor_dir = DATA_DIR / "tensors" / "rea"
 
     if job_type == "fc":
@@ -95,7 +98,7 @@ def main():
 
         if ens_nc_paths:
             # Call the static method from ForecastDataModule
-            ForecastDataModule._get_fc_tensors_static(
+            feature_metadata = ForecastDataModule._get_fc_tensors_static(
                 ens_nc_paths,
                 VARS_GRID_28,
                 VARS_REA,
@@ -103,6 +106,8 @@ def main():
                 meta_tensor_dir,
             )
             print(f"Completed processing {len(ens_nc_paths)} FC tensors for {year}-{month}")
+            if feature_metadata:
+                print(f"Feature metadata: {list(feature_metadata.keys())}")
         else:
             print(f"No files found for {year}-{month}")
 
@@ -119,12 +124,14 @@ def main():
 
         if rea_nc_paths:
             # Call the static method from ForecastDataModule
-            ForecastDataModule._get_rea_tensors_static(
+            feature_metadata = ForecastDataModule._get_rea_tensors_static(
                 rea_nc_paths,
                 VARS_REA,
                 rea_tensor_dir,
             )
             print(f"Completed processing {len(rea_nc_paths)} REA tensors for {year}-{month}")
+            if feature_metadata:
+                print(f"Feature metadata: {list(feature_metadata.keys())}")
         else:
             print(f"No files found for {year}-{month}")
 
