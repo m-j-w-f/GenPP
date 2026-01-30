@@ -338,7 +338,6 @@ class ForecastDataModule(L.LightningDataModule):
         self.feature_metadata = None
 
         self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
-        self.meta_tensor_dir = DATA_DIR / "tensors" / "meta"
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
         self.norm_stats_file: Path | None = None
@@ -732,7 +731,6 @@ class ForecastDataModule(L.LightningDataModule):
         x_select_variables: list[str],
         y_select_variables: list[str],
         fc_tensor_dir: Path,
-        meta_tensor_dir: Path,
     ) -> dict[str, Any]:
         """Build and store forecast tensors from ensemble NetCDF paths.
 
@@ -747,7 +745,6 @@ class ForecastDataModule(L.LightningDataModule):
             x_select_variables (list[str]): List of input variable names (all variables).
             y_select_variables (list[str]): List of target variable names (predicted variables, subset of x).
             fc_tensor_dir (Path): Directory to store forecast tensors.
-            meta_tensor_dir (Path): Directory to store metadata tensors (not used in new format).
 
         Returns:
             dict: Feature metadata mapping feature names to indices.
@@ -909,7 +906,6 @@ class ForecastDataModule(L.LightningDataModule):
             self.x_select_variables,
             self.y_select_variables,
             self.fc_tensor_dir,
-            self.meta_tensor_dir,
         )
 
     @staticmethod

@@ -82,7 +82,6 @@ def main():
 
     # Setup tensor directories
     fc_tensor_dir = DATA_DIR / "tensors" / "fc"
-    meta_tensor_dir = DATA_DIR / "tensors" / "meta"  # Not used in new format but kept for compatibility
     rea_tensor_dir = DATA_DIR / "tensors" / "rea"
 
     if job_type == "fc":
@@ -103,7 +102,6 @@ def main():
                 VARS_GRID_28,
                 VARS_REA,
                 fc_tensor_dir,
-                meta_tensor_dir,
             )
             print(f"Completed processing {len(ens_nc_paths)} FC tensors for {year}-{month}")
             if feature_metadata:
