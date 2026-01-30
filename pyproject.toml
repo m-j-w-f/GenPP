@@ -10,10 +10,10 @@ requires = ["hatchling"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64", "linux-64"]
+platforms = ["linux-64"]
 
 [tool.pixi.feature.gpu.system-requirements]
-cuda = "12.2"
+cuda = "12.4"
 
 [tool.pixi.pypi-dependencies]
 genpp = { path = ".", editable = true }
@@ -42,40 +42,24 @@ torchvision = ">=0.24.0,<0.25"
 xformers = ">=0.0.32.post2,<0.0.33"
 jupyter_bokeh = ">=4.0.5,<5"
 cfgrib = ">=0.9.15.1,<0.10"
-
-[tool.pixi.feature.gpu.dependencies]
-cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
-
-[tool.pixi.feature.test.dependencies]
+ipykernel = ">=6.29.5,<7"
+cartopy = ">=0.25.0,<0.26"
 pytest = ">=8.4.1,<9"
 scoringrules = ">=0.8.0,<0.9"
-
-[tool.pixi.feature.dev.dependencies]
 pre-commit = ">=4.2.0,<5"
 rsync = ">=3.4.1,<4"
 gh = ">=2.83.0,<3"
 
-[tool.pixi.feature.nb.dependencies]
-ipykernel = ">=6.29.5,<7"
-jupyterlab = ">=4.5.0,<5"
-cartopy = ">=0.25.0,<0.26"
+[tool.pixi.feature.gpu.dependencies]
+pytorch-gpu = "*"
+torchvision="*"
+#cuda-cudart-dev_linux-64 = ">=12.9.79,<13"
+
+[tool.pixi.feature.cpu.dependencies]
+pytorch-cpu = "*"
+torchvision="*"
 
 [tool.pixi.tasks]
-train = "python src/genpp/train.py" # Specify file by using --config-name ...
-create-sweep = "wandb sweep --project genpp" # Followed by path to sweep.yaml
-
-[tool.pixi.feature.nb.tasks]
-install-kernel = "python -m ipykernel install --user --name=pixi-env --display-name=GENPP"
-jl = "jupyter lab --no-browser --port=8890" #on local machine run ssh -N -L 8890:localhost:8890 user@remote_host
-
-[tool.pixi.feature.test.tasks]
-test = "pytest"
-unittest = "pytest -m unit"
-
-[tool.pixi.feature.gpu.tasks]
-wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
-
-[tool.pixi.feature.dev.tasks]
 sync = '''rsync -avzr --progress --human-readable
   --exclude='.pixi/'
   --exclude='__pycache__/'
@@ -85,12 +69,13 @@ sync = '''rsync -avzr --progress --human-readable
   --exclude='.DS_Store'
   --exclude='data/weatherbench2/hres_t0.zarr/'
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
+wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
+test = "pytest"
+unittest = "pytest -m unit"
 
 [tool.pixi.environments]
-dev = ["default", "dev", "test"]
-dev-gpu = ["default", "dev", "gpu", "test"]
-nb = ["default", "dev", "nb", "test"]
-nb-gpu = ["default", "dev", "nb", "gpu", "test"]
+default = ["default", "cpu"]
+gpu = ["default", "gpu"]
 
 [tool.pytest.ini_options]
 markers = [
