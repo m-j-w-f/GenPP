@@ -10,10 +10,10 @@ into a single tensor, with a metadata pickle file that maps feature names to ind
 
 Usage:
     For forecast tensors:
-        JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
+        JOB_TYPE=fc YEAR=2021 MONTH=01 pixi run python process_tensors.py
 
     For reanalysis tensors:
-        JOB_TYPE=rea YEAR=2021 MONTH=01 pixi run -e nb python process_tensors.py
+        JOB_TYPE=rea YEAR=2021 MONTH=01 pixi run python process_tensors.py
 
 Environment Variables:
     JOB_TYPE: Either 'fc' or 'rea' to specify which tensor type to process

@@ -74,7 +74,7 @@ if [ ! -f "$SCRIPT_DIR/process_tensors.py" ]; then
 fi
 
 # Activate pixi environment and run the Python script
-eval "$(pixi shell-hook -e nb)"
+eval "$(pixi shell-hook)"
 python "$SCRIPT_DIR/process_tensors.py"
 
 EXIT_CODE=$?
