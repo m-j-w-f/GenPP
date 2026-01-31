@@ -11,7 +11,7 @@ from genpp.data.icon.dataset import ForecastDataset
 
 
 class TestForecastDatasetPerVariableNormalization:
-    """Test suite for ForecastDataset per-variable y normalization."""
+    """Test suite for ForecastDataset per-variable x and y normalization."""
 
     @pytest.fixture
     def temp_data_dir(self):
@@ -66,10 +66,14 @@ class TestForecastDatasetPerVariableNormalization:
             "predicted_var_std_indices": [0, 1],
             "predicted_var_mean_names": ["var_a", "var_b"],
             "predicted_var_std_names": ["var_a", "var_b"],
+            "all_var_mean_names": ["var_a", "var_b", "var_c", "var_d", "var_e"],
+            "all_var_std_names": ["var_a", "var_b", "var_c", "var_d", "var_e"],
         }
 
+    # ==================== Y VARIABLE NORMALIZATION TESTS ====================
+
     @pytest.mark.unit
-    def test_default_zscore_normalization(self, temp_data_dir, norm_stats, feature_metadata):
+    def test_default_zscore_normalization_y(self, temp_data_dir, norm_stats, feature_metadata):
         """Test that default zscore normalization works for all y variables."""
         samples = [
             (
@@ -84,15 +88,15 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="zscore",
+            y_default_normalize_type="zscore",
         )
 
-        assert dataset._y_zscore_indices == [0, 1], "Expected both vars to use zscore"
-        assert dataset._y_minmax_indices == [], "Expected no minmax vars"
-        assert dataset._y_none_indices == [], "Expected no none vars"
+        assert dataset._y_zscore_indices == [0, 1], "Expected both y vars to use zscore"
+        assert dataset._y_minmax_indices == [], "Expected no y minmax vars"
+        assert dataset._y_none_indices == [], "Expected no y none vars"
 
     @pytest.mark.unit
-    def test_default_minmax_normalization(self, temp_data_dir, norm_stats, feature_metadata):
+    def test_default_minmax_normalization_y(self, temp_data_dir, norm_stats, feature_metadata):
         """Test that default minmax normalization works for all y variables."""
         samples = [
             (
@@ -107,16 +111,16 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="minmax",
+            y_default_normalize_type="minmax",
         )
 
-        assert dataset._y_zscore_indices == [], "Expected no zscore vars"
-        assert dataset._y_minmax_indices == [0, 1], "Expected all vars to use minmax"
-        assert dataset._y_none_indices == [], "Expected no none vars"
+        assert dataset._y_zscore_indices == [], "Expected no y zscore vars"
+        assert dataset._y_minmax_indices == [0, 1], "Expected all y vars to use minmax"
+        assert dataset._y_none_indices == [], "Expected no y none vars"
 
     @pytest.mark.unit
-    def test_per_variable_mixed_normalization(self, temp_data_dir, norm_stats, feature_metadata):
-        """Test per-variable normalization with mixed types."""
+    def test_per_variable_mixed_normalization_y(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test per-variable y normalization with mixed types."""
         samples = [
             (
                 temp_data_dir["fc_path"],
@@ -130,17 +134,17 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="zscore",
+            y_default_normalize_type="zscore",
             y_normalize_types={"var_a": "minmax", "var_b": None},
         )
 
-        assert dataset._y_zscore_indices == [], "Expected no zscore vars"
+        assert dataset._y_zscore_indices == [], "Expected no y zscore vars"
         assert dataset._y_minmax_indices == [0], "Expected var_a to use minmax"
         assert dataset._y_none_indices == [1], "Expected var_b to have no normalization"
 
     @pytest.mark.unit
-    def test_partial_override_uses_default(self, temp_data_dir, norm_stats, feature_metadata):
-        """Test that unspecified variables use the default normalization type."""
+    def test_partial_override_uses_default_y(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that unspecified y variables use the default normalization type."""
         samples = [
             (
                 temp_data_dir["fc_path"],
@@ -154,17 +158,17 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="minmax",
+            y_default_normalize_type="minmax",
             y_normalize_types={"var_a": "zscore"},  # var_b not specified, uses default
         )
 
         assert dataset._y_zscore_indices == [0], "Expected var_a to use zscore"
         assert dataset._y_minmax_indices == [1], "Expected var_b to use default minmax"
-        assert dataset._y_none_indices == [], "Expected no none vars"
+        assert dataset._y_none_indices == [], "Expected no y none vars"
 
     @pytest.mark.unit
-    def test_none_normalization(self, temp_data_dir, norm_stats, feature_metadata):
-        """Test that None normalization type leaves values unchanged."""
+    def test_none_normalization_y(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that None normalization type leaves y values unchanged."""
         samples = [
             (
                 temp_data_dir["fc_path"],
@@ -178,19 +182,19 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="zscore",
+            y_default_normalize_type="zscore",
             y_normalize_types={"var_a": None, "var_b": None},
         )
 
-        assert dataset._y_zscore_indices == [], "Expected no zscore vars"
-        assert dataset._y_minmax_indices == [], "Expected no minmax vars"
-        assert dataset._y_none_indices == [0, 1], "Expected both vars to have no normalization"
+        assert dataset._y_zscore_indices == [], "Expected no y zscore vars"
+        assert dataset._y_minmax_indices == [], "Expected no y minmax vars"
+        assert dataset._y_none_indices == [0, 1], "Expected both y vars to have no normalization"
 
     @pytest.mark.unit
-    def test_invalid_normalization_type_raises_error(
+    def test_invalid_normalization_type_raises_error_y(
         self, temp_data_dir, norm_stats, feature_metadata
     ):
-        """Test that invalid normalization type raises ValueError."""
+        """Test that invalid y normalization type raises ValueError."""
         samples = [
             (
                 temp_data_dir["fc_path"],
@@ -205,9 +209,130 @@ class TestForecastDatasetPerVariableNormalization:
                 samples=samples,
                 norm_stats=norm_stats,
                 feature_metadata=feature_metadata,
-                normalize_type="zscore",
+                y_default_normalize_type="zscore",
                 y_normalize_types={"var_a": "invalid"},
             )
+
+    # ==================== X VARIABLE NORMALIZATION TESTS ====================
+
+    @pytest.mark.unit
+    def test_default_zscore_normalization_x(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that default zscore normalization works for all x variables."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="zscore",
+        )
+
+        assert dataset._x_mean_zscore_indices == [0, 1, 2, 3, 4], "Expected all x vars to use zscore"
+        assert dataset._x_mean_minmax_indices == [], "Expected no x minmax vars"
+        assert dataset._x_mean_none_indices == [], "Expected no x none vars"
+
+    @pytest.mark.unit
+    def test_default_minmax_normalization_x(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that default minmax normalization works for all x variables."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="minmax",
+        )
+
+        assert dataset._x_mean_zscore_indices == [], "Expected no x zscore vars"
+        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], "Expected all x vars to use minmax"
+        assert dataset._x_mean_none_indices == [], "Expected no x none vars"
+
+    @pytest.mark.unit
+    def test_per_variable_mixed_normalization_x(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test per-variable x normalization with mixed types."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="zscore",
+            x_normalize_types={"var_a": "minmax", "var_c": None},
+        )
+
+        assert dataset._x_mean_zscore_indices == [1, 3, 4], "Expected var_b, var_d, var_e to use zscore"
+        assert dataset._x_mean_minmax_indices == [0], "Expected var_a to use minmax"
+        assert dataset._x_mean_none_indices == [2], "Expected var_c to have no normalization"
+
+    @pytest.mark.unit
+    def test_partial_override_uses_default_x(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that unspecified x variables use the default normalization type."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="minmax",
+            x_normalize_types={"var_a": "zscore"},  # others not specified, use default
+        )
+
+        assert dataset._x_mean_zscore_indices == [0], "Expected var_a to use zscore"
+        assert dataset._x_mean_minmax_indices == [1, 2, 3, 4], "Expected others to use default minmax"
+        assert dataset._x_mean_none_indices == [], "Expected no x none vars"
+
+    @pytest.mark.unit
+    def test_invalid_normalization_type_raises_error_x(
+        self, temp_data_dir, norm_stats, feature_metadata
+    ):
+        """Test that invalid x normalization type raises ValueError."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Unknown normalization type 'invalid' for x variable"):
+            ForecastDataset(
+                samples=samples,
+                norm_stats=norm_stats,
+                feature_metadata=feature_metadata,
+                x_default_normalize_type="zscore",
+                x_normalize_types={"var_a": "invalid"},
+            )
+
+    # ==================== COMBINED X AND Y TESTS ====================
 
     @pytest.mark.unit
     def test_getitem_with_per_variable_normalization(
@@ -227,7 +352,9 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="zscore",
+            x_default_normalize_type="zscore",
+            y_default_normalize_type="zscore",
+            x_normalize_types={"var_a": "minmax"},
             y_normalize_types={"var_a": "minmax", "var_b": "zscore"},
         )
 
@@ -271,7 +398,8 @@ class TestForecastDatasetPerVariableNormalization:
             samples=samples,
             norm_stats=norm_stats,
             feature_metadata=feature_metadata,
-            normalize_type="zscore",
+            x_default_normalize_type="zscore",
+            y_default_normalize_type="zscore",
             y_normalize_types={"var_a": "zscore", "var_b": "minmax"},
         )
 
@@ -281,3 +409,31 @@ class TestForecastDatasetPerVariableNormalization:
         # The sample should have correct shape
         sample = dataset[0]
         assert sample["y"].shape == (2, 10, 10)
+
+    @pytest.mark.unit
+    def test_different_defaults_for_x_and_y(self, temp_data_dir, norm_stats, feature_metadata):
+        """Test that x and y can have different default normalization types."""
+        samples = [
+            (
+                temp_data_dir["fc_path"],
+                temp_data_dir["rea_path"],
+                np.datetime64("2023-01-01"),
+                np.timedelta64(6, "h"),
+            )
+        ]
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="minmax",
+            y_default_normalize_type="zscore",
+        )
+
+        # X should use minmax by default
+        assert dataset._x_mean_zscore_indices == [], "Expected no x zscore vars"
+        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], "Expected all x vars to use minmax"
+
+        # Y should use zscore by default
+        assert dataset._y_zscore_indices == [0, 1], "Expected all y vars to use zscore"
+        assert dataset._y_minmax_indices == [], "Expected no y minmax vars"
