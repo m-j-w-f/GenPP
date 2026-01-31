@@ -139,6 +139,7 @@ class ForecastDataset(Dataset):
         normalize_type: str = "zscore",
         x_transform: Callable | None = None,
         y_transform: Callable | None = None,
+        y_normalize_types: dict[str, str | None] | None = None,
     ) -> None:
         """Initialize the ForecastDataset.
 
@@ -151,10 +152,14 @@ class ForecastDataset(Dataset):
             feature_metadata (dict[str, Any]): Dictionary containing feature categorization info
                 (predicted_var_indices, all_var_indices, meta_var_indices).
             normalize_type (str): Type of normalization, either 'zscore' or 'minmax'.
+                Used as default for y variables not specified in y_normalize_types.
             x_transform (Callable | None): Optional transform to apply to input features (predicted_vars,
                 all_vars, meta_vars) after normalization. Can be a function or nn.Module.
             y_transform (Callable | None): Optional transform to apply to target (rea) after normalization.
                 Can be a function or nn.Module.
+            y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
+                to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
+                Variables not specified use the default normalize_type.
         """
         self.samples = samples
         self.norm_stats = norm_stats
@@ -162,6 +167,45 @@ class ForecastDataset(Dataset):
         self.normalize_type = normalize_type
         self.x_transform = x_transform
         self.y_transform = y_transform
+        self.y_normalize_types = y_normalize_types
+
+        # Precompute per-variable normalization indices for performance
+        # This avoids expensive index computation in __getitem__
+        self._precompute_y_normalization_indices()
+
+    def _precompute_y_normalization_indices(self) -> None:
+        """Precompute indices for per-variable y normalization.
+
+        This method is called once during initialization to avoid expensive
+        index computation in __getitem__ which is called repeatedly by DataLoader.
+        """
+        # Get y variable names from feature metadata (predicted_var_mean_names contains y vars)
+        y_var_names = self.feature_metadata.get("predicted_var_mean_names", [])
+
+        # Initialize index lists for each normalization type
+        self._y_zscore_indices: list[int] = []
+        self._y_minmax_indices: list[int] = []
+        self._y_none_indices: list[int] = []
+
+        for i, var_name in enumerate(y_var_names):
+            # Determine normalization type for this variable
+            if self.y_normalize_types is not None and var_name in self.y_normalize_types:
+                norm_type = self.y_normalize_types[var_name]
+            else:
+                norm_type = self.normalize_type
+
+            # Categorize index by normalization type
+            if norm_type == "zscore":
+                self._y_zscore_indices.append(i)
+            elif norm_type == "minmax":
+                self._y_minmax_indices.append(i)
+            elif norm_type is None:
+                self._y_none_indices.append(i)
+            else:
+                raise ValueError(
+                    f"Unknown normalization type '{norm_type}' for variable '{var_name}'. "
+                    "Supported types are 'zscore', 'minmax', or None."
+                )
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -224,13 +268,21 @@ class ForecastDataset(Dataset):
         predicted_vars_mean = all_vars_mean[predicted_var_mean_indices]
         predicted_vars_std = all_vars_std[predicted_var_std_indices]
 
-        # Normalize REA (reanalysis target)
-        if self.normalize_type == "zscore":
-            rea = (rea - self.norm_stats["rea_mean"]) / self.norm_stats["rea_std"]
-        elif self.normalize_type == "minmax":
-            rea = (rea - self.norm_stats["rea_min"]) / (
-                self.norm_stats["rea_max"] - self.norm_stats["rea_min"]
+        # Normalize REA (reanalysis target) using per-variable normalization
+        # Use precomputed indices for performance
+        if self._y_zscore_indices:
+            zscore_idx = self._y_zscore_indices
+            rea[zscore_idx] = (
+                rea[zscore_idx] - self.norm_stats["rea_mean"][zscore_idx]
+            ) / self.norm_stats["rea_std"][zscore_idx]
+
+        if self._y_minmax_indices:
+            minmax_idx = self._y_minmax_indices
+            rea[minmax_idx] = (rea[minmax_idx] - self.norm_stats["rea_min"][minmax_idx]) / (
+                self.norm_stats["rea_max"][minmax_idx] - self.norm_stats["rea_min"][minmax_idx]
             )
+
+        # Variables in _y_none_indices are not normalized (left as-is)
 
         # Apply transforms if provided (after normalization)
         if self.x_transform is not None:
@@ -282,6 +334,7 @@ class ForecastDataModule(L.LightningDataModule):
         train_split: dict[str, str] | None = None,
         val_split: dict[str, str] | None = None,
         test_split: dict[str, str] | None = None,
+        y_normalize_types: dict[str, str | None] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -293,6 +346,7 @@ class ForecastDataModule(L.LightningDataModule):
                              due to the DATA_DIR being very slow to read from.
             batch_size (int): Batch size for DataLoaders.
             normalize_type (str): Type of normalization ('zscore' or 'minmax').
+                Used as default for y variables not specified in y_normalize_types.
             num_workers (int): Number of workers for DataLoaders.
             x_transform (Callable | None): Optional transform to apply to input features.
             y_transform (Callable | None): Optional transform to apply to targets.
@@ -303,6 +357,9 @@ class ForecastDataModule(L.LightningDataModule):
             train_split (dict[str, str] | None): Train split config with 'start' and 'end' dates.
             val_split (dict[str, str] | None): Validation split config with 'start' and 'end' dates.
             test_split (dict[str, str] | None): Test split config with 'start' and 'end' dates.
+            y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
+                to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
+                Variables not specified use the default normalize_type.
         """
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -323,6 +380,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.persistent_workers = persistent_workers
         self.norm_stats: dict[str, torch.Tensor] | None = None
         self.feature_metadata = None
+        self.y_normalize_types = y_normalize_types
 
         self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
@@ -697,6 +755,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.normalize_type,
             self.x_transform,
             self.y_transform,
+            self.y_normalize_types,
         )
         self.val_dataset = ForecastDataset(
             val_samples,
@@ -705,6 +764,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.normalize_type,
             self.x_transform,
             self.y_transform,
+            self.y_normalize_types,
         )
         self.test_dataset = ForecastDataset(
             test_samples,
@@ -713,6 +773,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.normalize_type,
             self.x_transform,
             self.y_transform,
+            self.y_normalize_types,
         )
 
     @staticmethod

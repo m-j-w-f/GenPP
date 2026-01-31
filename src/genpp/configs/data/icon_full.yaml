@@ -80,8 +80,21 @@ y_select_variables:
 # ============================================================================
 batch_size: 32
 
-# Normalization type: 'zscore' or 'minmax'
+# Default normalization type: 'zscore' or 'minmax'
+# Used for y variables not specified in y_normalize_types
 normalize_type: zscore
+
+# ============================================================================
+# PER-VARIABLE Y NORMALIZATION (Optional)
+# ============================================================================
+# Specify normalization type per y variable. Supported values: 'zscore', 'minmax', or null (no normalization)
+# Variables not listed here use the default normalize_type above.
+# Example:
+#   y_normalize_types:
+#     'T_2M+height_2.0': zscore        # Use z-score normalization
+#     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
+#     'SOME_VAR': null                  # No normalization
+y_normalize_types: null
 
 # ============================================================================
 # DATA MODULE
@@ -102,3 +115,4 @@ module:
   train_split: ${data.splits.train}
   val_split: ${data.splits.val}
   test_split: ${data.splits.test}
+  y_normalize_types: ${data.y_normalize_types}
