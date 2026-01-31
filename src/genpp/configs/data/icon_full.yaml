@@ -80,8 +80,32 @@ y_select_variables:
 # ============================================================================
 batch_size: 32
 
-# Normalization type: 'zscore' or 'minmax'
-normalize_type: zscore
+# ============================================================================
+# NORMALIZATION CONFIGURATION
+# ============================================================================
+# Default normalization types for x (input) and y (target) variables.
+# Supported values: 'zscore' or 'minmax'. Both default to 'zscore'.
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+
+# ============================================================================
+# PER-VARIABLE NORMALIZATION (Optional)
+# ============================================================================
+# Specify normalization type per variable. Supported values: 'zscore', 'minmax', or null (no normalization)
+# Variables not listed here use the default normalize type above.
+#
+# Example for x variables:
+#   x_normalize_types:
+#     'T_2M+height_2.0': zscore        # Use z-score normalization
+#     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
+#     'SOME_VAR': null                  # No normalization
+#
+# Example for y variables:
+#   y_normalize_types:
+#     'T_2M+height_2.0': zscore        # Use z-score normalization
+#     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
+x_normalize_types: null
+y_normalize_types: null
 
 # ============================================================================
 # DATA MODULE
@@ -91,7 +115,8 @@ module:
   x_select_variables: ${data.x_select_variables}
   y_select_variables: ${data.y_select_variables}
   batch_size: ${data.batch_size}
-  normalize_type: ${data.normalize_type}
+  x_default_normalize_type: ${data.x_default_normalize_type}
+  y_default_normalize_type: ${data.y_default_normalize_type}
   num_workers: ${data.dataloader.num_workers}
   prefetch_factor: ${data.dataloader.prefetch_factor}
   multiprocessing_context: ${data.dataloader.multiprocessing_context}
@@ -102,3 +127,5 @@ module:
   train_split: ${data.splits.train}
   val_split: ${data.splits.val}
   test_split: ${data.splits.test}
+  x_normalize_types: ${data.x_normalize_types}
+  y_normalize_types: ${data.y_normalize_types}
