@@ -271,16 +271,16 @@ class ForecastDataset(Dataset):
         # Normalize REA (reanalysis target) using per-variable normalization
         # Use precomputed indices for performance
         if self._y_zscore_indices:
-            zscore_idx = self._y_zscore_indices
-            rea[zscore_idx] = (
-                rea[zscore_idx] - self.norm_stats["rea_mean"][zscore_idx]
-            ) / self.norm_stats["rea_std"][zscore_idx]
+            idx = self._y_zscore_indices
+            rea_slice = rea[idx]
+            rea[idx] = (rea_slice - self.norm_stats["rea_mean"][idx]) / self.norm_stats["rea_std"][idx]
 
         if self._y_minmax_indices:
-            minmax_idx = self._y_minmax_indices
-            rea[minmax_idx] = (rea[minmax_idx] - self.norm_stats["rea_min"][minmax_idx]) / (
-                self.norm_stats["rea_max"][minmax_idx] - self.norm_stats["rea_min"][minmax_idx]
-            )
+            idx = self._y_minmax_indices
+            rea_slice = rea[idx]
+            rea_min = self.norm_stats["rea_min"][idx]
+            rea_max = self.norm_stats["rea_max"][idx]
+            rea[idx] = (rea_slice - rea_min) / (rea_max - rea_min)
 
         # Variables in _y_none_indices are not normalized (left as-is)
 
