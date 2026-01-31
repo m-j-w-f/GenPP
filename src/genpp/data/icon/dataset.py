@@ -403,9 +403,9 @@ class ForecastDataModule(L.LightningDataModule):
         multiprocessing_context: str | None = None,
         pin_memory: bool = True,
         persistent_workers: bool = True,
-        train_split: dict[str, str] | None = None,
-        val_split: dict[str, str] | None = None,
-        test_split: dict[str, str] | None = None,
+        train_split: dict[str, str] = {"start": "2019-01-01", "end": "2022-09-01"},
+        val_split: dict[str, str] = {"start": "2022-09-02", "end": "2023-09-01"},
+        test_split: dict[str, str] = {"start": "2023-09-02", "end": "2024-09-01"},
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
     ) -> None:
@@ -429,9 +429,9 @@ class ForecastDataModule(L.LightningDataModule):
             multiprocessing_context (str | None): Multiprocessing context ('fork', 'spawn', 'forkserver').
             pin_memory (bool): Whether to pin memory in DataLoader.
             persistent_workers (bool): Whether to keep workers alive between epochs.
-            train_split (dict[str, str] | None): Train split config with 'start' and 'end' dates.
-            val_split (dict[str, str] | None): Validation split config with 'start' and 'end' dates.
-            test_split (dict[str, str] | None): Test split config with 'start' and 'end' dates.
+            train_split (dict[str, str]): Train split config with 'start' and 'end' dates.
+            val_split (dict[str, str]): Validation split config with 'start' and 'end' dates.
+            test_split (dict[str, str]): Test split config with 'start' and 'end' dates.
             x_normalize_types (dict[str, str | None] | None): Optional dictionary mapping x variable names
                 to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
                 Variables not specified use x_default_normalize_type.
@@ -468,10 +468,9 @@ class ForecastDataModule(L.LightningDataModule):
         self.norm_stats_file: Path | None = None
 
         # Store split configurations (dates for valid_time filtering)
-        # Default to old year-based splits if not provided
-        self.train_split = train_split or {"start": "2019-01-01", "end": "2021-12-31"}
-        self.val_split = val_split or {"start": "2022-01-01", "end": "2022-12-31"}
-        self.test_split = test_split or {"start": "2023-01-01", "end": "2023-12-31"}
+        self.train_split = train_split
+        self.val_split = val_split
+        self.test_split = test_split
 
     def _get_train_set_identifier(self) -> str:
         """Generate a unique identifier for the train set configuration.
@@ -802,9 +801,7 @@ class ForecastDataModule(L.LightningDataModule):
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
         print(all_samples[0])
-        all_samples.sort(
-            key=lambda x: x[2] + x[3]
-        )  # Sort by valid_time (init_date + leadtime)
+        all_samples.sort(key=lambda x: x[2] + x[3])  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
         train_start = np.datetime64(self.train_split["start"])
