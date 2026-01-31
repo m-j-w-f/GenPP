@@ -535,10 +535,11 @@ class ForecastDataModule(L.LightningDataModule):
             # Extract date and leadtime from filename
             # Format: fc_YYYYMMDDHH_LT.pt or rea_YYYYMMDD.pt
             parts = tensor_path.stem.split("_")
-            if len(parts) >= 3:
-                date_str = parts[1]  # YYYYMMDDHH
-                leadtime_str = parts[2]  # leadtime in hours
-                try:
+            try:
+                if len(parts) >= 3:
+                    # FC file format: fc_YYYYMMDDHH_LT.pt
+                    date_str = parts[1]  # YYYYMMDDHH
+                    leadtime_str = parts[2]  # leadtime in hours
                     # Parse init_date
                     init_date = np.datetime64(
                         f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T{date_str[8:10]}:00:00"
@@ -547,11 +548,20 @@ class ForecastDataModule(L.LightningDataModule):
                     leadtime = np.timedelta64(int(leadtime_str), "h")
                     # Calculate valid_time
                     valid_time = init_date + leadtime
-
-                    if train_start <= valid_time <= train_end:
-                        train_paths.append(tensor_path)
-                except (ValueError, IndexError):
+                elif len(parts) == 2:
+                    # REA file format: rea_YYYYMMDD.pt
+                    date_str = parts[1]  # YYYYMMDD
+                    # For REA files, the date is the valid_time (no leadtime)
+                    valid_time = np.datetime64(
+                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                    )
+                else:
                     continue
+
+                if train_start <= valid_time <= train_end:
+                    train_paths.append(tensor_path)
+            except (ValueError, IndexError):
+                continue
 
         return train_paths
 
