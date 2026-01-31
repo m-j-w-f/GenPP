@@ -378,7 +378,9 @@ class ForecastDataset(Dataset):
                 "all_vars_mean": all_vars_mean,
                 "all_vars_std": all_vars_std,
                 "meta_vars": meta,
-                "pixel_idx": None,
+                "pixel_idx": torch.arange(predicted_vars_mean[0].numel())
+                .reshape_as(predicted_vars_mean[0])
+                .unsqueeze(0),
             },
             "y": rea,
             "timedelta": timedelta_normalized,
@@ -551,9 +553,7 @@ class ForecastDataModule(L.LightningDataModule):
                     # REA file format: rea_YYYYMMDD.pt
                     date_str = parts[1]  # YYYYMMDD
                     # For REA files, the date is the valid_time (no leadtime)
-                    valid_time = np.datetime64(
-                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-                    )
+                    valid_time = np.datetime64(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
                 else:
                     continue
 
