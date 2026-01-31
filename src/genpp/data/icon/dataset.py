@@ -162,13 +162,6 @@ class ForecastDataset(Dataset):
         self.normalize_type = normalize_type
         self.x_transform = x_transform
         self.y_transform = y_transform
-        
-        # Precompute adjusted indices for predicted_vars_std extraction
-        # predicted_var_std_indices point into the unified tensor, but we need indices into all_vars_std
-        all_var_mean_len = len(feature_metadata["all_var_mean_indices"])
-        self.predicted_var_std_adjusted_indices = [
-            i - all_var_mean_len for i in feature_metadata["predicted_var_std_indices"]
-        ]
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -235,7 +228,7 @@ class ForecastDataset(Dataset):
 
         # Extract predicted vars AFTER normalization (they're subsets of normalized all_vars)
         predicted_vars_mean = all_vars_mean[predicted_var_mean_indices]
-        predicted_vars_std = all_vars_std[self.predicted_var_std_adjusted_indices]
+        predicted_vars_std = all_vars_std[predicted_var_std_indices]
 
         # Normalize REA (reanalysis target)
         if self.normalize_type == "zscore":
@@ -757,11 +750,6 @@ class ForecastDataModule(L.LightningDataModule):
             y_var in x_select_variables for y_var in y_select_variables
         ), f"y_select_variables must be a subset of x_select_variables. " \
            f"Missing variables: {set(y_select_variables) - set(x_select_variables)}"
-        
-        # Compute auxiliary variables (variables in x but not in y)
-        x_select_variables_wo_y = [
-            var for var in x_select_variables if var not in y_select_variables
-        ]
 
         # Skip entries with already materialized tensors
         filtered_paths: list[Path] = []
@@ -857,9 +845,9 @@ class ForecastDataModule(L.LightningDataModule):
                 ]
                 
                 predicted_var_std_names = y_select_variables
+                # Use indices relative to all_vars_std (consistent with predicted_var_mean_indices)
                 predicted_var_std_indices = [
-                    len(all_var_mean_names) + i 
-                    for i, name in enumerate(all_var_std_names) if name in y_select_variables
+                    i for i, name in enumerate(all_var_std_names) if name in y_select_variables
                 ]
                 
                 feature_metadata = {
