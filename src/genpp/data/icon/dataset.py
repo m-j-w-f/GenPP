@@ -790,8 +790,8 @@ class ForecastDataModule(L.LightningDataModule):
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
         all_samples.sort(
-            key=lambda x: x[3] + x[4]  # type: ignore
-        )  # Sort by valid_time (init_date + leadtime) # type: ignore
+            key=lambda x: x[2] + x[3]
+        )  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
         train_start = np.datetime64(self.train_split["start"])
@@ -805,9 +805,9 @@ class ForecastDataModule(L.LightningDataModule):
         train_samples, val_samples, test_samples = [], [], []
         dropped_samples = []
         for sample in all_samples:
-            init_date = sample[3]  # np.datetime64
-            leadtime = sample[4]  # np.timedelta64 # type:ignore
-            valid_time = init_date + leadtime  # Forecast valid time # type: ignore
+            init_date = sample[2]  # np.datetime64
+            leadtime = sample[3]  # np.timedelta64
+            valid_time = init_date + leadtime  # Forecast valid time
 
             if train_start <= valid_time <= train_end:
                 train_samples.append(sample)
