@@ -119,7 +119,7 @@ def _add_xy(da: xr.DataArray) -> xr.DataArray:
     y_grid = y_norm.expand_dims({"x": da.x, "feature": [MetadataVars.LATITUDE.value]})
     y_grid = y_grid.transpose("feature", "x", "y")
 
-    return xr.concat([x_grid, y_grid], dim="feature")
+    return xr.concat([x_grid, y_grid], dim="feature")  # type: ignore
 
 
 def get_metadata_features(da: xr.DataArray) -> xr.DataArray:
@@ -301,35 +301,35 @@ class ForecastDataset(Dataset):
         # Normalize all x variables (means) using per-variable normalization
         # Use precomputed indices for performance
         if self._x_mean_zscore_indices:
-            idx = self._x_mean_zscore_indices
-            all_vars_mean_slice = all_vars_mean[idx]
-            all_vars_mean[idx] = (
-                all_vars_mean_slice - self.norm_stats["all_mean"][idx]
-            ) / self.norm_stats["all_std"][idx]
+            slice_idx = self._x_mean_zscore_indices
+            all_vars_mean_slice = all_vars_mean[slice_idx]
+            all_vars_mean[slice_idx] = (
+                all_vars_mean_slice - self.norm_stats["all_mean"][slice_idx]
+            ) / self.norm_stats["all_std"][slice_idx]
 
         if self._x_mean_minmax_indices:
-            idx = self._x_mean_minmax_indices
-            all_vars_mean_slice = all_vars_mean[idx]
-            all_min = self.norm_stats["all_min"][idx]
-            all_max = self.norm_stats["all_max"][idx]
-            all_vars_mean[idx] = (all_vars_mean_slice - all_min) / (all_max - all_min)
+            slice_idx = self._x_mean_minmax_indices
+            all_vars_mean_slice = all_vars_mean[slice_idx]
+            all_min = self.norm_stats["all_min"][slice_idx]
+            all_max = self.norm_stats["all_max"][slice_idx]
+            all_vars_mean[slice_idx] = (all_vars_mean_slice - all_min) / (all_max - all_min)
 
         # Variables in _x_mean_none_indices are not normalized (left as-is)
 
         # Normalize all x variables (stds) using per-variable normalization
         if self._x_std_zscore_indices:
-            idx = self._x_std_zscore_indices
-            all_vars_std_slice = all_vars_std[idx]
-            all_vars_std[idx] = (
-                all_vars_std_slice - self.norm_stats["aux_mean"][idx]
-            ) / self.norm_stats["aux_std"][idx]
+            slice_idx = self._x_std_zscore_indices
+            all_vars_std_slice = all_vars_std[slice_idx]
+            all_vars_std[slice_idx] = (
+                all_vars_std_slice - self.norm_stats["aux_mean"][slice_idx]
+            ) / self.norm_stats["aux_std"][slice_idx]
 
         if self._x_std_minmax_indices:
-            idx = self._x_std_minmax_indices
-            all_vars_std_slice = all_vars_std[idx]
-            aux_min = self.norm_stats["aux_min"][idx]
-            aux_max = self.norm_stats["aux_max"][idx]
-            all_vars_std[idx] = (all_vars_std_slice - aux_min) / (aux_max - aux_min)
+            slice_idx = self._x_std_minmax_indices
+            all_vars_std_slice = all_vars_std[slice_idx]
+            aux_min = self.norm_stats["aux_min"][slice_idx]
+            aux_max = self.norm_stats["aux_max"][slice_idx]
+            all_vars_std[slice_idx] = (all_vars_std_slice - aux_min) / (aux_max - aux_min)
 
         # Variables in _x_std_none_indices are not normalized (left as-is)
 
@@ -340,16 +340,18 @@ class ForecastDataset(Dataset):
         # Normalize REA (reanalysis target) using per-variable normalization
         # Use precomputed indices for performance
         if self._y_zscore_indices:
-            idx = self._y_zscore_indices
-            rea_slice = rea[idx]
-            rea[idx] = (rea_slice - self.norm_stats["rea_mean"][idx]) / self.norm_stats["rea_std"][idx]
+            slice_idx = self._y_zscore_indices
+            rea_slice = rea[slice_idx]
+            rea[slice_idx] = (rea_slice - self.norm_stats["rea_mean"][slice_idx]) / self.norm_stats[
+                "rea_std"
+            ][slice_idx]
 
         if self._y_minmax_indices:
-            idx = self._y_minmax_indices
-            rea_slice = rea[idx]
-            rea_min = self.norm_stats["rea_min"][idx]
-            rea_max = self.norm_stats["rea_max"][idx]
-            rea[idx] = (rea_slice - rea_min) / (rea_max - rea_min)
+            slice_idx = self._y_minmax_indices
+            rea_slice = rea[slice_idx]
+            rea_min = self.norm_stats["rea_min"][slice_idx]
+            rea_max = self.norm_stats["rea_max"][slice_idx]
+            rea[slice_idx] = (rea_slice - rea_min) / (rea_max - rea_min)
 
         # Variables in _y_none_indices are not normalized (left as-is)
 
@@ -789,6 +791,7 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
+        print(all_samples[0])
         all_samples.sort(
             key=lambda x: x[2] + x[3]
         )  # Sort by valid_time (init_date + leadtime)
@@ -935,7 +938,7 @@ class ForecastDataModule(L.LightningDataModule):
             da_stacked.coords["aggregation"] = ["mean", "std"]
 
             # Get metadata features
-            meta = get_metadata_features(da_stacked)
+            meta = get_metadata_features(da_stacked)  # type: ignore
 
             # Build unified tensor with all features
             # Order: all_vars_mean, all_vars_std, meta_vars
