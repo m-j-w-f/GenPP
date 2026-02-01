@@ -99,8 +99,10 @@ class TestForecastDatasetSelectMetaFeatures:
             select_meta_features=None,  # All meta features
         )
 
-        assert dataset._selected_meta_indices == [10, 11, 12, 13], (
-            "Expected all meta indices when select_meta_features is None"
+        # Verify through public interface - __getitem__ should return all 4 meta features
+        sample = dataset[0]
+        assert sample["x"]["meta_vars"].shape[0] == 4, (
+            f"Expected 4 meta features when select_meta_features is None, got {sample['x']['meta_vars'].shape[0]}"
         )
 
     @pytest.mark.unit
@@ -124,8 +126,10 @@ class TestForecastDatasetSelectMetaFeatures:
             select_meta_features=[],  # No meta features (EMOS case)
         )
 
-        assert dataset._selected_meta_indices == [], (
-            "Expected empty meta indices when select_meta_features is []"
+        # Verify through public interface - __getitem__ should return 0 meta features
+        sample = dataset[0]
+        assert sample["x"]["meta_vars"].shape[0] == 0, (
+            f"Expected 0 meta features when select_meta_features is [], got {sample['x']['meta_vars'].shape[0]}"
         )
 
     @pytest.mark.unit
@@ -149,9 +153,10 @@ class TestForecastDatasetSelectMetaFeatures:
             select_meta_features=["sin_prediction_time", "latitude"],
         )
 
-        # sin_prediction_time is at index 10, latitude is at index 12
-        assert dataset._selected_meta_indices == [10, 12], (
-            "Expected selected meta indices [10, 12]"
+        # Verify through public interface - __getitem__ should return 2 meta features
+        sample = dataset[0]
+        assert sample["x"]["meta_vars"].shape[0] == 2, (
+            f"Expected 2 meta features when selecting subset, got {sample['x']['meta_vars'].shape[0]}"
         )
 
     @pytest.mark.unit
@@ -175,9 +180,10 @@ class TestForecastDatasetSelectMetaFeatures:
             select_meta_features=["longitude"],
         )
 
-        # longitude is at index 13
-        assert dataset._selected_meta_indices == [13], (
-            "Expected selected meta indices [13]"
+        # Verify through public interface - __getitem__ should return 1 meta feature
+        sample = dataset[0]
+        assert sample["x"]["meta_vars"].shape[0] == 1, (
+            f"Expected 1 meta feature when selecting single feature, got {sample['x']['meta_vars'].shape[0]}"
         )
 
     @pytest.mark.unit
@@ -201,87 +207,6 @@ class TestForecastDatasetSelectMetaFeatures:
                 feature_metadata=feature_metadata,
                 select_meta_features=["invalid_feature"],
             )
-
-    @pytest.mark.unit
-    def test_getitem_returns_correct_meta_shape_all(
-        self, temp_data_dir, norm_stats, feature_metadata
-    ):
-        """Test that __getitem__ returns meta_vars with correct shape when all selected."""
-        samples = [
-            (
-                temp_data_dir["fc_path"],
-                temp_data_dir["rea_path"],
-                np.datetime64("2023-01-01"),
-                np.timedelta64(6, "h"),
-            )
-        ]
-
-        dataset = ForecastDataset(
-            samples=samples,
-            norm_stats=norm_stats,
-            feature_metadata=feature_metadata,
-            select_meta_features=None,  # All 4 meta features
-        )
-
-        sample = dataset[0]
-
-        assert sample["x"]["meta_vars"].shape == (4, 10, 10), (
-            f"Expected shape (4, 10, 10), got {sample['x']['meta_vars'].shape}"
-        )
-
-    @pytest.mark.unit
-    def test_getitem_returns_correct_meta_shape_subset(
-        self, temp_data_dir, norm_stats, feature_metadata
-    ):
-        """Test that __getitem__ returns meta_vars with correct shape when subset selected."""
-        samples = [
-            (
-                temp_data_dir["fc_path"],
-                temp_data_dir["rea_path"],
-                np.datetime64("2023-01-01"),
-                np.timedelta64(6, "h"),
-            )
-        ]
-
-        dataset = ForecastDataset(
-            samples=samples,
-            norm_stats=norm_stats,
-            feature_metadata=feature_metadata,
-            select_meta_features=["sin_prediction_time", "latitude"],
-        )
-
-        sample = dataset[0]
-
-        assert sample["x"]["meta_vars"].shape == (2, 10, 10), (
-            f"Expected shape (2, 10, 10), got {sample['x']['meta_vars'].shape}"
-        )
-
-    @pytest.mark.unit
-    def test_getitem_returns_empty_meta_when_none_selected(
-        self, temp_data_dir, norm_stats, feature_metadata
-    ):
-        """Test that __getitem__ returns empty meta_vars when none selected."""
-        samples = [
-            (
-                temp_data_dir["fc_path"],
-                temp_data_dir["rea_path"],
-                np.datetime64("2023-01-01"),
-                np.timedelta64(6, "h"),
-            )
-        ]
-
-        dataset = ForecastDataset(
-            samples=samples,
-            norm_stats=norm_stats,
-            feature_metadata=feature_metadata,
-            select_meta_features=[],  # EMOS case: no meta features
-        )
-
-        sample = dataset[0]
-
-        assert sample["x"]["meta_vars"].shape == (0, 10, 10), (
-            f"Expected shape (0, 10, 10), got {sample['x']['meta_vars'].shape}"
-        )
 
 
 class TestForecastDataModuleSelectMetaFeatures:

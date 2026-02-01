@@ -124,7 +124,7 @@ y_normalize_types: null
 features:
   input_features: ${eval:'len(${data.x_select_variables})'}
   aggregation_levels: 2
-  meta_features: ${eval:'len(${data.select_meta_features}) if ${data.select_meta_features} else 0'}
+  meta_features: ${eval:'len(${data.meta_features}) if ${data.select_meta_features} is None else len(${data.select_meta_features})'}
   output: ${eval:'len(${data.y_select_variables})'}
   input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
 

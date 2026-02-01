@@ -338,7 +338,7 @@ class ForecastDataset(Dataset):
         all_vars_std = fc_tensor[all_var_std_indices]  # shape [c_all, x, y]
 
         # Use precomputed selected meta indices (may be subset or empty)
-        if self._selected_meta_indices:
+        if len(self._selected_meta_indices) > 0:
             meta = fc_tensor[self._selected_meta_indices]  # shape [c_selected_meta, x, y]
         else:
             # No metadata features selected - create empty tensor with correct spatial dims
