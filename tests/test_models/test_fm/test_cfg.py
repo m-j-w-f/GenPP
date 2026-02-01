@@ -277,3 +277,64 @@ class TestFlowMatchingDirectModelCFG:
         )
 
         assert model.conditioning_dropout_prob == 0.1
+
+
+class TestPredictStepGuidanceScaleOverride:
+    """Tests for predict_step guidance_scale parameter override."""
+
+    @pytest.fixture
+    def mock_optimizer(self):
+        """Create a mock optimizer factory."""
+        return lambda params: torch.optim.Adam(params, lr=1e-3)
+
+    @pytest.fixture
+    def mock_lr_scheduler(self):
+        """Create a mock lr_scheduler config."""
+        from omegaconf import OmegaConf
+
+        return OmegaConf.create({"class_path": "torch.optim.lr_scheduler.StepLR", "step_size": 10})
+
+    @pytest.mark.unit
+    def test_noise_model_predict_step_accepts_guidance_scale(self, mock_optimizer, mock_lr_scheduler):
+        """Test that FlowMatchingNoiseModelCFG.predict_step accepts guidance_scale parameter."""
+        backbone = MockBackbone()
+
+        model = FlowMatchingNoiseModelCFG(
+            backbone=backbone,
+            n_samples=2,
+            solver_iter=2,
+            padding=[],
+            optimizer=mock_optimizer,
+            lr_scheduler=mock_lr_scheduler,
+            internal_td_scaling="abs",
+            use_rescaler=False,
+            guidance_scale=1.0,  # Default no guidance
+        )
+
+        # Check that predict_step signature includes guidance_scale parameter
+        import inspect
+        sig = inspect.signature(model.predict_step)
+        assert "guidance_scale" in sig.parameters
+        assert sig.parameters["guidance_scale"].default is None
+
+    @pytest.mark.unit
+    def test_direct_model_predict_step_accepts_guidance_scale(self, mock_optimizer, mock_lr_scheduler):
+        """Test that FlowMatchingDirectModelCFG.predict_step accepts guidance_scale parameter."""
+        backbone = MockBackbone()
+
+        model = FlowMatchingDirectModelCFG(
+            backbone=backbone,
+            n_samples=2,
+            solver_iter=2,
+            padding=[],
+            optimizer=mock_optimizer,
+            lr_scheduler=mock_lr_scheduler,
+            use_rescaler=False,
+            guidance_scale=1.0,  # Default no guidance
+        )
+
+        # Check that predict_step signature includes guidance_scale parameter
+        import inspect
+        sig = inspect.signature(model.predict_step)
+        assert "guidance_scale" in sig.parameters
+        assert sig.parameters["guidance_scale"].default is None
