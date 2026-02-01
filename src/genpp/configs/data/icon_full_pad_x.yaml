@@ -1,0 +1,36 @@
+# ICON Full DataModule Configuration - Padded X spatial transform
+# For Chen model with padding applied to X (input) only
+
+defaults:
+  - icon_full
+
+# ============================================================================
+# SPATIAL CONFIGURATION (Padding for X only, used for Chen model)
+# ============================================================================
+# Note: ICON uses dynamic spatial dimensions based on grid type.
+# Padding is applied to make dimensions compatible with certain architectures.
+spatial:
+  padding:
+    x_left: 0
+    x_right: 0
+    y_top: 0
+    y_bottom: 0
+
+  padding_list:
+    - ${data.spatial.padding.x_left}
+    - ${data.spatial.padding.x_right}
+    - ${data.spatial.padding.y_top}
+    - ${data.spatial.padding.y_bottom}
+
+  x_transform:
+    _target_: genpp.preproc.transforms.Pad
+    padding: ${data.spatial.padding_list}
+    mode: "constant"
+
+  y_transform: null
+
+# Use default normalization
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+x_normalize_types: null
+y_normalize_types: null
