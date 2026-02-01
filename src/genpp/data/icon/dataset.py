@@ -642,6 +642,7 @@ class ForecastDataModule(L.LightningDataModule):
             self._compute_norm_stats()
         else:
             print(f"Norm stats file already exists for train set (id: {train_set_id})")
+            self.norm_stats = torch.load(self.norm_stats_file)
 
         if self.feature_metadata is None:
             print("Computing feature metadata...")
