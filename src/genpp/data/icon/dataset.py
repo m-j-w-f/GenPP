@@ -490,6 +490,7 @@ class ForecastDataModule(L.LightningDataModule):
         """
         super().__init__()
         self.data_dir = Path(data_dir)
+        print(f"ForecastDataModule: Loading data from {self.data_dir}")
         self.batch_size = batch_size
         self.x_default_normalize_type = x_default_normalize_type
         self.y_default_normalize_type = y_default_normalize_type
