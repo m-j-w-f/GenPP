@@ -35,8 +35,9 @@ SOURCE_DATA_DIR="/shared/data/$USER/icon"
 RAID_BASE_DIR="/raid"
 USER_RAID_DIR="${RAID_BASE_DIR}/${USER}"
 
-# Generate unique job ID using timestamp and random string
-JOB_ID="job_$(date +%Y%m%d_%H%M%S)_$$_$(head -c 4 /dev/urandom | xxd -p)"
+# Generate unique job ID using timestamp, PID, and random bytes for uniqueness
+# Using 8 bytes of random data for better collision resistance in high-concurrency scenarios
+JOB_ID="job_$(date +%Y%m%d_%H%M%S)_$$_$(head -c 8 /dev/urandom | xxd -p)"
 JOB_DATA_DIR="${USER_RAID_DIR}/${JOB_ID}"
 
 echo "=============================================="
@@ -89,7 +90,8 @@ echo "Copying data to local NVME storage..."
 echo "This may take a few minutes depending on data size..."
 START_TIME=$(date +%s)
 
-rsync -a --info=progress2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"
+# Use --no-group and --no-owner to avoid unnecessary overhead when copying to local storage
+rsync -a --no-group --no-owner --info=progress2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"
 
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
@@ -104,8 +106,20 @@ echo "=============================================="
 echo "Starting job..."
 echo "=============================================="
 
-# Run the provided command
+# Run the provided command and capture exit status for informative error messages
+set +e  # Disable exit on error temporarily to capture the exit code
 "$@"
+CMD_EXIT_CODE=$?
+set -e  # Re-enable exit on error
+
+if [ $CMD_EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "=============================================="
+    echo "ERROR: Command failed with exit code ${CMD_EXIT_CODE}"
+    echo "Command: $@"
+    echo "=============================================="
+    exit $CMD_EXIT_CODE
+fi
 
 echo ""
 echo "=============================================="
