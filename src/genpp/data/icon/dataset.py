@@ -1312,9 +1312,8 @@ class ForecastDataModule(L.LightningDataModule):
         for each y variable.
 
         Returns:
-            list[ReverseAffineTransform]: List containing a single reverse transformation module
-                that handles all y variables. The module's mean and scale tensors have shape [c]
-                where c is the number of y variables.
+            list[ReverseAffineTransform]: List containing one reverse transformation module
+                per y variable. Each module's mean and scale tensors are scalar values.
                 For zscore normalization: reverses (y - mean) / std -> y * std + mean
                 For minmax normalization: reverses (y - min) / (max - min) -> y * (max - min) + min
 
@@ -1326,9 +1325,8 @@ class ForecastDataModule(L.LightningDataModule):
                 "Normalization statistics not available. Call prepare_data() first."
             )
 
-        # Build mean and scale tensors for all y variables
-        mean_list = []
-        scale_list = []
+        # Build one ReverseAffineTransform per y variable
+        reverse_modules = []
 
         for i, var_name in enumerate(self.y_select_variables):
             # Get the normalization type for this variable
@@ -1360,14 +1358,9 @@ class ForecastDataModule(L.LightningDataModule):
                     "Supported types are 'zscore', 'minmax', or None."
                 )
 
-            mean_list.append(mean)
-            scale_list.append(scale)
+            reverse_modules.append(ReverseAffineTransform(mean=mean, scale=scale))
 
-        # Stack into tensors with shape [c] where c is number of y variables
-        combined_mean = torch.stack(mean_list)
-        combined_scale = torch.stack(scale_list)
-
-        return [ReverseAffineTransform(mean=combined_mean, scale=combined_scale)]
+        return reverse_modules
 
     def cleanup(self) -> None:
         pass
