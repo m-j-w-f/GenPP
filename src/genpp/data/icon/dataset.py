@@ -1242,3 +1242,6 @@ class ForecastDataModule(L.LightningDataModule):
         if self.multiprocessing_context is not None and self.num_workers > 0:
             dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context  # type: ignore
         return DataLoader(self.test_dataset, **dataloader_kwargs)  # type: ignore
+
+    def cleanup(self) -> None:
+        pass

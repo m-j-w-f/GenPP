@@ -75,6 +75,12 @@ y_select_variables:
   - 'T_2M+height_2.0'
   - 'VMAX_10M+height_2_10.0'
 
+meta_features:
+  - 'sin_time'
+  - 'cos_time'
+  - 'lat'
+  - 'lon'
+
 # ============================================================================
 # BATCH CONFIGURATION
 # ============================================================================
@@ -106,6 +112,18 @@ y_default_normalize_type: zscore
 #     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
 x_normalize_types: null
 y_normalize_types: null
+
+# ============================================================================
+# FURTHER EXPORTED INFO
+# ============================================================================
+# These will be consumed by the model to get correct input sizes etc
+features:
+  input_features: ${eval:'len(${data.x_select_variables})'}
+  aggregation_levels: 2
+  meta_features: ${eval:'len(${data.features.meta_features})'}
+  output: ${eval:'len(${data.y_select_variables})'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
+
 
 # ============================================================================
 # DATA MODULE
