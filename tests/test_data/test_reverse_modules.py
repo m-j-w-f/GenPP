@@ -34,7 +34,7 @@ class TestForecastDataModuleReverseModules:
 
     @pytest.mark.unit
     def test_y_reverse_modules_returns_list(self, norm_stats):
-        """Test that y_reverseModules returns a list with one ReverseAffineTransform."""
+        """Test that y_reverseModules returns a list with one ReverseAffineTransform per variable."""
         dm = ForecastDataModule(
             x_select_variables=["var1", "var2"],
             y_select_variables=["var1", "var2"],
@@ -44,8 +44,9 @@ class TestForecastDataModuleReverseModules:
         modules = dm.y_reverseModules
 
         assert isinstance(modules, list), "Expected list"
-        assert len(modules) == 1, "Expected exactly one module"
-        assert isinstance(modules[0], ReverseAffineTransform), "Expected ReverseAffineTransform"
+        assert len(modules) == 2, "Expected one module per y variable"
+        for module in modules:
+            assert isinstance(module, ReverseAffineTransform), "Expected ReverseAffineTransform"
 
     @pytest.mark.unit
     def test_y_reverse_modules_zscore_default(self, norm_stats):
@@ -58,18 +59,17 @@ class TestForecastDataModuleReverseModules:
         dm.norm_stats = norm_stats
 
         modules = dm.y_reverseModules
-        module = modules[0]
+
+        assert len(modules) == 2, "Expected one module per y variable"
 
         # For zscore, mean = rea_mean and scale = rea_std
-        assert module.mean.shape == torch.Size([2]), f"Expected shape [2], got {module.mean.shape}"
-        assert module.scale.shape == torch.Size([2]), f"Expected shape [2], got {module.scale.shape}"
+        # Module 0 (var1): mean=10, scale=2
+        assert modules[0].mean.squeeze().item() == pytest.approx(10.0)
+        assert modules[0].scale.squeeze().item() == pytest.approx(2.0)
 
-        # Check values (squeezed from [c, 1, 1])
-        expected_mean = torch.tensor([10.0, 20.0])
-        expected_scale = torch.tensor([2.0, 4.0])
-
-        assert torch.allclose(module.mean, expected_mean), f"Mean mismatch: {module.mean} vs {expected_mean}"
-        assert torch.allclose(module.scale, expected_scale), f"Scale mismatch: {module.scale} vs {expected_scale}"
+        # Module 1 (var2): mean=20, scale=4
+        assert modules[1].mean.squeeze().item() == pytest.approx(20.0)
+        assert modules[1].scale.squeeze().item() == pytest.approx(4.0)
 
     @pytest.mark.unit
     def test_y_reverse_modules_minmax_default(self, norm_stats):
@@ -82,14 +82,17 @@ class TestForecastDataModuleReverseModules:
         dm.norm_stats = norm_stats
 
         modules = dm.y_reverseModules
-        module = modules[0]
+
+        assert len(modules) == 2, "Expected one module per y variable"
 
         # For minmax, mean = rea_min and scale = rea_max - rea_min
-        expected_mean = torch.tensor([5.0, 10.0])
-        expected_scale = torch.tensor([10.0, 20.0])  # (15-5), (30-10)
+        # Module 0 (var1): mean=5, scale=10 (15-5)
+        assert modules[0].mean.squeeze().item() == pytest.approx(5.0)
+        assert modules[0].scale.squeeze().item() == pytest.approx(10.0)
 
-        assert torch.allclose(module.mean, expected_mean), f"Mean mismatch: {module.mean} vs {expected_mean}"
-        assert torch.allclose(module.scale, expected_scale), f"Scale mismatch: {module.scale} vs {expected_scale}"
+        # Module 1 (var2): mean=10, scale=20 (30-10)
+        assert modules[1].mean.squeeze().item() == pytest.approx(10.0)
+        assert modules[1].scale.squeeze().item() == pytest.approx(20.0)
 
     @pytest.mark.unit
     def test_y_reverse_modules_mixed_normalization(self, norm_stats):
@@ -103,15 +106,16 @@ class TestForecastDataModuleReverseModules:
         dm.norm_stats = norm_stats
 
         modules = dm.y_reverseModules
-        module = modules[0]
+
+        assert len(modules) == 2, "Expected one module per y variable"
 
         # var1 uses zscore: mean=10, scale=2
-        # var2 uses minmax: mean=10, scale=20
-        expected_mean = torch.tensor([10.0, 10.0])
-        expected_scale = torch.tensor([2.0, 20.0])
+        assert modules[0].mean.squeeze().item() == pytest.approx(10.0)
+        assert modules[0].scale.squeeze().item() == pytest.approx(2.0)
 
-        assert torch.allclose(module.mean, expected_mean), f"Mean mismatch: {module.mean} vs {expected_mean}"
-        assert torch.allclose(module.scale, expected_scale), f"Scale mismatch: {module.scale} vs {expected_scale}"
+        # var2 uses minmax: mean=10, scale=20 (30-10)
+        assert modules[1].mean.squeeze().item() == pytest.approx(10.0)
+        assert modules[1].scale.squeeze().item() == pytest.approx(20.0)
 
     @pytest.mark.unit
     def test_y_reverse_modules_none_normalization(self, norm_stats):
@@ -125,15 +129,16 @@ class TestForecastDataModuleReverseModules:
         dm.norm_stats = norm_stats
 
         modules = dm.y_reverseModules
-        module = modules[0]
+
+        assert len(modules) == 2, "Expected one module per y variable"
 
         # var1 uses None: mean=0, scale=1 (identity)
-        # var2 uses zscore: mean=20, scale=4
-        expected_mean = torch.tensor([0.0, 20.0])
-        expected_scale = torch.tensor([1.0, 4.0])
+        assert modules[0].mean.squeeze().item() == pytest.approx(0.0)
+        assert modules[0].scale.squeeze().item() == pytest.approx(1.0)
 
-        assert torch.allclose(module.mean, expected_mean), f"Mean mismatch: {module.mean} vs {expected_mean}"
-        assert torch.allclose(module.scale, expected_scale), f"Scale mismatch: {module.scale} vs {expected_scale}"
+        # var2 uses zscore: mean=20, scale=4
+        assert modules[1].mean.squeeze().item() == pytest.approx(20.0)
+        assert modules[1].scale.squeeze().item() == pytest.approx(4.0)
 
     @pytest.mark.unit
     def test_y_reverse_modules_forward_pass(self, norm_stats):
@@ -146,29 +151,33 @@ class TestForecastDataModuleReverseModules:
         dm.norm_stats = norm_stats
 
         modules = dm.y_reverseModules
-        module = modules[0]
 
-        # Create sample input: normalized values
-        # Shape: [batch, channels, height, width]
-        mu = torch.zeros(2, 2, 3, 3)  # All zeros (normalized mean)
-        sigma = torch.ones(2, 2, 3, 3)  # All ones (normalized std)
+        assert len(modules) == 2, "Expected one module per y variable"
+
+        # Test module 0 (var1): mean=10, scale=2
+        # Create sample input: normalized values for single variable
+        # Shape: [batch, height, width]
+        mu0 = torch.zeros(2, 3, 3)  # All zeros (normalized mean)
+        sigma0 = torch.ones(2, 3, 3)  # All ones (normalized std)
 
         # Forward pass
-        result_mu, result_sigma = module(mu, sigma)
+        result_mu0, result_sigma0 = modules[0](mu0, sigma0)
 
-        # Expected: mu_denorm = mu * scale + mean = 0 * [2, 4] + [10, 20] = [10, 20]
-        # sigma_denorm = sigma * scale = 1 * [2, 4] = [2, 4]
-        assert result_mu.shape == torch.Size([2, 2, 3, 3])
-        assert result_sigma.shape == torch.Size([2, 2, 3, 3])
+        # Expected: mu_denorm = mu * scale + mean = 0 * 2 + 10 = 10
+        # sigma_denorm = sigma * scale = 1 * 2 = 2
+        assert torch.allclose(result_mu0, torch.full((2, 3, 3), 10.0))
+        assert torch.allclose(result_sigma0, torch.full((2, 3, 3), 2.0))
 
-        # Check that denormalization is applied correctly
-        # Channel 0 should have mu=10, sigma=2
-        assert torch.allclose(result_mu[:, 0], torch.full((2, 3, 3), 10.0))
-        assert torch.allclose(result_sigma[:, 0], torch.full((2, 3, 3), 2.0))
+        # Test module 1 (var2): mean=20, scale=4
+        mu1 = torch.zeros(2, 3, 3)
+        sigma1 = torch.ones(2, 3, 3)
 
-        # Channel 1 should have mu=20, sigma=4
-        assert torch.allclose(result_mu[:, 1], torch.full((2, 3, 3), 20.0))
-        assert torch.allclose(result_sigma[:, 1], torch.full((2, 3, 3), 4.0))
+        result_mu1, result_sigma1 = modules[1](mu1, sigma1)
+
+        # Expected: mu_denorm = mu * scale + mean = 0 * 4 + 20 = 20
+        # sigma_denorm = sigma * scale = 1 * 4 = 4
+        assert torch.allclose(result_mu1, torch.full((2, 3, 3), 20.0))
+        assert torch.allclose(result_sigma1, torch.full((2, 3, 3), 4.0))
 
     @pytest.mark.unit
     def test_y_reverse_modules_invalid_norm_type(self, norm_stats):
