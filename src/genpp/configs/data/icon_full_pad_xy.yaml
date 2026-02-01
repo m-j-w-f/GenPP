@@ -1,0 +1,39 @@
+# ICON Full DataModule Configuration - Padded X and Y spatial transform
+# For Flow Matching models with padding applied to both X (input) and Y (target)
+
+defaults:
+  - icon_full
+
+# ============================================================================
+# SPATIAL CONFIGURATION (Padding for both X and Y, used for FM models)
+# ============================================================================
+# Note: ICON uses dynamic spatial dimensions based on grid type.
+# Padding is applied to make dimensions compatible with certain architectures.
+spatial:
+  padding:
+    x_left: 0
+    x_right: 1
+    y_top: 1
+    y_bottom: 2
+
+  padding_list:
+    - ${data.spatial.padding.x_left}
+    - ${data.spatial.padding.x_right}
+    - ${data.spatial.padding.y_top}
+    - ${data.spatial.padding.y_bottom}
+
+  x_transform:
+    _target_: genpp.preproc.transforms.Pad
+    padding: ${data.spatial.padding_list}
+    mode: "constant"
+
+  y_transform:
+    _target_: genpp.preproc.transforms.Pad
+    padding: ${data.spatial.padding_list}
+    mode: "constant"
+
+# Use default normalization
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+x_normalize_types: null
+y_normalize_types: null
