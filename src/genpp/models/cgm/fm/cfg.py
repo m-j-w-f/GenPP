@@ -32,6 +32,14 @@ from genpp.models.cgm.fm.base import (
 from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
 
 
+def _is_guidance_scale_one(guidance_scale: float) -> bool:
+    """Check if guidance scale is effectively 1.0 (no guidance).
+
+    Uses tolerance-based comparison for floating point safety.
+    """
+    return abs(guidance_scale - 1.0) < 1e-9
+
+
 class _CFGVectorFieldWrapper(nn.Module):
     """Wrapper that applies classifier-free guidance to a conditional vector field.
 
@@ -69,7 +77,7 @@ class _CFGVectorFieldWrapper(nn.Module):
             Guided vector field output [bs, c, h, w]
         """
         # When guidance_scale is 1, just return the conditional output
-        if self.guidance_scale == 1.0:
+        if _is_guidance_scale_one(self.guidance_scale):
             return self.backbone(x, t, conditioning)
 
         # Compute conditional vector field: u^target_t(x|y)
@@ -215,7 +223,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
             nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
 
         # Create CFG wrapper if guidance_scale != 1
-        if self.guidance_scale != 1.0:
+        if not _is_guidance_scale_one(self.guidance_scale):
             cfg_backbone = _CFGVectorFieldWrapper(
                 backbone=self.backbone,
                 guidance_scale=self.guidance_scale,
@@ -373,7 +381,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         nwp_fc_expanded["timedelta"] = td_expanded
 
         # Create CFG wrapper if guidance_scale != 1
-        if self.guidance_scale != 1.0:
+        if not _is_guidance_scale_one(self.guidance_scale):
             cfg_backbone = _CFGVectorFieldWrapper(
                 backbone=self.backbone,
                 guidance_scale=self.guidance_scale,
