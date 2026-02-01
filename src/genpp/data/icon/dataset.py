@@ -13,18 +13,15 @@ import xarray as xr
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from genpp import BASE_DIR
 from genpp.data.icon import (
     AXIS_ORDER,
+    DATA_DIR,
     LEVELS_TO_FLATTEN,
     VARS_GRID_28,
     VARS_TO_DROP,
 )
 from genpp.data.utils import MetadataVars, flatten_levels
 from genpp.models.layers import ReverseAffineTransform
-
-# %%
-DATA_DIR = BASE_DIR / "data" / "icon" / "data"
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -441,7 +438,6 @@ class ForecastDataModule(L.LightningDataModule):
         x_select_variables: list[str],
         y_select_variables: list[str],
         data_dir: Path | str = DATA_DIR,
-        cache_dir: Path | str | None = None,
         batch_size: int = 32,
         x_default_normalize_type: str = "zscore",
         y_default_normalize_type: str = "zscore",
@@ -464,9 +460,8 @@ class ForecastDataModule(L.LightningDataModule):
         Args:
             x_select_variables (list[str]): List of variable names to select from FC data.
             y_select_variables (list[str]): List of variable names to select from REA data.
-            data_dir (str): Path to the data directory containing ensmean, ensstd, rea folders.
-            cache_dir (str): Dir where the data will be copied to and read from. This is used
-                             due to the DATA_DIR being very slow to read from.
+            data_dir (str): Path to the data directory containing tensors/fc, tensors/rea folders.
+                Can be overridden via GENPP_DATA_DIR environment variable.
             batch_size (int): Batch size for DataLoaders.
             x_default_normalize_type (str): Default normalization type for x variables ('zscore' or 'minmax').
                 Used for x variables not specified in x_normalize_types. Defaults to 'zscore'.
@@ -495,7 +490,7 @@ class ForecastDataModule(L.LightningDataModule):
         """
         super().__init__()
         self.data_dir = Path(data_dir)
-        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
+        print(f"ForecastDataModule: Loading data from {self.data_dir}")
         self.batch_size = batch_size
         self.x_default_normalize_type = x_default_normalize_type
         self.y_default_normalize_type = y_default_normalize_type
@@ -517,8 +512,8 @@ class ForecastDataModule(L.LightningDataModule):
         self.y_normalize_types = y_normalize_types
         self.select_meta_features = select_meta_features
 
-        self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
-        self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
+        self.fc_tensor_dir = self.data_dir / "tensors" / "fc"
+        self.rea_tensor_dir = self.data_dir / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
         self.norm_stats_file: Path | None = None
 
@@ -635,7 +630,7 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Generate train set identifier and set norm_stats_file path
         train_set_id = self._get_train_set_identifier()
-        self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+        self.norm_stats_file = self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
 
         if not self.norm_stats_file.exists():
             print(f"Computing norm stats for train set (id: {train_set_id})...")
@@ -835,7 +830,7 @@ class ForecastDataModule(L.LightningDataModule):
             # Set norm_stats_file path with train set identifier if not already set
             if self.norm_stats_file is None:
                 train_set_id = self._get_train_set_identifier()
-                self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                self.norm_stats_file = self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
 
             if self.norm_stats_file.exists():
                 self.norm_stats = torch.load(self.norm_stats_file)

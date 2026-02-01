@@ -70,6 +70,7 @@ sync = '''rsync -avzr --progress --human-readable
   --exclude='data/weatherbench2/hres_t0.zarr/'
    . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
 wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
+launch-gpu-job = "src/genpp/scripts/launch_gpu_job.sh"
 test = "pytest"
 unittest = "pytest -m unit"
 
