@@ -7,9 +7,13 @@ defaults:
 # ============================================================================
 # SPATIAL CONFIGURATION (Padding for X only, used for Chen model)
 # ============================================================================
-# Note: ICON uses dynamic spatial dimensions based on grid type.
+# Note: ICON uses rotated latitude-longitude grid with dimensions from target_grid.txt
 # Padding is applied to make dimensions compatible with certain architectures.
 spatial:
+  original:
+    latitude: 240
+    longitude: 260
+
   padding:
     x_left: 0
     x_right: 0
@@ -21,6 +25,10 @@ spatial:
     - ${data.spatial.padding.x_right}
     - ${data.spatial.padding.y_top}
     - ${data.spatial.padding.y_bottom}
+
+  padded:
+    latitude: ${eval:'${data.spatial.original.latitude} + ${data.spatial.padding.y_top} + ${data.spatial.padding.y_bottom}'}
+    longitude: ${eval:'${data.spatial.original.longitude} + ${data.spatial.padding.x_left} + ${data.spatial.padding.x_right}'}
 
   x_transform:
     _target_: genpp.preproc.transforms.Pad

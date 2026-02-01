@@ -4,9 +4,12 @@
 # ============================================================================
 # SPATIAL CONFIGURATION
 # ============================================================================
-# ICON uses dynamic spatial dimensions based on grid type
-# No padding or transforms by default
+# ICON uses rotated latitude-longitude grid with dimensions from target_grid.txt
+# x dimension (260) corresponds to rotated longitude, y dimension (240) to rotated latitude
 spatial:
+  original:
+    latitude: 240
+    longitude: 260
   x_transform: null
   y_transform: null
 
