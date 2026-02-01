@@ -12,9 +12,9 @@ defaults:
 spatial:
   padding:
     x_left: 0
-    x_right: 1
-    y_top: 1
-    y_bottom: 2
+    x_right: 0
+    y_top: 0
+    y_bottom: 0
 
   padding_list:
     - ${data.spatial.padding.x_left}
