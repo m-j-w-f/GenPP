@@ -62,6 +62,7 @@ class _CFGVectorFieldWrapper(nn.Module):
         self.backbone = backbone
         self.guidance_scale = guidance_scale
         self.null_conditioning_fn = null_conditioning_fn
+        self._cached_null_conditioning: dict[str, torch.Tensor] | None = None
 
     def forward(
         self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]
@@ -83,11 +84,12 @@ class _CFGVectorFieldWrapper(nn.Module):
         # Compute conditional vector field: u^target_t(x|y)
         u_cond = self.backbone(x, t, conditioning)
 
-        # Create null conditioning for unconditional pass
-        null_conditioning = self.null_conditioning_fn(conditioning)
+        # Create null conditioning for unconditional pass (cached for efficiency)
+        if self._cached_null_conditioning is None:
+            self._cached_null_conditioning = self.null_conditioning_fn(conditioning)
 
         # Compute unconditional vector field: u^target_t(x|∅)
-        u_uncond = self.backbone(x, t, null_conditioning)
+        u_uncond = self.backbone(x, t, self._cached_null_conditioning)
 
         # Apply CFG formula: u_t(x|y) = (1 - w) * u_uncond + w * u_cond
         w = self.guidance_scale
@@ -160,13 +162,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         Returns:
             Null conditioning dictionary with zeroed tensors
         """
-        null_conditioning = {}
-        for key, value in conditioning.items():
-            if isinstance(value, torch.Tensor):
-                null_conditioning[key] = torch.zeros_like(value)
-            else:
-                null_conditioning[key] = value
-        return null_conditioning
+        return {key: torch.zeros_like(value) for key, value in conditioning.items()}
 
     def _calc_loss(self, batch) -> torch.Tensor:
         """Calculate the loss with optional conditioning dropout for CFG training."""
@@ -192,19 +188,16 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         conditioning = nwp_fc
         if self.training and self.conditioning_dropout_prob > 0:
             # Create mask for which samples should have null conditioning
-            dropout_mask = torch.rand(x_1.size(0), device=x_1.device) < self.conditioning_dropout_prob
+            dropout_mask = torch.rand(x_1.size(0)).to(x_1) < self.conditioning_dropout_prob
             if dropout_mask.any():
                 # Create null conditioning
                 null_cond = self._create_null_conditioning(conditioning)
                 # Apply dropout to each tensor in conditioning
                 conditioning = {}
                 for key, value in nwp_fc.items():
-                    if isinstance(value, torch.Tensor):
-                        mask_shape = [value.size(0)] + [1] * (value.dim() - 1)
-                        mask = dropout_mask.view(*mask_shape).expand_as(value)
-                        conditioning[key] = torch.where(mask, null_cond[key], value)
-                    else:
-                        conditioning[key] = value
+                    mask_shape = [value.size(0)] + [1] * (value.dim() - 1)
+                    mask = dropout_mask.view(*mask_shape).expand_as(value)
+                    conditioning[key] = torch.where(mask, null_cond[key], value)
 
         u_t_theta = self.backbone(x=path_sample.x_t, t=path_sample.t, conditioning=conditioning)
         u_t_ref = path_sample.dx_t
@@ -329,13 +322,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         Returns:
             Null conditioning dictionary with zeroed tensors
         """
-        null_conditioning = {}
-        for key, value in conditioning.items():
-            if isinstance(value, torch.Tensor):
-                null_conditioning[key] = torch.zeros_like(value)
-            else:
-                null_conditioning[key] = value
-        return null_conditioning
+        return {key: torch.zeros_like(value) for key, value in conditioning.items()}
 
     def _calc_loss(self, batch) -> torch.Tensor:
         """Calculate the loss with optional conditioning dropout for CFG training."""
@@ -355,19 +342,16 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         # Apply conditioning dropout during training for CFG
         if self.training and self.conditioning_dropout_prob > 0:
             # Create mask for which samples should have null conditioning
-            dropout_mask = torch.rand(x_1.size(0), device=x_1.device) < self.conditioning_dropout_prob
+            dropout_mask = torch.rand(x_1.size(0)).to(x_1) < self.conditioning_dropout_prob
             if dropout_mask.any():
                 # Create null conditioning
                 null_cond = self._create_null_conditioning(conditioning)
                 # Apply dropout to each tensor in conditioning
                 new_conditioning = {}
                 for key, value in conditioning.items():
-                    if isinstance(value, torch.Tensor):
-                        mask_shape = [value.size(0)] + [1] * (value.dim() - 1)
-                        mask = dropout_mask.view(*mask_shape).expand_as(value)
-                        new_conditioning[key] = torch.where(mask, null_cond[key], value)
-                    else:
-                        new_conditioning[key] = value
+                    mask_shape = [value.size(0)] + [1] * (value.dim() - 1)
+                    mask = dropout_mask.view(*mask_shape).expand_as(value)
+                    new_conditioning[key] = torch.where(mask, null_cond[key], value)
                 conditioning = new_conditioning
 
         # Get the probability path
