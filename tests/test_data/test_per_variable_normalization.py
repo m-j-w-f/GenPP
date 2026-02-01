@@ -62,6 +62,7 @@ class TestForecastDatasetPerVariableNormalization:
             "all_var_mean_indices": list(range(5)),
             "all_var_std_indices": list(range(5, 10)),
             "meta_var_indices": list(range(10, 12)),
+            "meta_var_names": ["sin_prediction_time", "cos_prediction_time"],
             "predicted_var_mean_indices": [0, 1],  # First two are predicted vars
             "predicted_var_std_indices": [0, 1],
             "predicted_var_mean_names": ["var_a", "var_b"],

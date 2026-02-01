@@ -76,10 +76,14 @@ y_select_variables:
   - 'VMAX_10M+height_2_10.0'
 
 meta_features:
-  - 'sin_time'
-  - 'cos_time'
-  - 'lat'
-  - 'lon'
+  - 'sin_prediction_time'
+  - 'cos_prediction_time'
+  - 'latitude'
+  - 'longitude'
+
+# Select which metadata features to use (subset of meta_features above)
+# Set to null or empty list to use no metadata features (e.g., for EMOS)
+select_meta_features: ${data.meta_features}
 
 # ============================================================================
 # BATCH CONFIGURATION
@@ -120,7 +124,7 @@ y_normalize_types: null
 features:
   input_features: ${eval:'len(${data.x_select_variables})'}
   aggregation_levels: 2
-  meta_features: ${eval:'len(${data.features.meta_features})'}
+  meta_features: ${eval:'len(${data.meta_features}) if ${data.select_meta_features} is None else len(${data.select_meta_features})'}
   output: ${eval:'len(${data.y_select_variables})'}
   input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
 
@@ -132,6 +136,7 @@ module:
   _target_: genpp.data.icon.dataset.ForecastDataModule
   x_select_variables: ${data.x_select_variables}
   y_select_variables: ${data.y_select_variables}
+  select_meta_features: ${data.select_meta_features}
   batch_size: ${data.batch_size}
   x_default_normalize_type: ${data.x_default_normalize_type}
   y_default_normalize_type: ${data.y_default_normalize_type}

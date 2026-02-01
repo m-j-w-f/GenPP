@@ -143,6 +143,7 @@ class ForecastDataset(Dataset):
         y_transform: Callable | None = None,
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
+        select_meta_features: list[str] | None = None,
     ) -> None:
         """Initialize the ForecastDataset.
 
@@ -168,6 +169,10 @@ class ForecastDataset(Dataset):
             y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
                 to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
                 Variables not specified use y_default_normalize_type.
+            select_meta_features (list[str] | None): Optional list of metadata feature names to select.
+                Valid values are: 'sin_prediction_time', 'cos_prediction_time', 'latitude', 'longitude'.
+                If None, all available metadata features are used.
+                If empty list, no metadata features are used (e.g., for EMOS).
         """
         self.samples = samples
         self.norm_stats = norm_stats
@@ -178,11 +183,46 @@ class ForecastDataset(Dataset):
         self.y_transform = y_transform
         self.x_normalize_types = x_normalize_types
         self.y_normalize_types = y_normalize_types
+        self.select_meta_features = select_meta_features
+
+        # Precompute selected meta feature indices
+        self._precompute_meta_feature_indices()
 
         # Precompute per-variable normalization indices for performance
         # This avoids expensive index computation in __getitem__
         self._precompute_x_normalization_indices()
         self._precompute_y_normalization_indices()
+
+    def _precompute_meta_feature_indices(self) -> None:
+        """Precompute indices for selected metadata features.
+
+        This method computes which indices from the full meta_var_indices to use
+        based on select_meta_features. If select_meta_features is None, all metadata
+        features are used. If it's an empty list, no metadata features are used.
+        """
+        all_meta_var_names = self.feature_metadata.get("meta_var_names", [])
+        all_meta_var_indices = self.feature_metadata.get("meta_var_indices", [])
+
+        if self.select_meta_features is None:
+            # Use all metadata features
+            self._selected_meta_indices = all_meta_var_indices
+        elif len(self.select_meta_features) == 0:
+            # Use no metadata features
+            self._selected_meta_indices = []
+        else:
+            # Select specific metadata features
+            self._selected_meta_indices = []
+            for feature_name in self.select_meta_features:
+                if feature_name in all_meta_var_names:
+                    # Find the index in the original list
+                    local_idx = all_meta_var_names.index(feature_name)
+                    # Get the corresponding index in the tensor
+                    self._selected_meta_indices.append(all_meta_var_indices[local_idx])
+                else:
+                    raise ValueError(
+                        f"Metadata feature '{feature_name}' not found. "
+                        f"Available features: {all_meta_var_names}"
+                    )
 
     def _precompute_x_normalization_indices(self) -> None:
         """Precompute indices for per-variable x normalization.
@@ -292,12 +332,18 @@ class ForecastDataset(Dataset):
         predicted_var_std_indices = self.feature_metadata["predicted_var_std_indices"]  # noqa: F841
         all_var_mean_indices = self.feature_metadata["all_var_mean_indices"]
         all_var_std_indices = self.feature_metadata["all_var_std_indices"]
-        meta_var_indices = self.feature_metadata["meta_var_indices"]
 
         # Slice the unified tensor to get all_vars and meta
         all_vars_mean = fc_tensor[all_var_mean_indices]  # shape [c_all, x, y]
         all_vars_std = fc_tensor[all_var_std_indices]  # shape [c_all, x, y]
-        meta = fc_tensor[meta_var_indices]  # shape [c_meta, x, y]
+
+        # Use precomputed selected meta indices (may be subset or empty)
+        if len(self._selected_meta_indices) > 0:
+            meta = fc_tensor[self._selected_meta_indices]  # shape [c_selected_meta, x, y]
+        else:
+            # No metadata features selected - create empty tensor with correct spatial dims
+            spatial_shape = fc_tensor.shape[1:]  # (x, y)
+            meta = torch.empty(0, *spatial_shape, dtype=fc_tensor.dtype)
 
         # Normalize all x variables (means) using per-variable normalization
         # Use precomputed indices for performance
@@ -411,6 +457,7 @@ class ForecastDataModule(L.LightningDataModule):
         test_split: dict[str, str] = {"start": "2023-09-02", "end": "2024-09-01"},
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
+        select_meta_features: list[str] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -441,6 +488,10 @@ class ForecastDataModule(L.LightningDataModule):
             y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
                 to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
                 Variables not specified use y_default_normalize_type.
+            select_meta_features (list[str] | None): Optional list of metadata feature names to select.
+                Valid values are: 'sin_prediction_time', 'cos_prediction_time', 'latitude', 'longitude'.
+                If None, all available metadata features are used.
+                If empty list, no metadata features are used (e.g., for EMOS).
         """
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -464,6 +515,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.feature_metadata = None
         self.x_normalize_types = x_normalize_types
         self.y_normalize_types = y_normalize_types
+        self.select_meta_features = select_meta_features
 
         self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
         self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
@@ -847,6 +899,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
         self.val_dataset = ForecastDataset(
             val_samples,
@@ -858,6 +911,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
         self.test_dataset = ForecastDataset(
             test_samples,
@@ -869,6 +923,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
 
     @staticmethod
