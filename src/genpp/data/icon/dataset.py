@@ -21,6 +21,7 @@ from genpp.data.icon import (
     VARS_TO_DROP,
 )
 from genpp.data.utils import MetadataVars, flatten_levels
+from genpp.models.layers import ReverseAffineTransform
 
 # %%
 DATA_DIR = BASE_DIR / "data" / "icon" / "data"
@@ -1242,6 +1243,75 @@ class ForecastDataModule(L.LightningDataModule):
         if self.multiprocessing_context is not None and self.num_workers > 0:
             dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context  # type: ignore
         return DataLoader(self.test_dataset, **dataloader_kwargs)  # type: ignore
+
+    @property
+    def y_reverseModules(self) -> list[ReverseAffineTransform]:
+        """Get reverse transformation modules for y (target) variables.
+
+        These modules reverse the normalization applied to target variables during training,
+        allowing models to output predictions in the original data space.
+
+        The reverse module is created based on the normalization statistics computed
+        during prepare_data() and the normalization type (zscore or minmax) specified
+        for each y variable.
+
+        Returns:
+            list[ReverseAffineTransform]: List containing a single reverse transformation module
+                that handles all y variables. The module's mean and scale tensors have shape [c]
+                where c is the number of y variables.
+                For zscore normalization: reverses (y - mean) / std -> y * std + mean
+                For minmax normalization: reverses (y - min) / (max - min) -> y * (max - min) + min
+
+        Raises:
+            RuntimeError: If norm_stats have not been computed (prepare_data not called).
+        """
+        if self.norm_stats is None:
+            raise RuntimeError(
+                "Normalization statistics not available. Call prepare_data() first."
+            )
+
+        # Build mean and scale tensors for all y variables
+        mean_list = []
+        scale_list = []
+
+        for i, var_name in enumerate(self.y_select_variables):
+            # Get the normalization type for this variable
+            if self.y_normalize_types is not None and var_name in self.y_normalize_types:
+                norm_type = self.y_normalize_types[var_name]
+            else:
+                norm_type = self.y_default_normalize_type
+
+            if norm_type == "zscore":
+                # For zscore: x_normalized = (x - mean) / std
+                # Reverse: x = x_normalized * std + mean
+                mean = self.norm_stats["rea_mean"][i].squeeze()
+                scale = self.norm_stats["rea_std"][i].squeeze()
+            elif norm_type == "minmax":
+                # For minmax: x_normalized = (x - min) / (max - min)
+                # Reverse: x = x_normalized * (max - min) + min
+                mean = self.norm_stats["rea_min"][i].squeeze()
+                scale = (
+                    self.norm_stats["rea_max"][i].squeeze()
+                    - self.norm_stats["rea_min"][i].squeeze()
+                )
+            elif norm_type is None:
+                # No normalization applied, use identity transform (scale=1, mean=0)
+                mean = torch.tensor(0.0)
+                scale = torch.tensor(1.0)
+            else:
+                raise ValueError(
+                    f"Unknown normalization type '{norm_type}' for y variable '{var_name}'. "
+                    "Supported types are 'zscore', 'minmax', or None."
+                )
+
+            mean_list.append(mean)
+            scale_list.append(scale)
+
+        # Stack into tensors with shape [c] where c is number of y variables
+        combined_mean = torch.stack(mean_list)
+        combined_scale = torch.stack(scale_list)
+
+        return [ReverseAffineTransform(mean=combined_mean, scale=combined_scale)]
 
     def cleanup(self) -> None:
         pass
