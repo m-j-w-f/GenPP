@@ -108,9 +108,10 @@ if [ ! -d "${USER_RAID_DIR}" ]; then
     mkdir -p "${USER_RAID_DIR}"
 fi
 
-# Create job-specific data directory
+# Create job-specific data directory with tensors subdirectory
+# The source data has fc/ and rea/ directories, but the code expects them under tensors/
 echo "Creating job data directory: ${JOB_DATA_DIR}"
-mkdir -p "${JOB_DATA_DIR}"
+mkdir -p "${JOB_DATA_DIR}/tensors"
 
 # Copy data to local NVME storage
 echo "Copying data to local NVME storage..."
@@ -118,8 +119,9 @@ echo "This may take a few minutes depending on data size..."
 START_TIME=$(date +%s)
 
 # Use --no-group and --no-owner to avoid unnecessary overhead when copying to local storage
-if ! rsync -a --no-group --no-owner --info=STATS2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"; then
-    echo "ERROR: Failed to copy data from ${SOURCE_DATA_DIR} to ${JOB_DATA_DIR}"
+# Copy into tensors/ subdirectory to match expected structure
+if ! rsync -a --no-group --no-owner --info=STATS2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/tensors/"; then
+    echo "ERROR: Failed to copy data from ${SOURCE_DATA_DIR} to ${JOB_DATA_DIR}/tensors"
     exit 1
 fi
 
