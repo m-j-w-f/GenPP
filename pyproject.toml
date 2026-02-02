@@ -73,6 +73,7 @@ wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
 launch-gpu-job = "src/genpp/scripts/launch_gpu_job.sh"
 test = "pytest"
 unittest = "pytest -m unit"
+stream-output = "qcat -o -f"
 
 [tool.pixi.environments]
 default = ["default", "cpu"]

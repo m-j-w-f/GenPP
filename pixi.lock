@@ -2383,7 +2383,7 @@ packages:
 - pypi: ./
   name: genpp
   version: 0.1.0
-  sha256: 755df8f0f42993f1482797393038e408f2687022e67a4be7156df8762e697896
+  sha256: 50e62ef5a28f490b08f076dd5eb146d0e026889d46aa35d963c5762cc6f77961
   requires_python: '>=3.13'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/geos-3.14.1-h480dda7_0.conda
