@@ -620,15 +620,15 @@ class ForecastDataModule(L.LightningDataModule):
         identifier to ensure we recompute if the train set changes.
         """
         # Debug: Print initial data directories
-        print(f"\n=== DEBUG: prepare_data() called ===")
+        print("\n=== DEBUG: prepare_data() called ===")
         print(f"data_dir: {self.data_dir}")
         print(f"fc_tensor_dir: {self.fc_tensor_dir}")
         print(f"rea_tensor_dir: {self.rea_tensor_dir}")
         print(f"data_dir exists: {self.data_dir.exists()}")
         print(f"fc_tensor_dir exists: {self.fc_tensor_dir.exists()}")
         print(f"rea_tensor_dir exists: {self.rea_tensor_dir.exists()}")
-        print(f"=== END DEBUG ===\n")
-        
+        print("=== END DEBUG ===\n")
+
         # TODO fix some error here
         # For now this does not concern us as much as the data is complete
         # However some file errors here and should be skipped
@@ -659,29 +659,29 @@ class ForecastDataModule(L.LightningDataModule):
         """Load or compute feature metadata including max timedelta and feature indices."""
         # Try to load feature metadata from pickle file
         fc_metadata_path = self.fc_tensor_dir / "feature_metadata.pkl"
-        
+
         # Debug: Print directory structure and file counts
-        print(f"\n=== DEBUG: Feature Metadata Loading ===")
+        print("\n=== DEBUG: Feature Metadata Loading ===")
         print(f"Looking for feature metadata at: {fc_metadata_path}")
         print(f"fc_tensor_dir: {self.fc_tensor_dir}")
         print(f"fc_tensor_dir exists: {self.fc_tensor_dir.exists()}")
-        
+
         if self.fc_tensor_dir.exists():
             # List all .pkl files in fc_tensor_dir
             pkl_files = list(self.fc_tensor_dir.glob("*.pkl"))
             print(f"Number of .pkl files in fc_tensor_dir: {len(pkl_files)}")
             if pkl_files:
-                print(f".pkl files found:")
+                print(".pkl files found:")
                 for pkl_file in pkl_files:
                     print(f"  - {pkl_file}")
-            
+
             # List all files in fc_tensor_dir (not just .pkl)
             all_files = list(self.fc_tensor_dir.glob("*"))
             print(f"Total number of files in fc_tensor_dir: {len(all_files)}")
-            print(f"First 10 files in fc_tensor_dir:")
+            print("First 10 files in fc_tensor_dir:")
             for file in all_files[:10]:
                 print(f"  - {file.name}")
-        
+
         # Check parent directory structure
         tensors_dir = self.fc_tensor_dir.parent
         print(f"\nParent directory (tensors): {tensors_dir}")
@@ -689,7 +689,7 @@ class ForecastDataModule(L.LightningDataModule):
         if tensors_dir.exists():
             subdirs = [d for d in tensors_dir.iterdir() if d.is_dir()]
             print(f"Subdirectories in tensors dir: {[d.name for d in subdirs]}")
-        print(f"=== END DEBUG ===\n")
+        print("=== END DEBUG ===\n")
 
         if fc_metadata_path.exists():
             with open(fc_metadata_path, "rb") as f:
@@ -871,7 +871,9 @@ class ForecastDataModule(L.LightningDataModule):
             # Set norm_stats_file path with train set identifier if not already set
             if self.norm_stats_file is None:
                 train_set_id = self._get_train_set_identifier()
-                self.norm_stats_file = self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                self.norm_stats_file = (
+                    self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                )
 
             if self.norm_stats_file.exists():
                 self.norm_stats = torch.load(self.norm_stats_file)
@@ -1356,9 +1358,7 @@ class ForecastDataModule(L.LightningDataModule):
             RuntimeError: If norm_stats have not been computed (prepare_data not called).
         """
         if self.norm_stats is None:
-            raise RuntimeError(
-                "Normalization statistics not available. Call prepare_data() first."
-            )
+            raise RuntimeError("Normalization statistics not available. Call prepare_data() first.")
 
         # Build one ReverseAffineTransform per y variable
         reverse_modules = []
