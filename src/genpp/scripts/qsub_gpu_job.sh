@@ -51,11 +51,6 @@ COMMAND="pixi run -e gpu python src/genpp/train --config-name base_drm data=icon
 
 set -euo pipefail
 
-# Change to the submission directory if PBS_O_WORKDIR is set
-if [ -n "${PBS_O_WORKDIR:-}" ]; then
-    cd "${PBS_O_WORKDIR}"
-fi
-
 # Configuration
 SOURCE_DATA_DIR="/shared/data/$USER/icon"
 RAID_BASE_DIR="/raid"
