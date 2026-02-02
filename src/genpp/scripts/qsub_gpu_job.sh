@@ -42,7 +42,7 @@
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
-COMMAND="pixi run python src/genpp/train --config-name base_drm data=icon data.batch_size=8"
+COMMAND="pixi run -e gpu python src/genpp/train --config-name base_drm data=icon data.batch_size=8"
 
 #============================================
 # Do not edit below this line
