@@ -37,8 +37,8 @@
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
 #PBS -l memsz_job=240gb
-#PBS -l vmemsz_job=240gb
-#PBS -l vmemsz_prc=240gb
+#PBS -l vmemsz_job=1Tb
+#PBS -l vmemsz_prc=1Tb
 #PBS -l elapstim_req=06:00:00
 #PBS -j o
 #PBS -o logs/train_fast_%r.log
@@ -54,6 +54,10 @@ COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn dat
 #============================================
 
 set -euo pipefail
+
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
 
 # Configuration - use shared data directly
 SHARED_DATA_DIR="/shared/data/$USER/icon"
