@@ -37,7 +37,8 @@
 #PBS -l vmemsz_job=240gb
 #PBS -l vmemsz_prc=240gb
 #PBS -l elapstim_req=06:00:00
-#PBS -j o logs/train_%r.log
+#PBS -j o
+#PBS -o logs/train_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here

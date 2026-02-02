@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N genpp_gpu_job
+#PBS -N sync_data_to_shared
 #PBS -q gp_norm_dgx
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=0
@@ -8,14 +8,15 @@
 #PBS -l vmemsz_job=32gb
 #PBS -l vmemsz_prc=32gb
 #PBS -l elapstim_req=01:00:00
-#PBS -j o transfer.log
+#PBS -j o
+#PBS -o sync_data_to_shared.log
 # Sync local ICON data to the shared storage on GPU nodes.
 #
 # This script must be run on a GPU node as only these nodes have access to /shared.
 # No GPU is required for this operation.
 #
 # This script:
-#   1. Copies data from src/genpp/data/icon/data to /shared/data/$USER/icon
+#   1. Copies data from src/genpp/data/icon/data/tensors to /shared/data/$USER/icon
 #   2. Verifies the transfer by comparing file counts and sizes
 #   3. Produces output to verify the transaction worked
 #
@@ -23,9 +24,7 @@
 #   ./sync_data_to_shared.sh
 #
 # To run on a GPU node without a GPU allocation:
-#   qlogin -q gp_inter_dgx --cpunum-lhost=1 -l memsz_job=15gb -l vmemsz_job=15gb -l vmemsz_prc=15gb
-#   cd /path/to/GenPP
-#   ./src/genpp/scripts/sync_data_to_shared.sh
+# qsub sync_data_to_shared.sh
 #
 # Notes:
 #   - This script should be run before using launch_gpu_job.sh or qsub_gpu_job.sh
@@ -34,12 +33,7 @@
 
 set -euo pipefail
 
-# Get the script directory and compute the source data path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# BASE_DIR is src/genpp (parent of scripts directory)
-BASE_DIR="$(dirname "${SCRIPT_DIR}")"
-# Source is BASE_DIR / data / icon / data
-SOURCE_DATA_DIR="${BASE_DIR}/data/icon/data"
+SOURCE_DATA_DIR="${HOME}/GenPP/src/genpp/data/icon/data/tensors"
 
 # Destination on shared storage
 DEST_DATA_DIR="/shared/data/${USER}/icon"
