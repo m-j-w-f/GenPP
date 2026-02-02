@@ -849,7 +849,6 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
-        print(all_samples[0])
         all_samples.sort(key=lambda x: x[2] + x[3])  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
