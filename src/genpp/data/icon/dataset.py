@@ -830,7 +830,9 @@ class ForecastDataModule(L.LightningDataModule):
             # Set norm_stats_file path with train set identifier if not already set
             if self.norm_stats_file is None:
                 train_set_id = self._get_train_set_identifier()
-                self.norm_stats_file = self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                self.norm_stats_file = (
+                    self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                )
 
             if self.norm_stats_file.exists():
                 self.norm_stats = torch.load(self.norm_stats_file)
@@ -1315,9 +1317,7 @@ class ForecastDataModule(L.LightningDataModule):
             RuntimeError: If norm_stats have not been computed (prepare_data not called).
         """
         if self.norm_stats is None:
-            raise RuntimeError(
-                "Normalization statistics not available. Call prepare_data() first."
-            )
+            raise RuntimeError("Normalization statistics not available. Call prepare_data() first.")
 
         # Build one ReverseAffineTransform per y variable
         reverse_modules = []

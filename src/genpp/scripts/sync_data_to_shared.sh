@@ -17,8 +17,12 @@
 #
 # This script:
 #   1. Copies data from src/genpp/data/icon/data/tensors to /shared/data/$USER/icon
+#      (i.e., the contents of the tensors directory: fc/ and rea/ subdirectories)
 #   2. Verifies the transfer by comparing file counts and sizes
 #   3. Produces output to verify the transaction worked
+#
+# Note: The qsub_gpu_job.sh script will copy this data back into a tensors/ subdirectory
+#       to match the expected structure: ${JOB_DATA_DIR}/tensors/fc/ and ${JOB_DATA_DIR}/tensors/rea/
 #
 # Usage:
 #   ./sync_data_to_shared.sh

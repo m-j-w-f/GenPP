@@ -24,6 +24,8 @@
 #   - Cleanup happens automatically, even if the job is interrupted (via trap)
 #   - The script uses rsync for efficient copying
 #   - CUDA_VISIBLE_DEVICES is automatically set by the batch system
+#   - If norm_stats files don't exist, first run may take 10-30 minutes to compute them
+#   - Memory warning? Try reducing batch_size in your training command
 
 #============================================
 # NQSV Batch System Directives (gp_norm_dgx)
@@ -34,8 +36,8 @@
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
 #PBS -l memsz_job=240gb
-#PBS -l vmemsz_job=240gb
-#PBS -l vmemsz_prc=240gb
+#PBS -l vmemsz_job=1Tb
+#PBS -l vmemsz_prc=1Tb
 #PBS -l elapstim_req=06:00:00
 #PBS -j o
 #PBS -o logs/train_%r.log
@@ -43,13 +45,18 @@
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
-COMMAND="pixi run -e gpu python src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32"
+# Use -u flag for unbuffered Python output to see progress in real-time
+COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32"
 
 #============================================
 # Do not edit below this line
 #============================================
 
 set -euo pipefail
+
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
 
 # Configuration
 SOURCE_DATA_DIR="/shared/data/$USER/icon"
@@ -108,9 +115,10 @@ if [ ! -d "${USER_RAID_DIR}" ]; then
     mkdir -p "${USER_RAID_DIR}"
 fi
 
-# Create job-specific data directory
+# Create job-specific data directory with tensors subdirectory
+# The source data has fc/ and rea/ directories, but the code expects them under tensors/
 echo "Creating job data directory: ${JOB_DATA_DIR}"
-mkdir -p "${JOB_DATA_DIR}"
+mkdir -p "${JOB_DATA_DIR}/tensors"
 
 # Copy data to local NVME storage
 echo "Copying data to local NVME storage..."
@@ -118,8 +126,9 @@ echo "This may take a few minutes depending on data size..."
 START_TIME=$(date +%s)
 
 # Use --no-group and --no-owner to avoid unnecessary overhead when copying to local storage
-if ! rsync -a --no-group --no-owner --info=STATS2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"; then
-    echo "ERROR: Failed to copy data from ${SOURCE_DATA_DIR} to ${JOB_DATA_DIR}"
+# Copy into tensors/ subdirectory to match expected structure
+if ! rsync -a --no-group --no-owner --info=STATS2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/tensors/"; then
+    echo "ERROR: Failed to copy data from ${SOURCE_DATA_DIR} to ${JOB_DATA_DIR}/tensors"
     exit 1
 fi
 
@@ -127,8 +136,46 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 echo "Data copy completed in ${DURATION} seconds"
 
+# Verify critical files were copied
+echo ""
+echo "Verifying data structure..."
+if [ -d "${JOB_DATA_DIR}/tensors/fc" ]; then
+    echo "✓ Found tensors/fc/ directory"
+    FC_FILE_COUNT=$(find "${JOB_DATA_DIR}/tensors/fc" -name "fc_*.pt" -type f | wc -l)
+    echo "  FC tensor files: ${FC_FILE_COUNT}"
+else
+    echo "✗ ERROR: tensors/fc/ directory not found!"
+fi
+
+if [ -d "${JOB_DATA_DIR}/tensors/rea" ]; then
+    echo "✓ Found tensors/rea/ directory"
+    REA_FILE_COUNT=$(find "${JOB_DATA_DIR}/tensors/rea" -name "rea_*.pt" -type f | wc -l)
+    echo "  REA tensor files: ${REA_FILE_COUNT}"
+else
+    echo "✗ ERROR: tensors/rea/ directory not found!"
+fi
+
+# Check for norm stats file (important for performance)
+NORM_STATS_FILES=$(find "${JOB_DATA_DIR}/tensors" -maxdepth 1 -name "norm_stats_*.pt" -type f | wc -l)
+if [ ${NORM_STATS_FILES} -gt 0 ]; then
+    echo "✓ Found ${NORM_STATS_FILES} norm stats file(s) - will use cached statistics"
+else
+    echo "⚠ WARNING: No norm stats files found"
+    echo "  The job will compute statistics from scratch, which may take 10-30 minutes"
+    echo "  and use significant memory. Consider pre-computing norm stats in the source"
+    echo "  directory to speed up job startup."
+fi
+
+# Check for feature metadata
+if [ -f "${JOB_DATA_DIR}/tensors/fc/feature_metadata.pkl" ]; then
+    echo "✓ Found feature_metadata.pkl"
+else
+    echo "✗ ERROR: feature_metadata.pkl not found!"
+fi
+
 # Export environment variable for the data directory
 export GENPP_DATA_DIR="${JOB_DATA_DIR}"
+echo ""
 echo "Set GENPP_DATA_DIR=${GENPP_DATA_DIR}"
 
 echo ""
