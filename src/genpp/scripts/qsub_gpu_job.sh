@@ -28,13 +28,16 @@
 #============================================
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
+#PBS -N genpp_gpu_job
 #PBS -q gp_norm_dgx
+#PBS -S /bin/bash
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=240gb
 #PBS -l vmemsz_prc=240gb
-#PBS -N genpp_gpu_job
+#PBS -l elapstim_req=06:00:00
+#PBS -j o logs/train_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here
