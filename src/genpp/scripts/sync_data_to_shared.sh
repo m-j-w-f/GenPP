@@ -1,4 +1,14 @@
 #!/bin/bash
+#PBS -N genpp_gpu_job
+#PBS -q gp_norm_dgx
+#PBS -S /bin/bash
+#PBS --gpunum-lhost=0
+#PBS --cpunum-lhost=8
+#PBS -l memsz_job=32gb
+#PBS -l vmemsz_job=32gb
+#PBS -l vmemsz_prc=32gb
+#PBS -l elapstim_req=01:00:00
+#PBS -j o transfer.log
 # Sync local ICON data to the shared storage on GPU nodes.
 #
 # This script must be run on a GPU node as only these nodes have access to /shared.
