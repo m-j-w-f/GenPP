@@ -135,8 +135,8 @@ ln -s "${SHARED_DATA_DIR}/rea" "${TEMP_DATA_DIR}/tensors/rea"
 # Symlink any norm_stats files
 for stats_file in "${SHARED_DATA_DIR}"/norm_stats_*.pt; do
     if [ -f "${stats_file}" ]; then
-        ln -s "${stats_file}" "${TEMP_DATA_DIR}/tensors/$(basename ${stats_file})"
-        echo "  Linked: $(basename ${stats_file})"
+        ln -s "${stats_file}" "${TEMP_DATA_DIR}/tensors/$(basename "${stats_file}")"
+        echo "  Linked: $(basename "${stats_file}")"
     fi
 done
 
@@ -162,6 +162,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Export environment variable for the data directory (point to temp dir with symlinks)
+# Note: Code expects data at GENPP_DATA_DIR/tensors/{fc,rea}
+# We set GENPP_DATA_DIR to the parent directory containing the tensors/ subdirectory
 export GENPP_DATA_DIR="${TEMP_DATA_DIR}"
 echo ""
 echo "Set GENPP_DATA_DIR=${GENPP_DATA_DIR}"
