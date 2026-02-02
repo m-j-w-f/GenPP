@@ -43,7 +43,7 @@
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
-COMMAND="pixi run -e gpu python src/genpp/train --config-name base_drm data=icon data.batch_size=8"
+COMMAND="pixi run -e gpu python src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32"
 
 #============================================
 # Do not edit below this line
@@ -61,6 +61,9 @@ USER_RAID_DIR="${RAID_BASE_DIR}/${USER}"
 JOB_ID="job_$(date +%Y%m%d_%H%M%S)_$$_$(head -c 8 /dev/urandom | xxd -p)"
 JOB_DATA_DIR="${USER_RAID_DIR}/${JOB_ID}"
 
+# Set WD
+cd /hpc/uhome/$USER/GenPP
+
 echo "=============================================="
 echo "GenPP GPU Job (qsub)"
 echo "=============================================="
@@ -70,6 +73,7 @@ echo "Source data: ${SOURCE_DATA_DIR}"
 echo "Local data: ${JOB_DATA_DIR}"
 echo "Command: ${COMMAND}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-not set}"
+echo "Current WD: $(pwd)"
 echo "=============================================="
 
 # Cleanup function to remove job data directory
@@ -114,7 +118,7 @@ echo "This may take a few minutes depending on data size..."
 START_TIME=$(date +%s)
 
 # Use --no-group and --no-owner to avoid unnecessary overhead when copying to local storage
-if ! rsync -a --no-group --no-owner --info=progress2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"; then
+if ! rsync -a --no-group --no-owner --info=STATS2 "${SOURCE_DATA_DIR}/" "${JOB_DATA_DIR}/"; then
     echo "ERROR: Failed to copy data from ${SOURCE_DATA_DIR} to ${JOB_DATA_DIR}"
     exit 1
 fi
