@@ -91,7 +91,13 @@ select_meta_features: ${data.meta_features}
 # ============================================================================
 # BATCH CONFIGURATION
 # ============================================================================
+# Default batch size used when specific batch sizes are not provided
 batch_size: 32
+# Separate batch sizes for train, val, and test dataloaders
+# Set to null to use the default batch_size
+train_batch_size: null
+val_batch_size: null
+test_batch_size: null
 
 # ============================================================================
 # NORMALIZATION CONFIGURATION
@@ -141,6 +147,9 @@ module:
   y_select_variables: ${data.y_select_variables}
   select_meta_features: ${data.select_meta_features}
   batch_size: ${data.batch_size}
+  train_batch_size: ${data.train_batch_size}
+  val_batch_size: ${data.val_batch_size}
+  test_batch_size: ${data.test_batch_size}
   x_default_normalize_type: ${data.x_default_normalize_type}
   y_default_normalize_type: ${data.y_default_normalize_type}
   num_workers: ${data.dataloader.num_workers}

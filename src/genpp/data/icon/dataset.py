@@ -439,6 +439,9 @@ class ForecastDataModule(L.LightningDataModule):
         y_select_variables: list[str],
         data_dir: Path | str = DATA_DIR,
         batch_size: int = 32,
+        train_batch_size: int | None = None,
+        val_batch_size: int | None = None,
+        test_batch_size: int | None = None,
         x_default_normalize_type: str = "zscore",
         y_default_normalize_type: str = "zscore",
         num_workers: int = 4,
@@ -462,7 +465,14 @@ class ForecastDataModule(L.LightningDataModule):
             y_select_variables (list[str]): List of variable names to select from REA data.
             data_dir (str): Path to the data directory containing tensors/fc, tensors/rea folders.
                 Can be overridden via GENPP_DATA_DIR environment variable.
-            batch_size (int): Batch size for DataLoaders.
+            batch_size (int): Default batch size for DataLoaders. Used when specific batch sizes
+                (train_batch_size, val_batch_size, test_batch_size) are not provided.
+            train_batch_size (int | None): Batch size for training DataLoader.
+                If None, uses batch_size.
+            val_batch_size (int | None): Batch size for validation DataLoader.
+                If None, uses batch_size.
+            test_batch_size (int | None): Batch size for test DataLoader.
+                If None, uses batch_size.
             x_default_normalize_type (str): Default normalization type for x variables ('zscore' or 'minmax').
                 Used for x variables not specified in x_normalize_types. Defaults to 'zscore'.
             y_default_normalize_type (str): Default normalization type for y variables ('zscore' or 'minmax').
@@ -492,6 +502,9 @@ class ForecastDataModule(L.LightningDataModule):
         self.data_dir = Path(data_dir)
         print(f"ForecastDataModule: Loading data from {self.data_dir}")
         self.batch_size = batch_size
+        self.train_batch_size = train_batch_size if train_batch_size is not None else batch_size
+        self.val_batch_size = val_batch_size if val_batch_size is not None else batch_size
+        self.test_batch_size = test_batch_size if test_batch_size is not None else batch_size
         self.x_default_normalize_type = x_default_normalize_type
         self.y_default_normalize_type = y_default_normalize_type
         self.num_workers = num_workers
@@ -1248,7 +1261,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for training data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.train_batch_size,
             "shuffle": True,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
@@ -1267,7 +1280,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for validation data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.val_batch_size,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
@@ -1285,7 +1298,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for test data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.test_batch_size,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
