@@ -24,8 +24,8 @@ spatial:
   x_transform: null
   y_transform: null
 
-# Use default normalization (zscore for both x and y)
-x_default_normalize_type: zscore
-y_default_normalize_type: zscore
+# Use no normalization
+x_default_normalize_type: null
+y_default_normalize_type: null
 x_normalize_types: null
 y_normalize_types: null

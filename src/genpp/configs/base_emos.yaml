@@ -17,3 +17,4 @@ logger:
   tags:
     - ${hydra:runtime.choices.data}
     - ${hydra:runtime.choices.model}
+    - ${oc.env:USER}
