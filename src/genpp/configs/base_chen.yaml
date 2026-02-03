@@ -17,5 +17,6 @@ seed: 42
 logger:
   tags:
     - ${hydra:runtime.choices.data}
-    - ${hydra:runtime.choices.model/loss_fn}
     - ${hydra:runtime.choices.model}
+    - ${hydra:runtime.choices.model/loss_fn}
+    - ${oc.env:USER}

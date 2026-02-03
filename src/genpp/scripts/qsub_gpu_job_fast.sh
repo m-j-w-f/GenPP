@@ -39,7 +39,7 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=06:00:00
+#PBS -l elapstim_req=02:00:00
 #PBS -j o
 #PBS -o logs/train_fast_%r.log
 
@@ -47,7 +47,26 @@
 # EDIT THIS: Specify your command here
 #============================================
 # Use -u flag for unbuffered Python output to see progress in real-time
-COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32"
+# EMOS
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos data=icon_cut trainer=debug_gpu"
+
+# DRN
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32 trainer=debug_gpu"
+
+# LNGM
+COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_direct data=icon_full_pad_x data.batch_size=8 trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=50"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
+
+# Engression
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos model=cnn_engression_direct data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos model=cnn_engression_noise data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
+
+# Flow Matching
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+
 
 #============================================
 # Do not edit below this line
