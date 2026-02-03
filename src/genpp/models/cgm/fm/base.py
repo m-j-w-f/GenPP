@@ -254,7 +254,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
         sol = self.solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
-            method="midpoint",
+            method="dopri5",
             step_size=self.step_size,
         )
         # Sol now contains the deviations that need to be added to the nwp forecasts
@@ -320,7 +320,7 @@ class FlowMatchingDirectModel(BaseFlowMatchingModel):
         sol = self.solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
-            method="midpoint",
+            method="dopri5",
             step_size=self.step_size,
         )
         # sol now contains the direct predictions
