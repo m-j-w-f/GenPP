@@ -38,7 +38,7 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=06:00:00
+#PBS -l elapstim_req=12:00:00
 #PBS -j o
 #PBS -o logs/train_%r.log
 
