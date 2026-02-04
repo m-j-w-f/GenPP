@@ -25,5 +25,6 @@ command:
   - --config-name
   - base_drn
   - data=icon_full_minmax
+  - data.dataloader.num_workers=10
   - model/lr_scheduler=reduceLROnPlateau
   - ${args_no_hyphens}

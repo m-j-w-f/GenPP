@@ -23,9 +23,10 @@ command:
   - python
   - ${program}
   - --config-name
-  - base_fmuvit
+  - base_fm_uvit
   - model=fm_uvit_noise
   - model.internal_td_scaling=std
   - model/lr_scheduler=reduceLROnPlateau
   - data=icon_full_pad_xy
+  - data.dataloader.num_workers=10
   - ${args_no_hyphens}

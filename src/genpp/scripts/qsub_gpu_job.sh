@@ -38,7 +38,7 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=06:00:00
+#PBS -l elapstim_req=18:00:00
 #PBS -j o
 #PBS -o logs/train_%r.log
 
@@ -46,7 +46,7 @@
 # EDIT THIS: Specify your command here
 #============================================
 # Use -u flag for unbuffered Python output to see progress in real-time
-COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32"
+COMMAND="pixi run -e gpu wandb agent feik/GenPP-src_genpp/z3bv09xb"
 
 #============================================
 # Do not edit below this line

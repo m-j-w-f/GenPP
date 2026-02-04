@@ -23,8 +23,9 @@ command:
   - python
   - ${program}
   - --config-name
-  - base_fmunet
+  - base_fm_unet
   - model=fm_unet_direct
   - model/lr_scheduler=reduceLROnPlateau
   - data=icon_full_pad_xy
+  - data.dataloader.num_workers=10
   - ${args_no_hyphens}
