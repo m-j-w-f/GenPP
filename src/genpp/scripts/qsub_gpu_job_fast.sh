@@ -54,18 +54,18 @@
 #COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32 trainer=debug_gpu"
 
 # LNGM
-COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_direct data=icon_full_pad_x data.batch_size=8 trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=50"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=patchwise_energy_score"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
 
 # Engression
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos model=cnn_engression_direct data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos model=cnn_engression_noise data=icon_full_pad_x data.batch_size=32 trainer=debug_gpu"
+COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
 
 # Flow Matching
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data=icon_full_minmax data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data=icon_full_pad_xy data.batch_size=128 trainer=debug_gpu"
+#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
 
 
 #============================================

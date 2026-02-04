@@ -1,0 +1,30 @@
+program: src/genpp/train.py
+name: FM_UNET_ICON_direct
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  3e-4]
+  data.batch_size:
+    values: [8, 32]
+  model.backbone.channels:
+    values: [[64, 128], [32, 64], [16, 32]]
+  model.backbone.num_residual_layers:
+    values: [2]
+
+command:
+  - pixi
+  - run
+  - -e
+  - gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_fmunet
+  - model=fm_unet_direct
+  - model/lr_scheduler=reduceLROnPlateau
+  - data=icon_full_pad_xy
+  - ${args_no_hyphens}
