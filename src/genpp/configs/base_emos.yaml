@@ -1,10 +1,7 @@
 # Main configuration file for GenPP training
 defaults:
   - data/dataloader: standard
-  - data/spatial: standard
-  - data/splits: standard
-  - data/preprocess: none
-  - data: weatherbench2_cut_fast
+  - data: wb2_cut
   - model/optimizer: adamW
   - model/lr_scheduler: constant
   - model: emos
@@ -20,3 +17,4 @@ logger:
   tags:
     - ${hydra:runtime.choices.data}
     - ${hydra:runtime.choices.model}
+    - ${oc.env:USER}

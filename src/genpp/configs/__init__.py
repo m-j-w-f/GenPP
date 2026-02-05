@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 
-from genpp.data import MetadataVars
+from genpp.data.utils import MetadataVars
 
 
 def class_resolver(full_path):

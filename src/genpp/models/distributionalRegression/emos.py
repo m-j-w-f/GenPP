@@ -70,7 +70,10 @@ class EMOS(DistributionRegression):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The means and standard deviations predicted by the model.
         """
-        means, stds = x["predicted_vars"], x["auxiliary_vars"]  # Both have shape [b, n_vars, h, w]
+        means, stds = (
+            x["predicted_vars_mean"],
+            x["predicted_vars_std"],
+        )  # Both have shape [b, n_vars, h, w]
         means = means * self.weight_mean + self.bias_mean
         # Select the appropriate std parameters based on lead time
         distances = torch.abs(

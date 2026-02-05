@@ -1,7 +1,17 @@
+from enum import Enum
 from warnings import warn
 
 import pandas as pd
 import xarray as xr
+
+
+class MetadataVars(Enum):
+    """Metadata variable names used across datasets."""
+    PIXEL_IDX = "pixel_idx"
+    LATITUDE = "latitude"
+    LONGITUDE = "longitude"
+    SIN_PREDICTION_TIME = "sin_prediction_time"
+    COS_PREDICTION_TIME = "cos_prediction_time"
 
 
 def flatten_levels(ds: xr.Dataset, level_dim: str = "level", interleave=True) -> xr.Dataset:
@@ -72,10 +82,10 @@ def get_time_intersection(
     """Get the intersection of the prediction time in the ensemble dataset and the observation time.
 
     Args:
-        ens (xr.Dataset): The ensemble dataset with a 'prediction_time' coordinate.
-        obs (xr.Dataset): The observation dataset with a 'time' coordinate.
+        ds1 (xr.Dataset): The first dataset with a time coordinate.
+        ds2 (xr.Dataset): The second dataset with a time coordinate.
         time_dim1 (str, optional): The name of the time dimension in the first dataset. Defaults to "prediction_time".
-        time_dim2 (str, optional): The name of the time dimension in the second dataset
+        time_dim2 (str, optional): The name of the time dimension in the second dataset. Defaults to "time".
 
     Returns:
         pd.Index: The intersection of the two time coordinates.

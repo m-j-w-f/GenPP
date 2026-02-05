@@ -92,10 +92,12 @@ class TestNSamplesConfiguration:
         assert model.n_samples_predict == 75
 
     @pytest.mark.unit
+    @pytest.mark.filterwarnings("ignore:Attribute 'loss_fn' is an instance of `nn.Module`")
     def test_engression_backwards_compatibility_n_samples_only(self):
         """Test Engression model with only n_samples (backwards compatibility)."""
         model = CNNEngressionNoiseModel(
             in_channels=10,
+            num_in_vars=4,
             out_channels=2,
             height=32,
             width=32,
@@ -120,10 +122,12 @@ class TestNSamplesConfiguration:
         assert model.n_samples_predict == 50
 
     @pytest.mark.unit
+    @pytest.mark.filterwarnings("ignore:Attribute 'loss_fn' is an instance of `nn.Module`")
     def test_engression_separate_train_predict_samples(self):
         """Test Engression model with separate train/predict samples."""
         model = CNNEngressionNoiseModel(
             in_channels=10,
+            num_in_vars=4,
             out_channels=2,
             height=32,
             width=32,
@@ -177,8 +181,10 @@ class TestNSamplesConfiguration:
 
         batch_size = 2
         x = {
-            "predicted_vars": torch.randn(batch_size, 2, 32, 32),
-            "auxiliary_vars": torch.randn(batch_size, 2, 32, 32),
+            "predicted_vars_mean": torch.randn(batch_size, 2, 32, 32),
+            "predicted_vars_std": torch.randn(batch_size, 2, 32, 32),
+            "all_vars_mean": torch.randn(batch_size, 2, 32, 32),
+            "all_vars_std": torch.randn(batch_size, 2, 32, 32),
             "meta_vars": torch.randn(batch_size, 6, 32, 32),
             "pixel_idx": torch.zeros(batch_size, 1, 32, 32, dtype=torch.long),
         }
@@ -193,10 +199,12 @@ class TestNSamplesConfiguration:
         assert out_predict.shape[1] == 20, f"Expected 20 samples, got {out_predict.shape[1]}"
 
     @pytest.mark.unit
+    @pytest.mark.filterwarnings("ignore:Attribute 'loss_fn' is an instance of `nn.Module`")
     def test_engression_forward_respects_n_samples_train(self):
         """Test that Engression forward generates correct number of samples."""
         model = CNNEngressionNoiseModel(
             in_channels=10,
+            num_in_vars=4,
             out_channels=2,
             height=32,
             width=32,
@@ -223,9 +231,11 @@ class TestNSamplesConfiguration:
 
         batch_size = 2
         x = {
-            "predicted_vars": torch.randn(batch_size, 2, 32, 32),
-            "auxiliary_vars": torch.randn(batch_size, 4, 32, 32),
-            "meta_vars": torch.randn(batch_size, 4, 32, 32),
+            "predicted_vars_mean": torch.randn(batch_size, 2, 32, 32),
+            "predicted_vars_std": torch.randn(batch_size, 2, 32, 32),
+            "all_vars_mean": torch.randn(batch_size, 4, 32, 32),
+            "all_vars_std": torch.randn(batch_size, 4, 32, 32),
+            "meta_vars": torch.randn(batch_size, 2, 32, 32),
             "pixel_idx": torch.zeros(batch_size, 1, 32, 32, dtype=torch.long),
         }
         td = torch.rand(batch_size)

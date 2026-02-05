@@ -5,8 +5,8 @@ from hydra.utils import instantiate
 
 from genpp import BASE_DIR
 from genpp.configs import register_resolvers
-from genpp.data import FORECAST_ENS_FLAT_AGG_PATH, OBSERVATIONS_FLAT_PATH
-from genpp.data.fast_dataset_simple import FastWeatherBench2DataModule
+from genpp.data.weatherbench2 import FORECAST_ENS_FLAT_AGG_PATH, OBSERVATIONS_FLAT_PATH
+from genpp.data.weatherbench2.fast_dataset_simple import FastWeatherBench2DataModule
 
 CONFIG_DIR = BASE_DIR / "configs"
 

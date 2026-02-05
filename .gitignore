@@ -12,6 +12,7 @@ outputs
 outputs/
 logs/
 wandb/
+*.log
 
 # Temporary files
 cache/

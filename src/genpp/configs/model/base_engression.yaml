@@ -5,7 +5,8 @@
 _target_: PLACEHOLDER_FOR_CNN_ENGRESSION_MODEL
 
 # Input/output configuration
-in_channels: ${data.features.input_concat}
+num_in_vars: ${data.features.input_features} # Number of input variables/features
+in_channels: ${data.features.input_concat} # Total input channels (input features * aggregation levels + meta features)
 out_channels: ${data.features.output}
 height: ${data.spatial.padded.longitude}
 width: ${data.spatial.padded.latitude}

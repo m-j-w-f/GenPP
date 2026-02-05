@@ -6,7 +6,7 @@ accumulate_grad_batches: 1
 check_val_every_n_epoch: 1
 log_every_n_steps: 1
 fast_dev_run: 1
-enable_checkpointing: true
+enable_checkpointing: false
 enable_model_summary: true
 enable_progress_bar: true
 detect_anomaly: true

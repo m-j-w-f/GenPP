@@ -1,16 +1,46 @@
 # Dataset for the AutoEncoder used in FID computation
+
+# ============================================================================
+# TIME SPLITS CONFIGURATION
+# ============================================================================
+splits:
+  train:
+    _target_: builtins.slice
+    _args_:
+      - "2018-01-03"
+      - "2020-12-31"
+  val:
+    _target_: builtins.slice
+    _args_:
+      - "2021-01-01"
+      - "2021-12-31"
+  test:
+    _target_: builtins.slice
+    _args_:
+      - "2022-01-01"
+      - "2022-12-31"
+
+# ============================================================================
+# BATCH CONFIGURATION
+# ============================================================================
 batch_size: 64
 
+# ============================================================================
+# DATALOADER TEMPLATE
+# ============================================================================
 _dataloader_template: &dataloader_template
-  batch_size: ${data.batch_size} # Use the actual batch size here
-  prefetch_factor: ${data.dataloader.prefetch_factor}
+  batch_size: ${data.batch_size}
   num_workers: ${data.dataloader.num_workers}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
   multiprocessing_context: ${data.dataloader.multiprocessing_context}
   pin_memory: ${data.dataloader.pin_memory}
   persistent_workers: ${data.dataloader.persistent_workers}
 
+# ============================================================================
+# DATA MODULE
+# ============================================================================
 module:
-  _target_: genpp.data.zarr_dataset.ZarrDataModule
+  _target_: genpp.data.weatherbench2.zarr_dataset.ZarrDataModule
   x_select_variables:
     - '2m_temperature'
     - '10m_wind_speed'

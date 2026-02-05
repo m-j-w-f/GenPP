@@ -1,0 +1,164 @@
+# WeatherBench2 Full DataModule Configuration - Standard spatial (no padding)
+# Flattened config with standard preprocessing
+
+# ============================================================================
+# SPATIAL CONFIGURATION
+# ============================================================================
+# Original data dimensions
+spatial:
+  original:
+    latitude: 31
+    longitude: 37
+  x_transform: null
+  y_transform: null
+
+# ============================================================================
+# TIME SPLITS CONFIGURATION
+# ============================================================================
+splits:
+  train:
+    _target_: builtins.slice
+    _args_:
+      - "2018-01-03"
+      - "2020-12-31"
+  val:
+    _target_: builtins.slice
+    _args_:
+      - "2021-01-01"
+      - "2021-12-31"
+  test:
+    _target_: builtins.slice
+    _args_:
+      - "2022-01-01"
+      - "2022-12-31"
+
+# ============================================================================
+# PREPROCESSING CONFIGURATION (Standard)
+# ============================================================================
+preprocess:
+  x_preprocessing:
+    - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
+      meta_features:
+        - ${enum:genpp.data.utils.MetadataVars.LATITUDE}
+        - ${enum:genpp.data.utils.MetadataVars.LONGITUDE}
+    - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
+      dim: ["time", "prediction_timedelta" , "latitude", "longitude"]
+    - _target_: genpp.preproc.preprocessors.AddMetadataPreprocessor
+      meta_features:
+        - ${enum:genpp.data.utils.MetadataVars.SIN_PREDICTION_TIME}
+        - ${enum:genpp.data.utils.MetadataVars.COS_PREDICTION_TIME}
+        - ${enum:genpp.data.utils.MetadataVars.PIXEL_IDX}
+
+  y_preprocessing:
+    - _target_: genpp.preproc.preprocessors.StandardScalerPreprocessor
+      dim: ["time", "latitude", "longitude"]
+
+# ============================================================================
+# VARIABLE SELECTION
+# ============================================================================
+x_select_variables:
+  - '2m_temperature'
+  - '10m_wind_speed'
+  - '10m_u_component_of_wind'
+  - '10m_v_component_of_wind'
+  - 'geopotential_lev500'
+  - 'geopotential_lev700'
+  - 'geopotential_lev850'
+  - 'mean_sea_level_pressure'
+  - 'relative_humidity_lev500'
+  - 'relative_humidity_lev700'
+  - 'relative_humidity_lev850'
+  - 'specific_humidity_lev500'
+  - 'specific_humidity_lev700'
+  - 'specific_humidity_lev850'
+  - 'temperature_lev500'
+  - 'temperature_lev700'
+  - 'temperature_lev850'
+  - 'total_precipitation'
+  - 'total_precipitation_24hr'
+  - 'total_precipitation_6hr'
+  - 'u_component_of_wind_lev500'
+  - 'u_component_of_wind_lev700'
+  - 'u_component_of_wind_lev850'
+  - 'v_component_of_wind_lev500'
+  - 'v_component_of_wind_lev700'
+  - 'v_component_of_wind_lev850'
+  - 'wind_speed_lev500'
+  - 'wind_speed_lev700'
+  - 'wind_speed_lev850'
+
+y_select_variables:
+  - '2m_temperature'
+  - '10m_wind_speed'
+
+# ============================================================================
+# FEATURE CONFIGURATION
+# ============================================================================
+features:
+  input_features: ${eval:'len(${data.x_select_variables})'}
+  aggregation_levels: 2
+  meta_features: ${count_meta_features:${data.preprocess.x_preprocessing},false}
+  output: ${eval:'len(${data.y_select_variables})'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
+
+# ============================================================================
+# BATCH CONFIGURATION
+# ============================================================================
+batch_size: 64
+
+# ============================================================================
+# TEMPLATES
+# ============================================================================
+_split_template: &split_template
+  x_kwargs:
+    input_dims:
+      feature: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${count_meta_features:${data.preprocess.x_preprocessing},true}'}
+      longitude: ${data.spatial.original.longitude}
+      latitude: ${data.spatial.original.latitude}
+  x_transform: ${data.spatial.x_transform}
+  y_kwargs:
+    input_dims:
+      feature: ${data.features.output}
+      longitude: ${data.spatial.original.longitude}
+      latitude: ${data.spatial.original.latitude}
+  y_transform: ${data.spatial.y_transform}
+
+_dataloader_template: &dataloader_template
+  batch_size: ${data.batch_size}
+  num_workers: ${data.dataloader.num_workers}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
+  persistent_workers: ${data.dataloader.persistent_workers}
+
+# ============================================================================
+# DATA MODULE
+# ============================================================================
+module:
+  _target_: genpp.data.weatherbench2.fast_dataset_simple.FastWeatherBench2DataModule
+  dataset_config:
+    train:
+      <<: *split_template
+      slice: ${data.splits.train}
+    val:
+      <<: *split_template
+      slice: ${data.splits.val}
+    test:
+      <<: *split_template
+      slice: ${data.splits.test}
+
+  dataloader_config:
+    train:
+      <<: *dataloader_template
+      shuffle: true
+    val:
+      <<: *dataloader_template
+      shuffle: false
+    test:
+      <<: *dataloader_template
+      shuffle: false
+
+  x_preprocessing: ${data.preprocess.x_preprocessing}
+  y_preprocessing: ${data.preprocess.y_preprocessing}
+  x_select_variables: ${data.x_select_variables}
+  y_select_variables: ${data.y_select_variables}

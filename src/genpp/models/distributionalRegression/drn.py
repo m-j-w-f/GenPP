@@ -113,7 +113,7 @@ class DRNModel(DistributionRegression):
         Returns:
             torch.Tensor: Output tensor.
         """
-        x_full = torch.cat([x["predicted_vars"], x["auxiliary_vars"], x["meta_vars"]], dim=1)
+        x_full = torch.cat([x["all_vars_mean"], x["all_vars_std"], x["meta_vars"]], dim=1)
         pixel_idx = x["pixel_idx"]
         space_embedding = self.space_embedding(pixel_idx)
         space_embedding = rearrange(space_embedding, "b 1 h w e -> b e h w")

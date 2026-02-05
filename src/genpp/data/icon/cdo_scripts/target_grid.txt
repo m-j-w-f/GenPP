@@ -1,0 +1,16 @@
+# CDO grid description file for regular lon/lat grid for linet domain
+# Area : linet domain Originally: lon : (-10, 30), lat: (35, 65)
+# Grid : rotated latitude longitude/geographical grid
+# Resolution: 0.13 x 0.13 deg
+# Note - to cover the full linet domain, in the regular lon/lar grid there
+# are areas with no linet data.
+gridtype = projection
+xsize = 260 # Changed this value from 257
+ysize = 240
+xfirst = -16.64
+xinc = 0.13
+yfirst = -15
+yinc = 0.13
+grid_mapping_name = rotated_latitude_longitude
+grid_north_pole_longitude = -170
+grid_north_pole_latitude  = 40

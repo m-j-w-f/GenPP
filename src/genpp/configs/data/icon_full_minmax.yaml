@@ -1,0 +1,23 @@
+# ICON Full DataModule Configuration - MinMax Wind preprocessing
+# For DRN model with min-max normalization on wind variables
+
+defaults:
+  - icon_full
+
+# ============================================================================
+# PREPROCESSING CONFIGURATION (MinMax Wind for DRN)
+# ============================================================================
+# DRN requires special normalization: zscore for temperature, minmax for wind
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+
+# Per-variable normalization for target variables
+# Use minmax for wind speed to ensure positive outputs
+y_normalize_types:
+  'T_2M+height_2.0': zscore
+  'VMAX_10M+height_2_10.0': minmax
+
+# No spatial transforms for standard configuration
+spatial:
+  x_transform: null
+  y_transform: null
