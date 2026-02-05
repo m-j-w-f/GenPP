@@ -1,7 +1,9 @@
 import importlib
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from pickle import UnpicklingError
 
 import hydra
 
@@ -69,9 +71,15 @@ class ModelEntry:
         module_path, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
         ModelClass = getattr(module, class_name)
-
-        encoder = ModelClass.load_from_checkpoint(self.model_checkpoint)
-        return encoder
+        try:
+            encoder = ModelClass.load_from_checkpoint(self.model_checkpoint)
+            return encoder
+        except UnpicklingError:
+            warnings.warn(
+                f"UnpicklingError encountered when loading model {self.model_id}: Trying without weights_only."
+            )
+            encoder = ModelClass.load_from_checkpoint(self.model_checkpoint, weights_only=False)
+            return encoder
 
 
 @dataclass(frozen=True)
