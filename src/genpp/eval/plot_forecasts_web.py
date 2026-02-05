@@ -35,7 +35,7 @@ from bokeh.palettes import Inferno256, Turbo256
 from bokeh.plotting import figure
 
 from genpp import BASE_DIR
-from genpp.data import FC_VARS, OBSERVATIONS_FLAT_PATH, VAL_PREDICTIONS
+from genpp.data.weatherbench2 import FC_VARS, OBSERVATIONS_FLAT_PATH, VAL_PREDICTIONS
 from genpp.eval import best_models
 from genpp.eval.utils import load_predictions_dataarray
 

@@ -1,7 +1,6 @@
 # Main configuration file for AutoEncoder training (FID)
 defaults:
   - data/dataloader: simple
-  - data/splits: standard
   - data: ae_dataset
   - model/optimizer: adamW
   - model/lr_scheduler: constant

@@ -33,7 +33,7 @@ from omegaconf import DictConfig
 import wandb
 from genpp import BASE_DIR
 from genpp.configs import add_y_kwargs, del_key, register_resolvers
-from genpp.data import OBSERVATIONS_FLAT_PATH
+from genpp.data.weatherbench2 import OBSERVATIONS_FLAT_PATH
 from genpp.eval.utils import (
     compute_scores_per_leadtime,
     log_scores,

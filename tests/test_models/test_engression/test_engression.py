@@ -219,6 +219,7 @@ class TestCNNEngressionModel:
     """Tests for CNNEngressionModel."""
 
     @pytest.mark.unit
+    @pytest.mark.filterwarnings("ignore:Attribute 'loss_fn' is an instance of `nn.Module`")
     @pytest.mark.parametrize(
         "batch_size,height,width,pred_channels,aux_channels,meta_channels,out_channels,n_samples,padding",
         [
@@ -249,6 +250,7 @@ class TestCNNEngressionModel:
         # Create the model
         model = CNNEngressionModel(
             in_channels=in_channels,
+            num_in_vars=pred_channels,
             out_channels=out_channels,
             height=height,
             width=width,
@@ -274,10 +276,12 @@ class TestCNNEngressionModel:
         model.internal_td_scaling.model = torch.nn.Linear(1, out_channels)
 
         # Create input tensors with correct shapes
-        # Note: predicted_vars must have out_channels since scale is computed based on it
+        # Note: predicted_vars_mean must have out_channels since scale is computed based on it
         x = {
-            "predicted_vars": torch.randn(batch_size, out_channels, height, width),
-            "auxiliary_vars": torch.randn(batch_size, aux_channels, height, width),
+            "predicted_vars_mean": torch.randn(batch_size, out_channels, height, width),
+            "predicted_vars_std": torch.randn(batch_size, out_channels, height, width),
+            "all_vars_mean": torch.randn(batch_size, pred_channels, height, width),
+            "all_vars_std": torch.randn(batch_size, aux_channels, height, width),
             "meta_vars": torch.randn(batch_size, meta_channels, height, width),
             "pixel_idx": torch.zeros(batch_size, 1, height, width, dtype=torch.long),
         }
@@ -303,6 +307,7 @@ class TestCNNEngressionModel:
         )
 
     @pytest.mark.unit
+    @pytest.mark.filterwarnings("ignore:Attribute 'loss_fn' is an instance of `nn.Module`")
     def test_samples_are_stochastic(self):
         """Test that multiple forward passes produce different samples due to noise injection."""
         batch_size = 2
@@ -315,6 +320,7 @@ class TestCNNEngressionModel:
 
         model = CNNEngressionModel(
             in_channels=out_channels + aux_channels + meta_channels,
+            num_in_vars=out_channels,
             out_channels=out_channels,
             height=height,
             width=width,
@@ -339,8 +345,10 @@ class TestCNNEngressionModel:
         model.internal_td_scaling.model = torch.nn.Linear(1, out_channels)
 
         x = {
-            "predicted_vars": torch.randn(batch_size, out_channels, height, width),
-            "auxiliary_vars": torch.randn(batch_size, aux_channels, height, width),
+            "predicted_vars_mean": torch.randn(batch_size, out_channels, height, width),
+            "predicted_vars_std": torch.randn(batch_size, out_channels, height, width),
+            "all_vars_mean": torch.randn(batch_size, out_channels, height, width),
+            "all_vars_std": torch.randn(batch_size, aux_channels, height, width),
             "meta_vars": torch.randn(batch_size, meta_channels, height, width),
             "pixel_idx": torch.zeros(batch_size, 1, height, width, dtype=torch.long),
         }

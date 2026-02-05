@@ -1,0 +1,20 @@
+# WeatherBench2 Cut DataModule Configuration - Reduced variables for EMOS Model
+# Flattened config with only 2 input variables and no preprocessing
+
+defaults:
+  - wb2_full
+
+# Override with reduced variable set
+x_select_variables:
+  - '2m_temperature'
+  - '10m_wind_speed'
+
+# Reduce batch size for smaller dataset
+batch_size: 8
+
+# ============================================================================
+# PREPROCESSING CONFIGURATION (None - for EMOS)
+# ============================================================================
+preprocess:
+  x_preprocessing: null
+  y_preprocessing: null
