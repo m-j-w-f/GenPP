@@ -1060,16 +1060,30 @@ class ForecastDataModule(L.LightningDataModule):
 
                 # Predicted vars are a SUBSET of all_vars
                 # Find which indices in all_var_mean/std correspond to y_select_variables
+                # IMPORTANT: iterate over y_select_variables to preserve target variable order,
+                # ensuring predicted_vars_mean channels align with rea (target) channels.
                 predicted_var_mean_names = y_select_variables
                 predicted_var_mean_indices = [
-                    i for i, name in enumerate(all_var_mean_names) if name in y_select_variables
+                    all_var_mean_names.index(name)
+                    for name in y_select_variables
+                    if name in all_var_mean_names
                 ]
+                assert len(predicted_var_mean_indices) == len(y_select_variables), (
+                    f"Not all y_select_variables found in x_select_variables. "
+                    f"Missing: {set(y_select_variables) - set(all_var_mean_names)}"
+                )
 
                 predicted_var_std_names = y_select_variables
                 # Use indices relative to all_vars_std (consistent with predicted_var_mean_indices)
                 predicted_var_std_indices = [
-                    i for i, name in enumerate(all_var_std_names) if name in y_select_variables
+                    all_var_std_names.index(name)
+                    for name in y_select_variables
+                    if name in all_var_std_names
                 ]
+                assert len(predicted_var_std_indices) == len(y_select_variables), (
+                    f"Not all y_select_variables found in x_select_variables (std). "
+                    f"Missing: {set(y_select_variables) - set(all_var_std_names)}"
+                )
 
                 feature_metadata = {
                     # Predicted variables (indices into all_vars arrays, not separate storage)
