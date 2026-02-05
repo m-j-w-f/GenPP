@@ -38,6 +38,6 @@ command:
   - data.train_batch_size=4
   - data.val_batch_size=4
   - data.test_batch_size=4
-  - accumulate_grad_batches=2
+  - trainer.accumulate_grad_batches=2
   - model/loss_fn=patchwise_energy_score
   - ${args_no_hyphens}

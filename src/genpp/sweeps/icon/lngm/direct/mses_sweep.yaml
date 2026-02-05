@@ -36,6 +36,6 @@ command:
   - data.train_batch_size=8
   - data.val_batch_size=8
   - data.test_batch_size=8
-  - accumulate_grad_batches=1
+  - trainer.accumulate_grad_batches=1
   - model/loss_fn=multiscale_energy_score
   - ${args_no_hyphens}

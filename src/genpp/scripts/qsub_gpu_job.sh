@@ -46,7 +46,7 @@
 # EDIT THIS: Specify your command here
 #============================================
 # Use -u flag for unbuffered Python output to see progress in real-time
-COMMAND="pixi run -e gpu wandb agent feik/GenPP-src_genpp/z3bv09xb"
+COMMAND="pixi run -e gpu wandb agent feik/GenPP-src_genpp/qe2zyjhj"
 
 #============================================
 # Do not edit below this line
