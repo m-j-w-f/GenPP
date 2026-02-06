@@ -28,7 +28,9 @@ class LocallyConnected2D(nn.Module):
         self.out_features = out_features
 
         # Create a weight tensor for all spatial locations
-        self.weight = nn.Parameter(torch.randn(height, width, in_features, out_features))
+        self.weight = nn.Parameter(
+            torch.randn(height, width, in_features, out_features) / math.sqrt(in_features)
+        )
         self.bias = nn.Parameter(torch.zeros(out_features, height, width))
 
     def forward(self, x: Tensor) -> Tensor:

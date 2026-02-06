@@ -634,12 +634,11 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         # Generate samples using the stochastic backbone
         samples = self.backbone.sample(backbone_input, n_samples)
 
-        # Residual Connection
-        means = x["predicted_vars_mean"].unsqueeze(1)  # [batch, 1, out_channels, height, width]
-        res = means + samples
-
-        # Crop padding
-        res = self.crop(res)
+        # Residual Connection with mean correction
+        nwp_mean = self.crop(x["all_vars_mean"])
+        nwp_mean = self.crop(x["predicted_vars_mean"]) + self.mean_correction(nwp_mean)
+        nwp_mean_expanded = nwp_mean.unsqueeze(1)  # [batch, 1, out_channels, height, width]
+        res = nwp_mean_expanded + self.crop(samples)
         return res
 
 
