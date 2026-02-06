@@ -31,6 +31,7 @@ class EMOS(DistributionRegression):
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
         use_rescaler: bool = False,  # NOTE difference to drn
         n_lead_times: int = 5,
+        variable_names: Sequence[str] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -41,6 +42,7 @@ class EMOS(DistributionRegression):
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             rescaler=rescaler if use_rescaler else None,
+            variable_names=variable_names,
         )
         self.save_hyperparameters()
         if kwargs:

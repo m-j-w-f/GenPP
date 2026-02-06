@@ -20,6 +20,7 @@ class DistributionRegression(BaseModule, ABC):
         optimizer: Callable[..., torch.optim.Optimizer],
         lr_scheduler: DictConfig,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler)
         if isinstance(rescaler, Sequence):
@@ -32,6 +33,7 @@ class DistributionRegression(BaseModule, ABC):
         self.embedding_dim = embedding_dim
         self.optimizer_partial = optimizer
         self.lr_scheduler_partial = lr_scheduler
+        self.variable_names = list(variable_names) if variable_names is not None else None
 
     def training_step(self, batch) -> torch.Tensor:
         x, y, time_delta = batch["x"], batch["y"], batch["timedelta"]
@@ -48,8 +50,9 @@ class DistributionRegression(BaseModule, ABC):
         loss = reduce(loss, "b c h w -> c", "mean")
         # Log the loss for each variable separately
         for i, l_value in enumerate(loss):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"val_loss_var_{i}",
+                f"val_loss_var_{var_name}",
                 l_value,
                 on_step=False,
                 on_epoch=True,
@@ -68,8 +71,9 @@ class DistributionRegression(BaseModule, ABC):
         loss = reduce(loss_u, "b c h w -> c", "mean")
         # Log the loss for each variable separately
         for i, l_value in enumerate(loss):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"test_loss_var_{i}",
+                f"test_loss_var_{var_name}",
                 l_value,
                 on_step=False,
                 on_epoch=True,

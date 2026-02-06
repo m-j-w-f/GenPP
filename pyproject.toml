@@ -86,3 +86,6 @@ markers = [
     "unit: mark a test as a unit test",
     "integration: mark a test as an integration test",
 ]
+filterwarnings = [
+    "ignore::SyntaxWarning:flow_matching",
+]

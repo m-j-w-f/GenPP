@@ -4,6 +4,7 @@ n_samples: 50
 solver_iter: 10
 padding: ${data.spatial.padding_list}
 use_rescaler: false  # Whether to use rescalers from the datamodule
+variable_names: ${data.y_select_variables}
 
 # Model backbone parameters
 backbone:
