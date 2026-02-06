@@ -344,6 +344,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         """
         Args:
@@ -368,6 +369,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
             n_samples (int | None): Number of samples to generate. Defaults to None.
             n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
             n_samples_predict (int | None): Number of samples during prediction. If None, defaults to n_samples.
+            variable_names (Sequence[str] | None): Names of the output variables. Defaults to None.
         """
         # Calculate total input channels
         use_embedding = embedding_dim > 0
@@ -404,6 +406,7 @@ class CNNEngressionNoiseModel(BaseEngressionNoiseModel):
             use_rescaler=use_rescaler,
             rescaler=rescaler,
             loss_fn=loss_fn,
+            variable_names=variable_names,
         )
         self.save_hyperparameters()
 
@@ -480,6 +483,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         """
         Args:
@@ -504,6 +508,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             n_samples (int | None): Number of samples to generate. Defaults to None.
             n_samples_train (int | None): Number of samples during training. If None, defaults to n_samples.
             n_samples_predict (int | None): Number of samples during prediction. If None, defaults
+            variable_names (Sequence[str] | None): Names of the output variables. Defaults to None.
         """
         # Check required parameters
         if optimizer is None:
@@ -554,6 +559,7 @@ class CNNEngressionDirectModel(BaseEngressionDirectModel):
             n_samples=n_samples,
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
+            variable_names=variable_names,
         )
         self.save_hyperparameters()
 

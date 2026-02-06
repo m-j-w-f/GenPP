@@ -56,6 +56,7 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         lr_scheduler: DictConfig,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        variable_names: Sequence[str] | None = None,
     ):
         """Initialize the Flow Matching Model.
 
@@ -71,6 +72,7 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
             rescaler (Sequence[nn.Module  |  None] | nn.Module | None, optional): Rescaling module(s) to
                 apply if use_rescaler is True. Can be a single module, a sequence of modules, or None.
                 Defaults to None.
+            variable_names (Sequence[str] | None, optional): Names of the output variables. Defaults to None.
         """
         super().__init__(
             optimizer=optimizer,
@@ -90,6 +92,7 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         self.path = CondOTProbPath()
         self.solver = ODESolver(self.backbone)
         self.step_size = 1 / solver_iter
+        self.variable_names = list(variable_names) if variable_names is not None else None
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, conditioning: dict[str, torch.Tensor]):
         """
@@ -132,8 +135,9 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         loss = self._calc_loss(batch)
         loss = reduce(loss, "b c h w -> c", "mean")  # How good are we per channel
         for i, lo in enumerate(loss):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"val_loss_var_{i}",
+                f"val_loss_var_{var_name}",
                 lo,
                 on_step=False,
                 on_epoch=True,
@@ -148,8 +152,9 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         loss = self._calc_loss(batch)
         loss = reduce(loss, "b c h w -> c", "mean")  # How good are we per channel
         for i, lo in enumerate(loss):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"test_loss_var_{i}",
+                f"test_loss_var_{var_name}",
                 lo,
                 on_step=False,
                 on_epoch=True,
@@ -182,6 +187,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
         internal_td_scaling: str,
         use_rescaler: bool,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        variable_names: Sequence[str] | None = None,
     ):
         """Initialize the FlowMatchingNoiseModel.
 
@@ -195,6 +201,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
             internal_td_scaling (str): Scaling strategy ("abs", "std", "learned", or "linear_abs").
             use_rescaler (bool): Whether to use rescaling modules.
             rescaler (Sequence[nn.Module | None] | nn.Module | None, optional): Rescaling modules.
+            variable_names (Sequence[str] | None, optional): Names of the output variables. Defaults to None.
         """
         # Initialize base class first (calls nn.Module.__init__)
         BaseFlowMatchingModel.__init__(
@@ -207,6 +214,7 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
+            variable_names=variable_names,
         )
         # Then initialize mixin (which assigns nn.Module attributes)
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
