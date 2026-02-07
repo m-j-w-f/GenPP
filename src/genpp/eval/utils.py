@@ -223,12 +223,17 @@ def save_predictions_dataarray(
     """
     # Reset index, otherwise xarray will complain when saving
     predictions = predictions.reset_index("prediction")
+    # Clear any zarr v2 encoding (e.g. numcodecs compressors) that is
+    # incompatible with zarr v3.
+    ds = predictions.to_dataset(name=predictions.name or "__xarray_dataarray_variable__")
+    for var in ds.variables:
+        ds[var].encoding.clear()
     if not save_path.exists():
-        predictions.to_zarr(save_path, consolidated=True)  # type: ignore
+        ds.to_zarr(save_path)
         print(f"Saved predictions to {save_path}.")
     else:
         if overwrite:
-            predictions.to_zarr(save_path, mode="w", consolidated=True)  # type: ignore
+            ds.to_zarr(save_path, mode="w")
             print(f"Overwritten existing file at {save_path}.")
         else:
             print(f"File {save_path} already exists.")

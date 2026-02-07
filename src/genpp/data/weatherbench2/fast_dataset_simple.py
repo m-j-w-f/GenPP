@@ -616,25 +616,14 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "test":
             # Create test datasets grouped by unique lead times
-            x_test = all_tensors["test"]["x"]
-            y_test = all_tensors["test"]["y"]
-            td_test = all_tensors["test"]["prediction_timedelta"]
-            unique_tds = torch.sort(torch.unique(td_test))[0]
-            self.test_datasets = []
-            for td in unique_tds:
-                mask = td_test == td
-                x_subset = x_test[mask]
-                y_subset = y_test[mask]
-                td_subset = td_test[mask]
-                ds = TransformTensorDataset(
-                    x_subset,
-                    y_subset,
-                    td_subset,
-                    feature_metadata=self.cache_metadata["feature_metadata"],
-                    x_transform=x_transform,
-                    y_transform=y_transform,
-                )
-                self.test_datasets.append(ds)
+            self.test_dataset = TransformTensorDataset(
+                all_tensors["test"]["x"],
+                all_tensors["test"]["y"],
+                all_tensors["test"]["prediction_timedelta"],
+                feature_metadata=self.cache_metadata["feature_metadata"],
+                x_transform=x_transform,
+                y_transform=y_transform,
+            )
 
     def train_dataloader(self) -> DataLoader[Any]:
         return DataLoader(
@@ -648,9 +637,11 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             **self.dataloader_config.val,
         )
 
-    def test_dataloader(self) -> list[DataLoader[Any]]:
-        # Lightning implicitly uses a combined_loader here with mode="sequential"
-        return [DataLoader(ds, **self.dataloader_config.test) for ds in self.test_datasets]
+    def test_dataloader(self) -> DataLoader[Any]:
+        return DataLoader(
+            self.test_dataset,
+            **self.dataloader_config.test,
+        )
 
     def cleanup(self) -> None:
         """Clean up any temporary files.

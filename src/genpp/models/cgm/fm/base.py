@@ -77,7 +77,8 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         super().__init__(
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
-            n_samples=n_samples,
+            n_samples_train=1,  # FM training is not sample-based
+            n_samples_predict=n_samples,
         )
         self.save_hyperparameters()
         if use_rescaler:
@@ -255,18 +256,22 @@ class FlowMatchingNoiseModel(InternalTDScalingMixin, BaseFlowMatchingModel):
         # repeat shapes to be able to generate 50 different samples
         nwp_fc_expanded = {}
         for k, v in nwp_fc.items():
-            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+            nwp_fc_expanded[k] = repeat(
+                v, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict
+            )
 
         # Sample batch_size * n_samples random images. Keep the other dimensions as x_1
-        x_init = torch.randn(x_1.size(0) * self.n_samples, *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(x_1.size(0) * self.n_samples_predict, *x_1.shape[1:]).to(x_1)
         sol = self.solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
-            method="dopri5",
+            method="midpoint",
             step_size=self.step_size,
         )
         # Sol now contains the deviations that need to be added to the nwp forecasts
-        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
+        sol = rearrange(
+            sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples_predict
+        )
 
         # Calculate the scale factor based on the lead time
         scale = self.internal_td_scaling.get_scale(td=td)  # Shape [b, n_vars, 1, 1]
@@ -317,22 +322,26 @@ class FlowMatchingDirectModel(BaseFlowMatchingModel):
         # repeat shapes to be able to generate 50 different samples
         nwp_fc_expanded = {}
         for k, v in nwp_fc.items():
-            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+            nwp_fc_expanded[k] = repeat(
+                v, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict
+            )
 
         # Expand timedelta for all samples
-        td_expanded = repeat(td, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+        td_expanded = repeat(td, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict)
         nwp_fc_expanded["timedelta"] = td_expanded
 
         # Sample batch_size * n_samples random images. Keep the other dimensions as x_1
-        x_init = torch.randn(x_1.size(0) * self.n_samples, *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(x_1.size(0) * self.n_samples_predict, *x_1.shape[1:]).to(x_1)
         sol = self.solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
-            method="dopri5",
+            method="midpoint",
             step_size=self.step_size,
         )
         # sol now contains the direct predictions
-        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
+        sol = rearrange(
+            sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples_predict
+        )
         res_cropped = self.crop(sol)
         return res_cropped
 
