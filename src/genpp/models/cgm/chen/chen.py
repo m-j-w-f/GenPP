@@ -207,6 +207,17 @@ class BaseChenModel(BaseGenerativeModule, ABC):
             sync_dist=True,
         )
 
+        # Keep for compat with lr schedulers that monitor {stage}_loss, but log the actual energy score value
+        self.log(
+            f"{stage}_loss",
+            es_overall,
+            logger=False,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
         # If using a different loss function, also log it and return it
         loss_fn_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
         loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
