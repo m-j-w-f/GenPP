@@ -25,9 +25,9 @@ class ModelEntry:
         return self.id.split("/")[-1]
 
     @property
-    def run_path(self) -> str | None:
+    def run_path(self) -> str:
         """Return the run path if `id` contains a path-like prefix, else None."""
-        return self.id if "/" in self.id else None
+        return self.id if "/" in self.id else f"feik/genpp/{self.id}"
 
     @property
     def output_dir(self) -> Path:

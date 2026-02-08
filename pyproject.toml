@@ -23,7 +23,7 @@ genpp = { path = ".", editable = true }
 flow_matching = ">=1.0.10, <2"
 
 [tool.pixi.dependencies]
-zarr = ">=3.1.5,<4"
+zarr = ">=2.18.3,<3"
 dask = ">=2026.1.2,<2027"
 xarray = ">=2026.1.0,<2027"
 netcdf4 = ">=1.7.4,<2"
