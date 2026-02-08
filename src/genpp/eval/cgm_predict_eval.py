@@ -7,11 +7,11 @@ specified data split, computes evaluation metrics (CRPS, Energy Score,
 Variogram Score), and logs results to WandB and local files.
 
 Usage:
-    python cgm_predict.py --run-path feik/genpp/abc123 --split val
-    python cgm_predict.py --run-path feik/genpp/abc123 feik/genpp/def456 --split val test
-    python cgm_predict.py --run-path feik/genpp/abc123 --split test --skip-variogram
-    python cgm_predict.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
-    python cgm_predict.py --run-path feik/genpp/hbuy7eio --split val --device 0,1 --batch-size 32 --skip-variogram --save-predictions -v
+    python cgm_predict_eval.py --run-path feik/genpp/abc123 --split val
+    python cgm_predict_eval.py --run-path feik/genpp/abc123 feik/genpp/def456 --split val test
+    python cgm_predict_eval.py --run-path feik/genpp/abc123 --split test --skip-variogram
+    python cgm_predict_eval.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
+    python cgm_predict_eval.py --run-path feik/genpp/hbuy7eio --split val --device 0,1 --batch-size 32 --skip-variogram --save-predictions -v
 """
 
 from __future__ import annotations
@@ -226,7 +226,7 @@ def evaluate_split(
     if use_cached:
         log_msg(f"Loading cached predictions from {predictions_path}...", verbose)
         cached_da = load_predictions_dataarray(predictions_path)
-        predictions_rescaled = torch.from_numpy(cached_da.values)
+        predictions_rescaled = torch.from_numpy(cached_da.values).cuda()
     else:
         # Get dataloader for the specified split
         dataloader_method = getattr(datamodule, split_config["dataloader_method"])
@@ -242,7 +242,7 @@ def evaluate_split(
         reverse_transform = datamodule.y_reverseModules[0]
         mean = rearrange(reverse_transform.mean, "f -> 1 1 f 1 1")
         scale = rearrange(reverse_transform.scale, "f -> 1 1 f 1 1")
-        predictions_rescaled = predictions * scale + mean
+        predictions_rescaled = (predictions * scale + mean).cuda()
 
     # Load ground truth observations
     log_msg("Loading ground truth observations...", verbose)
@@ -267,29 +267,32 @@ def evaluate_split(
     y_obs = y_obs.sel(feature=feature_order)
     y_t = torch.from_numpy(y_obs.values).to(predictions_rescaled)
 
-    # Compute scores
+    # Compute scores (loop over time steps to avoid OOM from pairwise expansions)
     log_msg("Computing evaluation scores...", verbose)
-    crps_ens = EnsembleCRPS()
-    es = EnergyScore(clamp=False)
-    vs = VariogramScore(p=0.5)
+    crps_ens = EnsembleCRPS().cuda()
+    es = EnergyScore(clamp=False).cuda()
+    vs = VariogramScore(p=0.5).cuda()
 
-    crps_per_margin = crps_ens(predictions_rescaled, y_t)
+    n_times = predictions_rescaled.shape[0]
+    crps_list, es_pv_list, es_full_list = [], [], []
+    vs_pv_list, vs_full_list = [], []
 
-    # Per-variable scores
-    energy_score_per_var_u = es(predictions_rescaled, y_t, mode="per_var")
+    for i in range(n_times):
+        pred_i = predictions_rescaled[i : i + 1]
+        y_i = y_t[i : i + 1]
+        with torch.no_grad():
+            crps_list.append(crps_ens(pred_i, y_i).cpu())
+            es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
+            es_full_list.append(es(pred_i, y_i, mode="complete").cpu())
+            if not skip_variogram:
+                vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
+                vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
 
-    variogram_score_per_var_u = None
-    if not skip_variogram:
-        log_msg("Computing per-variable variogram scores...", verbose)
-        variogram_score_per_var_u = vs(predictions_rescaled, y_t, mode="per_var")
-
-    # Full (combined) scores
-    energy_score_full_u = es(predictions_rescaled, y_t, mode="complete")
-
-    variogram_score_full_u = None
-    if not skip_variogram:
-        log_msg("Computing full variogram scores...", verbose)
-        variogram_score_full_u = vs(predictions_rescaled, y_t, mode="complete")
+    crps_per_margin = torch.cat(crps_list, dim=0)
+    energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
+    energy_score_full_u = torch.cat(es_full_list, dim=0)
+    variogram_score_per_var_u = torch.cat(vs_pv_list, dim=0) if not skip_variogram else None
+    variogram_score_full_u = torch.cat(vs_full_list, dim=0) if not skip_variogram else None
 
     # Reduce scores
     log_msg("Reducing scores...", verbose)
