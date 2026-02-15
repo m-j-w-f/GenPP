@@ -108,7 +108,7 @@ class BestEncoders:
 
 
 best_models: BestModels = BestModels(
-    emos=[ModelEntry(id="co74yk64")],
+    emos=[ModelEntry(id="bnmfhfsh")],
     drn=[ModelEntry(id="m5y9kwlh")],
     chen=[
         ModelEntry(id="057uzdg4", tag="ind_es"),

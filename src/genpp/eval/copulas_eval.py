@@ -316,8 +316,13 @@ def get_split_predictions_and_obs(split, model, trainer, datamodule, cfg, verbos
 
 def do_ecc(predictions_xr, prediction_index, M=50):
     """Perform Ensemble Copula Coupling postprocessing."""
-    pred_samples = quantile_samples(predictions_xr, M=M)
+    pbar = tqdm(total=5, desc="ECC postprocessing")
 
+    pbar.set_postfix_str("computing quantile samples")
+    pred_samples = quantile_samples(predictions_xr, M=M)
+    pbar.update(1)
+
+    pbar.set_postfix_str("loading ensemble forecasts")
     ens = (
         xr.open_dataset(FORECAST_ENS_PATH)[FC_VARS]
         .stack(prediction=("time", "prediction_timedelta"))
@@ -325,22 +330,55 @@ def do_ecc(predictions_xr, prediction_index, M=50):
         .to_dataarray("feature")
         .transpose("prediction", "number", "feature", "longitude", "latitude")
     )
+    pbar.update(1)
 
+    pbar.set_postfix_str("ranking ensemble members")
     rng = np.random.default_rng(seed=420)
     noise = rng.uniform(low=-1e-8, high=1e-8, size=ens.shape)
     ens_noised = ens + noise
+    del noise
 
     ens_ranked = ens_noised.rank(dim="number") - 1
     ens_ranked = ens_ranked.astype(np.int32)
     assert (ens_ranked.sum(dim="number") == 49 * 50 / 2).all()
+    del ens, ens_noised
+    pbar.update(1)
 
-    pred_samples_reordered = pred_samples.isel(sample=ens_ranked)
-    pred_samples_reordered = pred_samples_reordered.drop_vars("sample").rename({"number": "sample"})
+    # Use np.take_along_axis instead of xr.isel to avoid xarray coordinate
+    # broadcasting.  If the longitude/latitude coords of pred_samples (from
+    # the model predictions) differ even slightly from those of ens_ranked
+    # (from FORECAST_ENS_PATH), xarray would create a cartesian-product
+    # broadcast, exploding memory.
+    pbar.set_postfix_str("reordering samples")
+    rank_vals = ens_ranked.values  # (prediction, number, feature, lon, lat)
+    del ens_ranked
+    reordered_vals = np.take_along_axis(pred_samples.values, rank_vals, axis=1)
+    del rank_vals
+    pbar.update(1)
+
+    pbar.set_postfix_str("building result")
+    pred_samples_reordered = xr.DataArray(
+        reordered_vals,
+        coords={
+            "prediction": pred_samples.coords["prediction"],
+            "sample": np.arange(reordered_vals.shape[1]),
+            "feature": pred_samples.coords["feature"],
+            "longitude": pred_samples.coords["longitude"],
+            "latitude": pred_samples.coords["latitude"],
+        },
+        dims=("prediction", "sample", "feature", "longitude", "latitude"),
+    )
+    del pred_samples, reordered_vals
+    pbar.update(1)
+    pbar.close()
     return pred_samples_reordered
 
 
 def do_gca(Sigma, predictions_xr, y_shape, n_samples=50):
     """Perform Gaussian Copula Approach postprocessing."""
+    pbar = tqdm(total=2, desc="GCA postprocessing")
+
+    pbar.set_postfix_str("sampling from Gaussian copula")
     t_steps = len(predictions_xr.prediction)
     latent_samples = multivariate_normal.rvs(
         mean=np.zeros(Sigma.shape[0]),
@@ -348,7 +386,14 @@ def do_gca(Sigma, predictions_xr, y_shape, n_samples=50):
         size=(t_steps, n_samples),  # type: ignore
     )
     latent_samples = latent_samples.reshape(t_steps, n_samples, *y_shape[1:])
-    return inverse_transform_latent(latent_samples, predictions_xr)
+    pbar.update(1)
+
+    pbar.set_postfix_str("inverse-transforming to original space")
+    result = inverse_transform_latent(latent_samples, predictions_xr)
+    del latent_samples
+    pbar.update(1)
+    pbar.close()
+    return result
 
 
 def compute_copula_scores(
@@ -508,6 +553,13 @@ def process_model(model_entry, splits, args):
     latent = transform_to_latent_gaussian(y_train, train_preds_xr)
     flat = latent.stack(space=("feature", "longitude", "latitude"))
     Sigma = np.cov(flat.values, rowvar=False)
+    del latent, flat  # free memory
+
+    # Keep train data only if the train split is requested for evaluation
+    need_train = "train" in splits
+    if not need_train:
+        del train_preds_xr, y_train, train_pred_idx
+        train_preds_xr = train_pred_idx = y_train = None  # type: ignore[assignment]
 
     # --- Evaluate each requested split ---
     all_scores: dict = {}
@@ -549,7 +601,7 @@ def process_model(model_entry, splits, args):
 
         # --- GCA ---
         log_msg("Running GCA postprocessing...", args.verbose)
-        gca_preds = do_gca(Sigma, predictions_xr, y_obs.shape)
+        gca_preds = do_gca(Sigma, predictions_xr, y_obs.shape)  # type: ignore
         if args.save_predictions:
             save_predictions_dataarray(
                 gca_preds, model_dir / f"{split}_predictions_gca.zarr", overwrite=True
