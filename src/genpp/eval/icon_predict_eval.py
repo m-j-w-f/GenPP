@@ -35,7 +35,6 @@ from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from tqdm import tqdm, trange
 
-import wandb
 from genpp import BASE_DIR
 from genpp.configs import register_resolvers
 from genpp.eval.utils import (
@@ -272,7 +271,7 @@ def evaluate_split(
         # Run predictions
         log_msg(f"Running predictions on {split} split...", verbose)
         pred_list = trainer.predict(model, dataloader, return_predictions=True)
-        predictions = torch.cat(pred_list, dim=0)  # shape: [N, n_samples, c, x, y]
+        predictions = torch.cat(pred_list, dim=0)  # shape: [N, n_samples, c, x, y] # type: ignore
 
         # Collect ground truth from the dataloader
         log_msg("Collecting ground truth from dataloader...", verbose)
