@@ -1,0 +1,5 @@
+defaults:
+  - base_fm_uvit_cfg
+
+_target_: genpp.models.cgm.FlowMatchingNoiseModelCFG
+internal_td_scaling: abs
