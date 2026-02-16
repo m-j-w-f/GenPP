@@ -207,23 +207,17 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         loss = torch.pow(u_t_theta - u_t_ref, 2)
         return loss
 
-    def predict_step(self, batch, guidance_scale: float | None = None) -> torch.Tensor:
+    def predict_step(self, batch, batch_idx=None) -> torch.Tensor:
         """Generate predictions using classifier-free guidance.
 
         Args:
             batch: Input batch containing 'x', 'y', and 'timedelta'.
-            guidance_scale: Optional override for the guidance scale. If None,
-                uses the model's default guidance_scale set during initialization.
+            batch_idx: Batch index (passed by PyTorch Lightning, unused).
 
         Returns:
             Generated predictions tensor.
         """
         nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
-
-        # Use provided guidance_scale or fall back to model default
-        effective_guidance_scale = (
-            guidance_scale if guidance_scale is not None else self.guidance_scale
-        )
 
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
@@ -231,10 +225,10 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
             nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict)
 
         # Create CFG wrapper if guidance_scale != 1
-        if not _is_guidance_scale_one(effective_guidance_scale):
+        if not _is_guidance_scale_one(self.guidance_scale):
             cfg_backbone = _CFGVectorFieldWrapper(
                 backbone=self.backbone,
-                guidance_scale=effective_guidance_scale,
+                guidance_scale=self.guidance_scale,
                 null_conditioning_fn=self._create_null_conditioning,
             )
             solver = ODESolver(cfg_backbone)
@@ -369,23 +363,17 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         loss = torch.pow(u_t_theta - u_t_ref, 2)
         return loss
 
-    def predict_step(self, batch, guidance_scale: float | None = None) -> torch.Tensor:
+    def predict_step(self, batch, batch_idx=None) -> torch.Tensor:
         """Generate predictions using classifier-free guidance.
 
         Args:
             batch: Input batch containing 'x', 'y', and 'timedelta'.
-            guidance_scale: Optional override for the guidance scale. If None,
-                uses the model's default guidance_scale set during initialization.
+            batch_idx: Batch index (passed by PyTorch Lightning, unused).
 
         Returns:
             Generated predictions tensor.
         """
         nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
-
-        # Use provided guidance_scale or fall back to model default
-        effective_guidance_scale = (
-            guidance_scale if guidance_scale is not None else self.guidance_scale
-        )
 
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
@@ -397,10 +385,10 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         nwp_fc_expanded["timedelta"] = td_expanded
 
         # Create CFG wrapper if guidance_scale != 1
-        if not _is_guidance_scale_one(effective_guidance_scale):
+        if not _is_guidance_scale_one(self.guidance_scale):
             cfg_backbone = _CFGVectorFieldWrapper(
                 backbone=self.backbone,
-                guidance_scale=effective_guidance_scale,
+                guidance_scale=self.guidance_scale,
                 null_conditioning_fn=self._create_null_conditioning,
             )
             solver = ODESolver(cfg_backbone)
