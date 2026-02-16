@@ -324,8 +324,8 @@ def evaluate_split(
 
     if use_cached:
         log_msg(f"Loading cached predictions from {predictions_path}...", verbose)
-        predictions_rescaled = torch.load(predictions_path).cuda()
-        y_rescaled = torch.load(gt_path).cuda()
+        predictions_rescaled = torch.load(predictions_path, weights_only=True).cuda()
+        y_rescaled = torch.load(gt_path, weights_only=True).cuda()
     else:
         # Get dataloader for the specified split
         dataloader_method = getattr(datamodule, split_config["dataloader_method"])
