@@ -16,7 +16,7 @@ Usage:
     python icon_predict_eval.py --run-path feik/genpp/abc123 --split val
     python icon_predict_eval.py --run-path feik/genpp/abc123 feik/genpp/def456 --split val test
     python icon_predict_eval.py --run-path feik/genpp/abc123 --split test --skip-variogram
-    python icon_predict_eval.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
+    python icon_predict_eval.py --run-path feik/genpp/abc123 --batch-size 32 -v
 """
 
 from __future__ import annotations
@@ -24,9 +24,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import inspect
-import json
 import pickle
-import shlex
 
 import hydra
 import lightning as L
@@ -35,6 +33,7 @@ import pandas as pd
 import torch
 from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
+from tqdm import tqdm, trange
 
 import wandb
 from genpp import BASE_DIR
@@ -69,12 +68,6 @@ def parse_args() -> argparse.Namespace:
         help="Dataset split(s) to evaluate (e.g., --split val test)",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default="0",
-        help="GPU device index or comma-separated list (e.g., '0' or '0,1,2')",
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
         default=16,
@@ -102,20 +95,6 @@ def parse_args() -> argparse.Namespace:
         help="Enable verbose output",
     )
     return parser.parse_args()
-
-
-def parse_device(device_str: str) -> list[int]:
-    """Parse device string to list of ints.
-
-    Args:
-        device_str: Device specification, e.g., "0" or "0,1,2"
-
-    Returns:
-        List of ints for device indices
-    """
-    if "," in device_str:
-        return [int(d.strip()) for d in device_str.split(",")]
-    return [int(device_str)]
 
 
 def log_msg(msg: str, verbose: bool) -> None:
@@ -151,46 +130,6 @@ def get_split_config(split: str) -> dict:
         },
     }
     return config[split]
-
-
-def get_original_command(run_path: str) -> str | None:
-    """Fetch the original command from W&B metadata.
-
-    Reads the run's wandb-metadata.json and reconstructs the command
-    from the captured program and args.
-    """
-    try:
-        api = wandb.Api()
-        run = api.run(run_path)
-        meta_file = run.file("wandb-metadata.json").download(replace=True)
-        with open(meta_file.name) as f:
-            meta = json.load(f)
-
-        program = meta.get("program")
-        args = meta.get("args") or []
-
-        parts = ([program] if program else []) + [str(a) for a in args]
-        cmd = shlex.join(parts)
-        return cmd or None
-    except Exception:
-        return None
-
-
-def store_original_command_config(run_path: str, cmd: str, verbose: bool = False) -> None:
-    """Store the preserved original command in the run config.
-
-    Only writes to config (not summary or notes). Safe no-op if unchanged.
-    """
-    try:
-        api = wandb.Api()
-        run = api.run(run_path)
-        existing = run.config.get("original_command")
-        if existing != cmd:
-            run.config["original_command"] = cmd
-            run.update()
-            log_msg("Preserved original W&B command in config", verbose)
-    except Exception as e:
-        log_msg(f"Failed to store original command: {e}", verbose)
 
 
 def _rescale_y(y: torch.Tensor, reverse_modules: list) -> torch.Tensor:
@@ -253,9 +192,8 @@ def compute_icon_scores_per_leadtime(
         for var_name in y_select_variables:
             scores_delta[method][f"VariogramScore_{var_name}"] = {}
 
-    for delta, delta_str in zip(td, td_str):
+    for delta, delta_str in tqdm(zip(td, td_str), total=len(td), desc="Processing leadtimes"):
         mask = prediction_timedeltas == delta
-        print(f"Processing leadtime {delta_str} with {np.sum(mask)} samples")
         crpss_delta = crpss[mask]
         ess_per_var_delta = ess_per_var[mask]
         ess_complete_delta = ess_complete[mask]
@@ -339,7 +277,7 @@ def evaluate_split(
         # Collect ground truth from the dataloader
         log_msg("Collecting ground truth from dataloader...", verbose)
         y_list = []
-        for batch in dataloader:
+        for batch in tqdm(dataloader, desc="Collecting ground truth"):
             y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
         y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
 
@@ -364,7 +302,7 @@ def evaluate_split(
     crps_list, es_pv_list, es_full_list = [], [], []
     vs_pv_list, vs_full_list = [], []
 
-    for i in range(n_times):
+    for i in trange(n_times, desc="Computing scores"):
         pred_i = predictions_rescaled[i : i + 1]  # [1, n_samples, c, x, y]
         y_i = y_rescaled[i : i + 1]  # [1, c, x, y]
         with torch.no_grad():
@@ -469,9 +407,6 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     """Process a single WandB run: load model, predict, evaluate, and log results."""
     log_msg(f"\n{'#' * 60}\nProcessing run: {run_path}\n{'#' * 60}", args.verbose)
 
-    # Capture the original W&B command before any updates
-    old_cmd = get_original_command(run_path)
-
     # Parse run path
     model_id = run_path.split("/")[-1]
     output_dir = BASE_DIR.parent.parent / "outputs"
@@ -567,8 +502,7 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
             td_scaling.n_vars = 2  # type: ignore
 
     # Create trainer
-    devices = parse_device(args.device)
-    trainer = L.Trainer(logger=False, accelerator="gpu", devices=devices)
+    trainer = L.Trainer(logger=False, accelerator="gpu", devices="auto")
 
     # Evaluate each requested split
     full_scores = {}
@@ -592,10 +526,6 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     # Update WandB run with all split scores
     log_msg("Updating WandB run...", args.verbose)
     update_wandb_run(run_path, full_scores)
-
-    # Restore the original command into run config (only config)
-    if old_cmd:
-        store_original_command_config(run_path, old_cmd, args.verbose)
 
     # Save scores DataFrame
     records = []
