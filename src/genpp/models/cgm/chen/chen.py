@@ -66,6 +66,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         n_samples_predict: int | None = None,
         use_rescaler: bool = False,
         rescaler: Sequence[nn.Module | None] | None = None,
+        variable_names: Sequence[str] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -90,6 +91,7 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         self.final_activation = final_activation
         self.use_embedding = embedding_dim > 0
         self.loss_fn = loss_fn
+        self.variable_names = list(variable_names) if variable_names is not None else None
         # We need this for the validation step where we always use Energy Score
         self.es = EnergyScore()
 
@@ -185,8 +187,9 @@ class BaseChenModel(BaseGenerativeModule, ABC):
         # Log per-variable energy score
         es_per_var_mean = reduce(es_per_var, "b c -> c", "mean")
         for i in range(self.out_features):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"{stage}_loss_var_{i}",
+                f"{stage}_energy_score_{var_name}",
                 es_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
@@ -196,15 +199,32 @@ class BaseChenModel(BaseGenerativeModule, ABC):
 
         # Log overall energy score as {stage}_loss
         self.log(
-            f"{stage}_loss", es_overall, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True
+            f"{stage}_energy_score",
+            es_overall,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+        # Keep for compat with lr schedulers that monitor {stage}_loss, but log the actual energy score value
+        self.log(
+            f"{stage}_loss",
+            es_overall,
+            logger=False,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
         )
 
         # If using a different loss function, also log it and return it
         loss_fn_per_var = self.loss_fn(res, y, mode="per_var")  # shape [b, c]
         loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
         for i in range(self.out_features):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"{stage}_loss_fn_var_{i}",
+                f"{stage}_loss_fn_var_{var_name}",
                 loss_fn_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
@@ -292,6 +312,7 @@ class _CNNChenModelBase(BaseChenModel, ABC):
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         # Explicitly call BaseChenModel.__init__ to avoid MRO issues with mixins
         BaseChenModel.__init__(
@@ -310,6 +331,7 @@ class _CNNChenModelBase(BaseChenModel, ABC):
             n_samples=n_samples,
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
+            variable_names=variable_names,
         )
         self.padding = padding
         self.height_no_pad = self.height - self.padding[2] - self.padding[3]  # longitude
@@ -507,6 +529,7 @@ class CNNChenNoiseModel(InternalTDScalingMixin, _CNNChenModelBase):
         n_samples: int | None = None,  # This is here for backwards compatibility
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         _CNNChenModelBase.__init__(
             self,
@@ -529,6 +552,7 @@ class CNNChenNoiseModel(InternalTDScalingMixin, _CNNChenModelBase):
             n_samples=n_samples,
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
+            variable_names=variable_names,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
         self.save_hyperparameters()
@@ -685,6 +709,7 @@ class CNNChenDirectModel(_CNNChenModelBase):
         n_samples: int | None = None,  # This is here for backwards compatibility
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         _CNNChenModelBase.__init__(
             self,
@@ -707,6 +732,7 @@ class CNNChenDirectModel(_CNNChenModelBase):
             n_samples=n_samples,
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
+            variable_names=variable_names,
         )
         self.save_hyperparameters()
         # Setup td_embedder

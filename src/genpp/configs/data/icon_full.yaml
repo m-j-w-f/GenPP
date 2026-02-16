@@ -4,9 +4,12 @@
 # ============================================================================
 # SPATIAL CONFIGURATION
 # ============================================================================
-# ICON uses dynamic spatial dimensions based on grid type
-# No padding or transforms by default
+# ICON uses rotated latitude-longitude grid with dimensions from target_grid.txt
+# x dimension (260) corresponds to rotated longitude, y dimension (240) to rotated latitude
 spatial:
+  original:
+    latitude: 240
+    longitude: 260
   x_transform: null
   y_transform: null
 
@@ -75,10 +78,26 @@ y_select_variables:
   - 'T_2M+height_2.0'
   - 'VMAX_10M+height_2_10.0'
 
+meta_features:
+  - 'sin_prediction_time'
+  - 'cos_prediction_time'
+  - 'latitude'
+  - 'longitude'
+
+# Select which metadata features to use (subset of meta_features above)
+# Set to null or empty list to use no metadata features (e.g., for EMOS)
+select_meta_features: ${data.meta_features}
+
 # ============================================================================
 # BATCH CONFIGURATION
 # ============================================================================
+# Default batch size used when specific batch sizes are not provided
 batch_size: 32
+# Separate batch sizes for train, val, and test dataloaders
+# Set to null to use the default batch_size
+train_batch_size: null
+val_batch_size: null
+test_batch_size: null
 
 # ============================================================================
 # NORMALIZATION CONFIGURATION
@@ -108,13 +127,29 @@ x_normalize_types: null
 y_normalize_types: null
 
 # ============================================================================
+# FURTHER EXPORTED INFO
+# ============================================================================
+# These will be consumed by the model to get correct input sizes etc
+features:
+  input_features: ${eval:'len(${data.x_select_variables})'}
+  aggregation_levels: 2
+  meta_features: ${eval:'len(${data.meta_features}) if ${data.select_meta_features} is None else len(${data.select_meta_features})'}
+  output: ${eval:'len(${data.y_select_variables})'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
+
+
+# ============================================================================
 # DATA MODULE
 # ============================================================================
 module:
   _target_: genpp.data.icon.dataset.ForecastDataModule
   x_select_variables: ${data.x_select_variables}
   y_select_variables: ${data.y_select_variables}
+  select_meta_features: ${data.select_meta_features}
   batch_size: ${data.batch_size}
+  train_batch_size: ${data.train_batch_size}
+  val_batch_size: ${data.val_batch_size}
+  test_batch_size: ${data.test_batch_size}
   x_default_normalize_type: ${data.x_default_normalize_type}
   y_default_normalize_type: ${data.y_default_normalize_type}
   num_workers: ${data.dataloader.num_workers}

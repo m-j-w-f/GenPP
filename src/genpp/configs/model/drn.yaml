@@ -2,6 +2,7 @@
 _target_: genpp.models.distributionalRegression.DRNModel
 
 in_features: ${data.features.input_concat}
+variable_names: ${data.y_select_variables}
 out_distribution:
   _target_: genpp.models.distributionalRegression.distributions.PredictiveCombinedDistribution
   _partial_: true # we need to pass the rescalers to it

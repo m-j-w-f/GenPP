@@ -1,5 +1,6 @@
 # Emos model config
 _target_: genpp.models.distributionalRegression.EMOS
+variable_names: ${data.y_select_variables}
 out_distribution:
   _target_: genpp.models.distributionalRegression.distributions.PredictiveCombinedDistribution
   _partial_: true # we need to pass the rescalers to it

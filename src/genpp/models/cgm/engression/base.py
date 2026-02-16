@@ -221,6 +221,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         super().__init__(
             optimizer=optimizer,
@@ -252,6 +253,7 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         # Loss function
         self.loss_fn = loss_fn
         self.es = EnergyScore()
+        self.variable_names = list(variable_names) if variable_names is not None else None
 
     @abstractmethod
     def prepare_input(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -333,8 +335,9 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         out_features = res.shape[2]
         es_per_var_mean = reduce(es_per_var, "b c -> c", "mean")
         for i in range(out_features):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"{stage}_loss_var_{i}",
+                f"{stage}_energy_score_{var_name}",
                 es_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
@@ -344,8 +347,19 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
 
         # Log overall energy score
         self.log(
+            f"{stage}_energy_score",
+            es_overall,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+        # Keep for compat with lr schedulers that monitor {stage}_loss, but log the actual energy score value
+        self.log(
             f"{stage}_loss",
             es_overall,
+            logger=False,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -356,8 +370,9 @@ class BaseEngressionModel(BaseGenerativeModule, ABC):
         loss_fn_per_var = self.loss_fn(res, y, mode="per_var")
         loss_fn_per_var_mean = reduce(loss_fn_per_var, "b c -> c", "mean")
         for i in range(out_features):
+            var_name = self.variable_names[i] if self.variable_names else str(i)
             self.log(
-                f"{stage}_loss_fn_var_{i}",
+                f"{stage}_loss_fn_var_{var_name}",
                 loss_fn_per_var_mean[i],
                 on_step=False,
                 on_epoch=True,
@@ -425,6 +440,7 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
         n_samples: int | None = None,
         n_samples_train: int | None = None,
         n_samples_predict: int | None = None,
+        variable_names: Sequence[str] | None = None,
     ) -> None:
         """Initialize BaseEngressionNoiseModel.
 
@@ -440,6 +456,7 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
             n_samples (int | None): Number of samples to generate. Defaults to None.
             n_samples_train (int | None): Number of samples during training. Defaults to None.
             n_samples_predict (int | None): Number of samples during prediction. Defaults to None.
+            variable_names (Sequence[str] | None): Names of the output variables. Defaults to None.
         """
         BaseEngressionModel.__init__(
             self,
@@ -457,6 +474,7 @@ class BaseEngressionNoiseModel(InternalTDScalingMixin, BaseEngressionModel, ABC)
             n_samples=n_samples,
             n_samples_train=n_samples_train,
             n_samples_predict=n_samples_predict,
+            variable_names=variable_names,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
 

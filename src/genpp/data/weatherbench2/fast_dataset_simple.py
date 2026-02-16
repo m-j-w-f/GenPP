@@ -137,21 +137,31 @@ def _cache_data(
     all_var_std_indices = [i for i, f in enumerate(all_x_features) if f in all_var_std_names]
 
     # Predicted variables: those whose base name (without suffix) is in y_features
-    # For mean: remove +statistic_mean and check if base is in y
+    # IMPORTANT: iterate over all_y_features to preserve target variable order,
+    # ensuring predicted_vars_mean channels align with y (target) channels.
+    # For mean: construct name with mean_suffix and look up in all_var_mean_names
     predicted_var_mean_names = [
-        f for f in all_var_mean_names if f.removesuffix(mean_suffix) in all_y_features
+        f"{y_feat}{mean_suffix}"
+        for y_feat in all_y_features
+        if f"{y_feat}{mean_suffix}" in all_var_mean_names
     ]
-    predicted_var_mean_indices = [
-        i for i, f in enumerate(all_x_features) if f in predicted_var_mean_names
-    ]
+    predicted_var_mean_indices = [all_x_features.index(name) for name in predicted_var_mean_names]
+    assert len(predicted_var_mean_indices) == len(all_y_features), (
+        f"Not all y_features found in x_features (mean). "
+        f"Missing: {[y for y in all_y_features if f'{y}{mean_suffix}' not in all_var_mean_names]}"
+    )
 
-    # For std: remove +statistic_std and check if base is in y
+    # For std: construct name with std_suffix and look up in all_var_std_names
     predicted_var_std_names = [
-        f for f in all_var_std_names if f.removesuffix(std_suffix) in all_y_features
+        f"{y_feat}{std_suffix}"
+        for y_feat in all_y_features
+        if f"{y_feat}{std_suffix}" in all_var_std_names
     ]
-    predicted_var_std_indices = [
-        i for i, f in enumerate(all_x_features) if f in predicted_var_std_names
-    ]
+    predicted_var_std_indices = [all_x_features.index(name) for name in predicted_var_std_names]
+    assert len(predicted_var_std_indices) == len(all_y_features), (
+        f"Not all y_features found in x_features (std). "
+        f"Missing: {[y for y in all_y_features if f'{y}{std_suffix}' not in all_var_std_names]}"
+    )
 
     feature_metadata = {
         # Predicted variables (subset of all_vars that correspond to y targets)
@@ -606,25 +616,14 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
 
         if stage == "test":
             # Create test datasets grouped by unique lead times
-            x_test = all_tensors["test"]["x"]
-            y_test = all_tensors["test"]["y"]
-            td_test = all_tensors["test"]["prediction_timedelta"]
-            unique_tds = torch.sort(torch.unique(td_test))[0]
-            self.test_datasets = []
-            for td in unique_tds:
-                mask = td_test == td
-                x_subset = x_test[mask]
-                y_subset = y_test[mask]
-                td_subset = td_test[mask]
-                ds = TransformTensorDataset(
-                    x_subset,
-                    y_subset,
-                    td_subset,
-                    feature_metadata=self.cache_metadata["feature_metadata"],
-                    x_transform=x_transform,
-                    y_transform=y_transform,
-                )
-                self.test_datasets.append(ds)
+            self.test_dataset = TransformTensorDataset(
+                all_tensors["test"]["x"],
+                all_tensors["test"]["y"],
+                all_tensors["test"]["prediction_timedelta"],
+                feature_metadata=self.cache_metadata["feature_metadata"],
+                x_transform=x_transform,
+                y_transform=y_transform,
+            )
 
     def train_dataloader(self) -> DataLoader[Any]:
         return DataLoader(
@@ -638,9 +637,11 @@ class FastWeatherBench2DataModule(L.LightningDataModule):
             **self.dataloader_config.val,
         )
 
-    def test_dataloader(self) -> list[DataLoader[Any]]:
-        # Lightning implicitly uses a combined_loader here with mode="sequential"
-        return [DataLoader(ds, **self.dataloader_config.test) for ds in self.test_datasets]
+    def test_dataloader(self) -> DataLoader[Any]:
+        return DataLoader(
+            self.test_dataset,
+            **self.dataloader_config.test,
+        )
 
     def cleanup(self) -> None:
         """Clean up any temporary files.

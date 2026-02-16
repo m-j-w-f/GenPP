@@ -62,6 +62,7 @@ class TestForecastDatasetPerVariableNormalization:
             "all_var_mean_indices": list(range(5)),
             "all_var_std_indices": list(range(5, 10)),
             "meta_var_indices": list(range(10, 12)),
+            "meta_var_names": ["sin_prediction_time", "cos_prediction_time"],
             "predicted_var_mean_indices": [0, 1],  # First two are predicted vars
             "predicted_var_std_indices": [0, 1],
             "predicted_var_mean_names": ["var_a", "var_b"],
@@ -234,7 +235,9 @@ class TestForecastDatasetPerVariableNormalization:
             x_default_normalize_type="zscore",
         )
 
-        assert dataset._x_mean_zscore_indices == [0, 1, 2, 3, 4], "Expected all x vars to use zscore"
+        assert dataset._x_mean_zscore_indices == [0, 1, 2, 3, 4], (
+            "Expected all x vars to use zscore"
+        )
         assert dataset._x_mean_minmax_indices == [], "Expected no x minmax vars"
         assert dataset._x_mean_none_indices == [], "Expected no x none vars"
 
@@ -258,7 +261,9 @@ class TestForecastDatasetPerVariableNormalization:
         )
 
         assert dataset._x_mean_zscore_indices == [], "Expected no x zscore vars"
-        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], "Expected all x vars to use minmax"
+        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], (
+            "Expected all x vars to use minmax"
+        )
         assert dataset._x_mean_none_indices == [], "Expected no x none vars"
 
     @pytest.mark.unit
@@ -281,7 +286,9 @@ class TestForecastDatasetPerVariableNormalization:
             x_normalize_types={"var_a": "minmax", "var_c": None},
         )
 
-        assert dataset._x_mean_zscore_indices == [1, 3, 4], "Expected var_b, var_d, var_e to use zscore"
+        assert dataset._x_mean_zscore_indices == [1, 3, 4], (
+            "Expected var_b, var_d, var_e to use zscore"
+        )
         assert dataset._x_mean_minmax_indices == [0], "Expected var_a to use minmax"
         assert dataset._x_mean_none_indices == [2], "Expected var_c to have no normalization"
 
@@ -306,7 +313,9 @@ class TestForecastDatasetPerVariableNormalization:
         )
 
         assert dataset._x_mean_zscore_indices == [0], "Expected var_a to use zscore"
-        assert dataset._x_mean_minmax_indices == [1, 2, 3, 4], "Expected others to use default minmax"
+        assert dataset._x_mean_minmax_indices == [1, 2, 3, 4], (
+            "Expected others to use default minmax"
+        )
         assert dataset._x_mean_none_indices == [], "Expected no x none vars"
 
     @pytest.mark.unit
@@ -331,6 +340,96 @@ class TestForecastDatasetPerVariableNormalization:
                 x_default_normalize_type="zscore",
                 x_normalize_types={"var_a": "invalid"},
             )
+
+    # ==================== VARIABLE ORDERING TESTS ====================
+
+    @pytest.mark.unit
+    def test_predicted_vars_order_matches_y_select_variables(self, temp_data_dir):
+        """Test that predicted_vars_mean channels align with rea (target) channels
+        even when predicted vars appear in a different order within all_var_mean_names.
+
+        This is a regression test for a bug where predicted_var_mean_indices were
+        extracted in all_var_mean_names order instead of y_select_variables order,
+        causing mismatched variable pairs during training.
+        """
+        # Create tensors with known per-channel values so we can verify ordering.
+        # 5 all_vars_mean + 5 all_vars_std + 2 meta = 12 channels
+        unified_tensor = torch.zeros(12, 4, 4)
+        # Set each mean channel to a distinct value so we can identify them
+        for i in range(5):
+            unified_tensor[i] = float(i)  # mean channels: 0, 1, 2, 3, 4
+
+        # rea has 2 channels in y_select_variables order: [var_a, var_b]
+        rea_data = torch.zeros(2, 4, 4)
+        rea_data[0] = 10.0  # var_a target
+        rea_data[1] = 20.0  # var_b target
+
+        fc_path = temp_data_dir["tmpdir"] / "fc_order_test.pt"
+        rea_path = temp_data_dir["tmpdir"] / "rea_order_test.pt"
+        torch.save(unified_tensor, fc_path)
+        torch.save(rea_data, rea_path)
+
+        samples = [(fc_path, rea_path, np.datetime64("2023-01-01"), np.timedelta64(6, "h"))]
+
+        # Key setup: predicted vars (var_a, var_b) are NOT the first two in all_var_mean_names
+        # and appear in REVERSED order relative to y_select_variables.
+        # all_var_mean_names order: var_c(0), var_b(1), var_d(2), var_a(3), var_e(4)
+        # y_select_variables order: var_a, var_b
+        # Correct indices should be [3, 1] (var_a at pos 3, var_b at pos 1)
+        # Bug would produce [1, 3] (var_b first because it appears first in all_var_mean_names)
+        feature_metadata = {
+            "max_timedelta": 120.0,
+            "all_var_mean_indices": list(range(5)),
+            "all_var_std_indices": list(range(5, 10)),
+            "meta_var_indices": list(range(10, 12)),
+            "meta_var_names": ["sin_prediction_time", "cos_prediction_time"],
+            "predicted_var_mean_indices": [3, 1],  # var_a at index 3, var_b at index 1
+            "predicted_var_std_indices": [3, 1],
+            "predicted_var_mean_names": ["var_a", "var_b"],
+            "predicted_var_std_names": ["var_a", "var_b"],
+            "all_var_mean_names": ["var_c", "var_b", "var_d", "var_a", "var_e"],
+            "all_var_std_names": ["var_c", "var_b", "var_d", "var_a", "var_e"],
+        }
+
+        norm_stats = {
+            "all_mean": torch.zeros(5, 1, 1),
+            "all_std": torch.ones(5, 1, 1),
+            "all_min": torch.zeros(5, 1, 1),
+            "all_max": torch.ones(5, 1, 1),
+            "aux_mean": torch.zeros(5, 1, 1),
+            "aux_std": torch.ones(5, 1, 1),
+            "aux_min": torch.zeros(5, 1, 1),
+            "aux_max": torch.ones(5, 1, 1),
+            "rea_mean": torch.zeros(2, 1, 1),
+            "rea_std": torch.ones(2, 1, 1),
+            "rea_min": torch.zeros(2, 1, 1),
+            "rea_max": torch.ones(2, 1, 1),
+        }
+
+        dataset = ForecastDataset(
+            samples=samples,
+            norm_stats=norm_stats,
+            feature_metadata=feature_metadata,
+            x_default_normalize_type="zscore",
+            y_default_normalize_type="zscore",
+        )
+
+        sample = dataset[0]
+
+        # predicted_vars_mean should be sliced as all_vars_mean[[3, 1]]
+        # Channel 0 of predicted_vars_mean = all_vars_mean[3] = 3.0 (var_a)
+        # Channel 1 of predicted_vars_mean = all_vars_mean[1] = 1.0 (var_b)
+        # After zscore normalization with mean=0, std=1: values stay the same
+        predicted_mean = sample["x"]["predicted_vars_mean"]
+        assert predicted_mean.shape == (2, 4, 4), (
+            f"Expected shape (2, 4, 4), got {predicted_mean.shape}"
+        )
+        assert torch.allclose(predicted_mean[0], torch.full((4, 4), 3.0)), (
+            f"Channel 0 (var_a) should be 3.0, got {predicted_mean[0, 0, 0].item()}"
+        )
+        assert torch.allclose(predicted_mean[1], torch.full((4, 4), 1.0)), (
+            f"Channel 1 (var_b) should be 1.0, got {predicted_mean[1, 0, 0].item()}"
+        )
 
     # ==================== COMBINED X AND Y TESTS ====================
 
@@ -361,7 +460,9 @@ class TestForecastDatasetPerVariableNormalization:
         sample = dataset[0]
 
         assert "y" in sample, "Expected y in sample"
-        assert sample["y"].shape == (2, 10, 10), f"Expected shape (2, 10, 10), got {sample['y'].shape}"
+        assert sample["y"].shape == (2, 10, 10), (
+            f"Expected shape (2, 10, 10), got {sample['y'].shape}"
+        )
         assert "x" in sample, "Expected x in sample"
         assert "timedelta" in sample, "Expected timedelta in sample"
 
@@ -432,7 +533,9 @@ class TestForecastDatasetPerVariableNormalization:
 
         # X should use minmax by default
         assert dataset._x_mean_zscore_indices == [], "Expected no x zscore vars"
-        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], "Expected all x vars to use minmax"
+        assert dataset._x_mean_minmax_indices == [0, 1, 2, 3, 4], (
+            "Expected all x vars to use minmax"
+        )
 
         # Y should use zscore by default
         assert dataset._y_zscore_indices == [0, 1], "Expected all y vars to use zscore"

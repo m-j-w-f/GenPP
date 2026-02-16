@@ -1,7 +1,9 @@
 import importlib
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from pickle import UnpicklingError
 
 import hydra
 
@@ -23,9 +25,9 @@ class ModelEntry:
         return self.id.split("/")[-1]
 
     @property
-    def run_path(self) -> str | None:
+    def run_path(self) -> str:
         """Return the run path if `id` contains a path-like prefix, else None."""
-        return self.id if "/" in self.id else None
+        return self.id if "/" in self.id else f"feik/genpp/{self.id}"
 
     @property
     def output_dir(self) -> Path:
@@ -69,9 +71,15 @@ class ModelEntry:
         module_path, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
         ModelClass = getattr(module, class_name)
-
-        encoder = ModelClass.load_from_checkpoint(self.model_checkpoint)
-        return encoder
+        try:
+            encoder = ModelClass.load_from_checkpoint(self.model_checkpoint)
+            return encoder
+        except UnpicklingError:
+            warnings.warn(
+                f"UnpicklingError encountered when loading model {self.model_id}: Trying without weights_only."
+            )
+            encoder = ModelClass.load_from_checkpoint(self.model_checkpoint, weights_only=False)
+            return encoder
 
 
 @dataclass(frozen=True)
@@ -100,25 +108,34 @@ class BestEncoders:
 
 
 best_models: BestModels = BestModels(
-    emos=[ModelEntry(id="k32mygar")],
-    drn=[ModelEntry(id="hn0gdrqm")],
+    emos=[ModelEntry(id="bnmfhfsh")],
+    drn=[ModelEntry(id="m5y9kwlh")],
     chen=[
-        # ModelEntry(id="2f1vpjz0", tag="standard"),
-        # ModelEntry(id="23phjuuc", tag="chen_spatial_3"),
-        # ModelEntry(id="ynl8hbdr", tag="chen_spatial_5"),
-        # ModelEntry(id="eu94vgqa", tag="chen_spatial_7"),
-        ModelEntry(id="e4oxnxiy", tag="es"),
-        ModelEntry(id="f327mrxm", tag="pes"),
-        ModelEntry(id="k3i9kcxd", tag="mes"),
-        ModelEntry(id="upfya4wp", tag="pmes"),
+        ModelEntry(id="057uzdg4", tag="ind_es"),
+        ModelEntry(id="4g2v39ob", tag="ind_pes"),
+        ModelEntry(id="1wmdbxm1", tag="ind_mses"),
+        ModelEntry(id="5b2jan4d", tag="ind_mspes"),
+        ModelEntry(id="unt6oe9w", tag="dir_es"),
+        ModelEntry(id="y2to8vmf", tag="dir_pes"),
+        ModelEntry(id="hrf26g7y", tag="dir_mses"),
+        ModelEntry(id="yfigjk3e", tag="dir_mspes"),
+    ],
+    engression=[
+        ModelEntry(id="3j5g7ils", tag="ind_es"),
+        ModelEntry(id="2ajwxmir", tag="ind_pes"),
+        ModelEntry(id="euak9uee", tag="ind_mses"),
+        ModelEntry(id="3eevjkfj", tag="ind_mspes"),
+        ModelEntry(id="iet9dund", tag="dir_es"),
+        ModelEntry(id="7urden2d", tag="dir_pes"),
+        ModelEntry(id="ku0pbqp1", tag="dir_mses"),
+        ModelEntry(id="1vnjy1mj", tag="dir_mspes"),
     ],
     fm=[
-        ModelEntry(id="pwb8kh5a", tag="unet_std"),
-        ModelEntry(id="qiso22uq", tag="unet_abs"),
-        ModelEntry(id="ftmjxjq9", tag="uvit_std"),
-        ModelEntry(id="s19rsj2i", tag="uvit_abs"),
+        ModelEntry(id="f5yyzzxf", tag="ind_unet"),
+        ModelEntry(id="fmz08y1j", tag="dir_unet"),
+        ModelEntry(id="2t98jag4", tag="ind_uvit"),
+        ModelEntry(id="oddm8ydj", tag="dir_uvit"),
     ],
-    engression=[ModelEntry(id="hbuy7eio", tag="standard")],
 )
 
 best_encoders: BestEncoders = BestEncoders(

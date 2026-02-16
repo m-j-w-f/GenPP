@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -6,7 +7,10 @@ from genpp import BASE_DIR
 ICON_EU_REA_PATH: Path = Path("/hpc/rwork2/evalpp/data/rea_grid_0037_R03B07")
 ICON_EU_ENS_PATH: Path = Path("/hpc/rwork2/evalpp/data/ICON_EU_EPS")
 
-DATA_DIR = BASE_DIR / "data" / "icon" / "data"
+# DATA_DIR can be overridden via GENPP_DATA_DIR environment variable.
+# This is useful when running on GPU nodes where data is copied to local NVME storage.
+_env_data_dir = os.environ.get("GENPP_DATA_DIR")
+DATA_DIR = Path(_env_data_dir) if _env_data_dir else BASE_DIR / "data" / "icon" / "data"
 
 LEVELS_TO_FLATTEN = [
     "plev",

@@ -13,17 +13,15 @@ import xarray as xr
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from genpp import BASE_DIR
 from genpp.data.icon import (
     AXIS_ORDER,
+    DATA_DIR,
     LEVELS_TO_FLATTEN,
     VARS_GRID_28,
     VARS_TO_DROP,
 )
 from genpp.data.utils import MetadataVars, flatten_levels
-
-# %%
-DATA_DIR = BASE_DIR / "data" / "icon" / "data"
+from genpp.models.layers import ReverseAffineTransform
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -142,6 +140,7 @@ class ForecastDataset(Dataset):
         y_transform: Callable | None = None,
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
+        select_meta_features: list[str] | None = None,
     ) -> None:
         """Initialize the ForecastDataset.
 
@@ -167,6 +166,10 @@ class ForecastDataset(Dataset):
             y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
                 to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
                 Variables not specified use y_default_normalize_type.
+            select_meta_features (list[str] | None): Optional list of metadata feature names to select.
+                Valid values are: 'sin_prediction_time', 'cos_prediction_time', 'latitude', 'longitude'.
+                If None, all available metadata features are used.
+                If empty list, no metadata features are used (e.g., for EMOS).
         """
         self.samples = samples
         self.norm_stats = norm_stats
@@ -177,11 +180,46 @@ class ForecastDataset(Dataset):
         self.y_transform = y_transform
         self.x_normalize_types = x_normalize_types
         self.y_normalize_types = y_normalize_types
+        self.select_meta_features = select_meta_features
+
+        # Precompute selected meta feature indices
+        self._precompute_meta_feature_indices()
 
         # Precompute per-variable normalization indices for performance
         # This avoids expensive index computation in __getitem__
         self._precompute_x_normalization_indices()
         self._precompute_y_normalization_indices()
+
+    def _precompute_meta_feature_indices(self) -> None:
+        """Precompute indices for selected metadata features.
+
+        This method computes which indices from the full meta_var_indices to use
+        based on select_meta_features. If select_meta_features is None, all metadata
+        features are used. If it's an empty list, no metadata features are used.
+        """
+        all_meta_var_names = self.feature_metadata.get("meta_var_names", [])
+        all_meta_var_indices = self.feature_metadata.get("meta_var_indices", [])
+
+        if self.select_meta_features is None:
+            # Use all metadata features
+            self._selected_meta_indices = all_meta_var_indices
+        elif len(self.select_meta_features) == 0:
+            # Use no metadata features
+            self._selected_meta_indices = []
+        else:
+            # Select specific metadata features
+            self._selected_meta_indices = []
+            for feature_name in self.select_meta_features:
+                if feature_name in all_meta_var_names:
+                    # Find the index in the original list
+                    local_idx = all_meta_var_names.index(feature_name)
+                    # Get the corresponding index in the tensor
+                    self._selected_meta_indices.append(all_meta_var_indices[local_idx])
+                else:
+                    raise ValueError(
+                        f"Metadata feature '{feature_name}' not found. "
+                        f"Available features: {all_meta_var_names}"
+                    )
 
     def _precompute_x_normalization_indices(self) -> None:
         """Precompute indices for per-variable x normalization.
@@ -291,12 +329,18 @@ class ForecastDataset(Dataset):
         predicted_var_std_indices = self.feature_metadata["predicted_var_std_indices"]  # noqa: F841
         all_var_mean_indices = self.feature_metadata["all_var_mean_indices"]
         all_var_std_indices = self.feature_metadata["all_var_std_indices"]
-        meta_var_indices = self.feature_metadata["meta_var_indices"]
 
         # Slice the unified tensor to get all_vars and meta
         all_vars_mean = fc_tensor[all_var_mean_indices]  # shape [c_all, x, y]
         all_vars_std = fc_tensor[all_var_std_indices]  # shape [c_all, x, y]
-        meta = fc_tensor[meta_var_indices]  # shape [c_meta, x, y]
+
+        # Use precomputed selected meta indices (may be subset or empty)
+        if len(self._selected_meta_indices) > 0:
+            meta = fc_tensor[self._selected_meta_indices]  # shape [c_selected_meta, x, y]
+        else:
+            # No metadata features selected - create empty tensor with correct spatial dims
+            spatial_shape = fc_tensor.shape[1:]  # (x, y)
+            meta = torch.empty(0, *spatial_shape, dtype=fc_tensor.dtype)
 
         # Normalize all x variables (means) using per-variable normalization
         # Use precomputed indices for performance
@@ -394,8 +438,10 @@ class ForecastDataModule(L.LightningDataModule):
         x_select_variables: list[str],
         y_select_variables: list[str],
         data_dir: Path | str = DATA_DIR,
-        cache_dir: Path | str | None = None,
         batch_size: int = 32,
+        train_batch_size: int | None = None,
+        val_batch_size: int | None = None,
+        test_batch_size: int | None = None,
         x_default_normalize_type: str = "zscore",
         y_default_normalize_type: str = "zscore",
         num_workers: int = 4,
@@ -410,16 +456,23 @@ class ForecastDataModule(L.LightningDataModule):
         test_split: dict[str, str] = {"start": "2023-09-02", "end": "2024-09-01"},
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
+        select_meta_features: list[str] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
         Args:
             x_select_variables (list[str]): List of variable names to select from FC data.
             y_select_variables (list[str]): List of variable names to select from REA data.
-            data_dir (str): Path to the data directory containing ensmean, ensstd, rea folders.
-            cache_dir (str): Dir where the data will be copied to and read from. This is used
-                             due to the DATA_DIR being very slow to read from.
-            batch_size (int): Batch size for DataLoaders.
+            data_dir (str): Path to the data directory containing tensors/fc, tensors/rea folders.
+                Can be overridden via GENPP_DATA_DIR environment variable.
+            batch_size (int): Default batch size for DataLoaders. Used when specific batch sizes
+                (train_batch_size, val_batch_size, test_batch_size) are not provided.
+            train_batch_size (int | None): Batch size for training DataLoader.
+                If None, uses batch_size.
+            val_batch_size (int | None): Batch size for validation DataLoader.
+                If None, uses batch_size.
+            test_batch_size (int | None): Batch size for test DataLoader.
+                If None, uses batch_size.
             x_default_normalize_type (str): Default normalization type for x variables ('zscore' or 'minmax').
                 Used for x variables not specified in x_normalize_types. Defaults to 'zscore'.
             y_default_normalize_type (str): Default normalization type for y variables ('zscore' or 'minmax').
@@ -440,11 +493,18 @@ class ForecastDataModule(L.LightningDataModule):
             y_normalize_types (dict[str, str | None] | None): Optional dictionary mapping y variable names
                 to their normalization type. Supported values are 'zscore', 'minmax', or None (no normalization).
                 Variables not specified use y_default_normalize_type.
+            select_meta_features (list[str] | None): Optional list of metadata feature names to select.
+                Valid values are: 'sin_prediction_time', 'cos_prediction_time', 'latitude', 'longitude'.
+                If None, all available metadata features are used.
+                If empty list, no metadata features are used (e.g., for EMOS).
         """
         super().__init__()
         self.data_dir = Path(data_dir)
-        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
+        print(f"ForecastDataModule: Loading data from {self.data_dir}")
         self.batch_size = batch_size
+        self.train_batch_size = train_batch_size if train_batch_size is not None else batch_size
+        self.val_batch_size = val_batch_size if val_batch_size is not None else batch_size
+        self.test_batch_size = test_batch_size if test_batch_size is not None else batch_size
         self.x_default_normalize_type = x_default_normalize_type
         self.y_default_normalize_type = y_default_normalize_type
         self.num_workers = num_workers
@@ -463,9 +523,10 @@ class ForecastDataModule(L.LightningDataModule):
         self.feature_metadata = None
         self.x_normalize_types = x_normalize_types
         self.y_normalize_types = y_normalize_types
+        self.select_meta_features = select_meta_features
 
-        self.fc_tensor_dir = DATA_DIR / "tensors" / "fc"
-        self.rea_tensor_dir = DATA_DIR / "tensors" / "rea"
+        self.fc_tensor_dir = self.data_dir / "tensors" / "fc"
+        self.rea_tensor_dir = self.data_dir / "tensors" / "rea"
         # norm_stats_file will be set with train set identifier in prepare_data
         self.norm_stats_file: Path | None = None
 
@@ -582,13 +643,14 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Generate train set identifier and set norm_stats_file path
         train_set_id = self._get_train_set_identifier()
-        self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+        self.norm_stats_file = self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
 
         if not self.norm_stats_file.exists():
             print(f"Computing norm stats for train set (id: {train_set_id})...")
             self._compute_norm_stats()
         else:
             print(f"Norm stats file already exists for train set (id: {train_set_id})")
+            self.norm_stats = torch.load(self.norm_stats_file)
 
         if self.feature_metadata is None:
             print("Computing feature metadata...")
@@ -781,7 +843,9 @@ class ForecastDataModule(L.LightningDataModule):
             # Set norm_stats_file path with train set identifier if not already set
             if self.norm_stats_file is None:
                 train_set_id = self._get_train_set_identifier()
-                self.norm_stats_file = DATA_DIR / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                self.norm_stats_file = (
+                    self.data_dir / "tensors" / f"norm_stats_train_{train_set_id}.pt"
+                )
 
             if self.norm_stats_file.exists():
                 self.norm_stats = torch.load(self.norm_stats_file)
@@ -800,7 +864,6 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
-        print(all_samples[0])
         all_samples.sort(key=lambda x: x[2] + x[3])  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
@@ -846,6 +909,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
         self.val_dataset = ForecastDataset(
             val_samples,
@@ -857,6 +921,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
         self.test_dataset = ForecastDataset(
             test_samples,
@@ -868,6 +933,7 @@ class ForecastDataModule(L.LightningDataModule):
             self.y_transform,
             self.x_normalize_types,
             self.y_normalize_types,
+            self.select_meta_features,
         )
 
     @staticmethod
@@ -994,16 +1060,30 @@ class ForecastDataModule(L.LightningDataModule):
 
                 # Predicted vars are a SUBSET of all_vars
                 # Find which indices in all_var_mean/std correspond to y_select_variables
+                # IMPORTANT: iterate over y_select_variables to preserve target variable order,
+                # ensuring predicted_vars_mean channels align with rea (target) channels.
                 predicted_var_mean_names = y_select_variables
                 predicted_var_mean_indices = [
-                    i for i, name in enumerate(all_var_mean_names) if name in y_select_variables
+                    all_var_mean_names.index(name)
+                    for name in y_select_variables
+                    if name in all_var_mean_names
                 ]
+                assert len(predicted_var_mean_indices) == len(y_select_variables), (
+                    f"Not all y_select_variables found in x_select_variables. "
+                    f"Missing: {set(y_select_variables) - set(all_var_mean_names)}"
+                )
 
                 predicted_var_std_names = y_select_variables
                 # Use indices relative to all_vars_std (consistent with predicted_var_mean_indices)
                 predicted_var_std_indices = [
-                    i for i, name in enumerate(all_var_std_names) if name in y_select_variables
+                    all_var_std_names.index(name)
+                    for name in y_select_variables
+                    if name in all_var_std_names
                 ]
+                assert len(predicted_var_std_indices) == len(y_select_variables), (
+                    f"Not all y_select_variables found in x_select_variables (std). "
+                    f"Missing: {set(y_select_variables) - set(all_var_std_names)}"
+                )
 
                 feature_metadata = {
                     # Predicted variables (indices into all_vars arrays, not separate storage)
@@ -1195,7 +1275,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for training data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.train_batch_size,
             "shuffle": True,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
@@ -1214,7 +1294,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for validation data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.val_batch_size,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
@@ -1232,7 +1312,7 @@ class ForecastDataModule(L.LightningDataModule):
             DataLoader: DataLoader for test data.
         """
         dataloader_kwargs = {
-            "batch_size": self.batch_size,
+            "batch_size": self.test_batch_size,
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
@@ -1242,3 +1322,66 @@ class ForecastDataModule(L.LightningDataModule):
         if self.multiprocessing_context is not None and self.num_workers > 0:
             dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context  # type: ignore
         return DataLoader(self.test_dataset, **dataloader_kwargs)  # type: ignore
+
+    @property
+    def y_reverseModules(self) -> list[ReverseAffineTransform]:
+        """Get reverse transformation modules for y (target) variables.
+
+        These modules reverse the normalization applied to target variables during training,
+        allowing models to output predictions in the original data space.
+
+        The reverse module is created based on the normalization statistics computed
+        during prepare_data() and the normalization type (zscore or minmax) specified
+        for each y variable.
+
+        Returns:
+            list[ReverseAffineTransform]: List containing one reverse transformation module
+                per y variable. Each module's mean and scale tensors are scalar values.
+                For zscore normalization: reverses (y - mean) / std -> y * std + mean
+                For minmax normalization: reverses (y - min) / (max - min) -> y * (max - min) + min
+
+        Raises:
+            RuntimeError: If norm_stats have not been computed (prepare_data not called).
+        """
+        if self.norm_stats is None:
+            raise RuntimeError("Normalization statistics not available. Call prepare_data() first.")
+
+        # Build one ReverseAffineTransform per y variable
+        reverse_modules = []
+
+        for i, var_name in enumerate(self.y_select_variables):
+            # Get the normalization type for this variable
+            if self.y_normalize_types is not None and var_name in self.y_normalize_types:
+                norm_type = self.y_normalize_types[var_name]
+            else:
+                norm_type = self.y_default_normalize_type
+
+            if norm_type == "zscore":
+                # For zscore: x_normalized = (x - mean) / std
+                # Reverse: x = x_normalized * std + mean
+                mean = self.norm_stats["rea_mean"][i].squeeze()
+                scale = self.norm_stats["rea_std"][i].squeeze()
+            elif norm_type == "minmax":
+                # For minmax: x_normalized = (x - min) / (max - min)
+                # Reverse: x = x_normalized * (max - min) + min
+                mean = self.norm_stats["rea_min"][i].squeeze()
+                scale = (
+                    self.norm_stats["rea_max"][i].squeeze()
+                    - self.norm_stats["rea_min"][i].squeeze()
+                )
+            elif norm_type is None:
+                # No normalization applied, use identity transform (scale=1, mean=0)
+                mean = torch.tensor(0.0)
+                scale = torch.tensor(1.0)
+            else:
+                raise ValueError(
+                    f"Unknown normalization type '{norm_type}' for y variable '{var_name}'. "
+                    "Supported types are 'zscore', 'minmax', or None."
+                )
+
+            reverse_modules.append(ReverseAffineTransform(mean=mean, scale=scale))
+
+        return reverse_modules
+
+    def cleanup(self) -> None:
+        pass
