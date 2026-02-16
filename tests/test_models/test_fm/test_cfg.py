@@ -279,8 +279,8 @@ class TestFlowMatchingDirectModelCFG:
         assert model.conditioning_dropout_prob == 0.1
 
 
-class TestPredictStepGuidanceScaleOverride:
-    """Tests for predict_step guidance_scale parameter override."""
+class TestPredictStepSignature:
+    """Tests for predict_step signature compatibility with PyTorch Lightning."""
 
     @pytest.fixture
     def mock_optimizer(self):
@@ -295,8 +295,8 @@ class TestPredictStepGuidanceScaleOverride:
         return OmegaConf.create({"class_path": "torch.optim.lr_scheduler.StepLR", "step_size": 10})
 
     @pytest.mark.unit
-    def test_noise_model_predict_step_accepts_guidance_scale(self, mock_optimizer, mock_lr_scheduler):
-        """Test that FlowMatchingNoiseModelCFG.predict_step accepts guidance_scale parameter."""
+    def test_noise_model_predict_step_accepts_batch_idx(self, mock_optimizer, mock_lr_scheduler):
+        """Test that FlowMatchingNoiseModelCFG.predict_step accepts batch_idx parameter."""
         backbone = MockBackbone()
 
         model = FlowMatchingNoiseModelCFG(
@@ -308,18 +308,19 @@ class TestPredictStepGuidanceScaleOverride:
             lr_scheduler=mock_lr_scheduler,
             internal_td_scaling="abs",
             use_rescaler=False,
-            guidance_scale=1.0,  # Default no guidance
+            guidance_scale=1.0,
         )
 
-        # Check that predict_step signature includes guidance_scale parameter
         import inspect
         sig = inspect.signature(model.predict_step)
-        assert "guidance_scale" in sig.parameters
-        assert sig.parameters["guidance_scale"].default is None
+        assert "batch_idx" in sig.parameters
+        assert sig.parameters["batch_idx"].default is None
+        # guidance_scale should NOT be a parameter (it's read from self.guidance_scale)
+        assert "guidance_scale" not in sig.parameters
 
     @pytest.mark.unit
-    def test_direct_model_predict_step_accepts_guidance_scale(self, mock_optimizer, mock_lr_scheduler):
-        """Test that FlowMatchingDirectModelCFG.predict_step accepts guidance_scale parameter."""
+    def test_direct_model_predict_step_accepts_batch_idx(self, mock_optimizer, mock_lr_scheduler):
+        """Test that FlowMatchingDirectModelCFG.predict_step accepts batch_idx parameter."""
         backbone = MockBackbone()
 
         model = FlowMatchingDirectModelCFG(
@@ -330,11 +331,57 @@ class TestPredictStepGuidanceScaleOverride:
             optimizer=mock_optimizer,
             lr_scheduler=mock_lr_scheduler,
             use_rescaler=False,
-            guidance_scale=1.0,  # Default no guidance
+            guidance_scale=1.0,
         )
 
-        # Check that predict_step signature includes guidance_scale parameter
         import inspect
         sig = inspect.signature(model.predict_step)
-        assert "guidance_scale" in sig.parameters
-        assert sig.parameters["guidance_scale"].default is None
+        assert "batch_idx" in sig.parameters
+        assert sig.parameters["batch_idx"].default is None
+        # guidance_scale should NOT be a parameter (it's read from self.guidance_scale)
+        assert "guidance_scale" not in sig.parameters
+
+    @pytest.mark.unit
+    def test_noise_model_guidance_scale_from_attribute(self, mock_optimizer, mock_lr_scheduler):
+        """Test that predict_step uses self.guidance_scale, not a parameter."""
+        backbone = MockBackbone()
+
+        model = FlowMatchingNoiseModelCFG(
+            backbone=backbone,
+            n_samples=2,
+            solver_iter=2,
+            padding=[],
+            optimizer=mock_optimizer,
+            lr_scheduler=mock_lr_scheduler,
+            internal_td_scaling="abs",
+            use_rescaler=False,
+            guidance_scale=2.5,
+        )
+
+        # The guidance_scale should be set on the model attribute
+        assert model.guidance_scale == 2.5
+        # And can be changed at runtime (as done in cfg_predict_eval.py)
+        model.guidance_scale = 3.0
+        assert model.guidance_scale == 3.0
+
+    @pytest.mark.unit
+    def test_direct_model_guidance_scale_from_attribute(self, mock_optimizer, mock_lr_scheduler):
+        """Test that predict_step uses self.guidance_scale, not a parameter."""
+        backbone = MockBackbone()
+
+        model = FlowMatchingDirectModelCFG(
+            backbone=backbone,
+            n_samples=2,
+            solver_iter=2,
+            padding=[],
+            optimizer=mock_optimizer,
+            lr_scheduler=mock_lr_scheduler,
+            use_rescaler=False,
+            guidance_scale=2.5,
+        )
+
+        # The guidance_scale should be set on the model attribute
+        assert model.guidance_scale == 2.5
+        # And can be changed at runtime (as done in cfg_predict_eval.py)
+        model.guidance_scale = 3.0
+        assert model.guidance_scale == 3.0
