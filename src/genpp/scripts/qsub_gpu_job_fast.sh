@@ -39,33 +39,44 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=02:00:00
+#PBS -l elapstim_req=04:00:00
 #PBS -j o
-#PBS -o logs/train_fast_%r.log
+#PBS -o logs/eval_fast_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
-# Use -u flag for unbuffered Python output to see progress in real-time
-# EMOS
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos data=icon_cut trainer=debug_gpu"
-
-# DRN
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32 trainer=debug_gpu"
+# Evaluation
 
 # LNGM
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=patchwise_energy_score"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
+# LNGM (MSPES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o --split test -v --save-predictions --batch-size 4"
+# LNGM (MSES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/5wv59jka --split test -v --save-predictions --batch-size 4"
+# LNGM (PES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/rc4yel5e --split test -v --save-predictions --batch-size 4"
+# LNGM (ES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4"
 
 # Engression
-COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
+# ENG (ES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4"
+# ENG (PES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4"
+# ENG (MSPES)
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4"
+# ENG (MSES) - TODO
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/TODO --split test -v --save-predictions --batch-size 4"
 
-# Flow Matching
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data=icon_full_pad_xy data.batch_size=128 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+# FM
+# UNET - IND
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/ibbb3wdk --split test -v --save-predictions --batch-size 4"
+# UNET - DIR
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/38tym6f0 --split test -v --save-predictions --batch-size 4"
+# UViT - IND
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/zo2uhaev --split test -v --save-predictions --batch-size 4"
+# UViT - DIR
+COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4"
 
 
 #============================================

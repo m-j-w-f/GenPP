@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=16,
+        default=4,
         help="Batch size for prediction",
     )
     parser.add_argument(
@@ -538,9 +538,7 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
             td_scaling.n_vars = 2  # type: ignore
 
     # Create trainer
-    trainer = L.Trainer(
-        logger=False, accelerator="gpu", devices="auto", enable_progress_bar=True
-    )
+    trainer = L.Trainer(logger=False, accelerator="gpu", devices="auto", enable_progress_bar=True)
 
     # Evaluate each requested split
     full_scores = {}
