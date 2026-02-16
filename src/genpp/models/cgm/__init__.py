@@ -13,8 +13,10 @@ from .engression import (
 from .fm import (
     BaseFlowMatchingModel,
     FlowMatchingDirectModel,
+    FlowMatchingDirectModelCFG,
     FlowMatchingModel,
     FlowMatchingNoiseModel,
+    FlowMatchingNoiseModelCFG,
 )
 
 __all__ = [
@@ -30,4 +32,6 @@ __all__ = [
     "FlowMatchingModel",  # Backwards compatibility alias (same as FlowMatchingNoiseModel)
     "FlowMatchingNoiseModel",
     "FlowMatchingDirectModel",
+    "FlowMatchingNoiseModelCFG",
+    "FlowMatchingDirectModelCFG",
 ]
