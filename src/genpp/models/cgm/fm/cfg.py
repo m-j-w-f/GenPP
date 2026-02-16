@@ -116,6 +116,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         guidance_scale: The guidance scale w (default 1.0, no guidance).
         conditioning_dropout_prob: Probability of dropping conditioning during training.
         rescaler: Optional rescaling modules.
+        variable_names: Names of the output variables.
     """
 
     def __init__(
@@ -131,6 +132,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         guidance_scale: float = 1.0,
         conditioning_dropout_prob: float = 0.0,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        variable_names: Sequence[str] | None = None,
     ):
         """Initialize the FlowMatchingNoiseModelCFG."""
         BaseFlowMatchingModel.__init__(
@@ -143,6 +145,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
+            variable_names=variable_names,
         )
         InternalTDScalingMixin.__init__(self, internal_td_scaling=internal_td_scaling)
 
@@ -225,7 +228,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
         for k, v in nwp_fc.items():
-            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict)
 
         # Create CFG wrapper if guidance_scale != 1
         if not _is_guidance_scale_one(effective_guidance_scale):
@@ -239,7 +242,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
             solver = self.solver
 
         # Sample batch_size * n_samples random images
-        x_init = torch.randn(x_1.size(0) * self.n_samples, *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(x_1.size(0) * self.n_samples_predict, *x_1.shape[1:]).to(x_1)
         sol = solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
@@ -248,7 +251,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         )
 
         # Reshape output
-        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
+        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples_predict)
 
         # Calculate the scale factor based on the lead time
         scale = self.internal_td_scaling.get_scale(td=td)
@@ -281,6 +284,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         guidance_scale: The guidance scale w (default 1.0, no guidance).
         conditioning_dropout_prob: Probability of dropping conditioning during training.
         rescaler: Optional rescaling modules.
+        variable_names: Names of the output variables.
     """
 
     def __init__(
@@ -295,6 +299,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         guidance_scale: float = 1.0,
         conditioning_dropout_prob: float = 0.0,
         rescaler: Sequence[nn.Module | None] | nn.Module | None = None,
+        variable_names: Sequence[str] | None = None,
     ):
         """Initialize the FlowMatchingDirectModelCFG."""
         super().__init__(
@@ -306,6 +311,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
             lr_scheduler=lr_scheduler,
             use_rescaler=use_rescaler,
             rescaler=rescaler,
+            variable_names=variable_names,
         )
 
         self.guidance_scale = guidance_scale
@@ -384,10 +390,10 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
         for k, v in nwp_fc.items():
-            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+            nwp_fc_expanded[k] = repeat(v, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict)
 
         # Expand timedelta for all samples
-        td_expanded = repeat(td, "b ... -> (n_samples b) ...", n_samples=self.n_samples)
+        td_expanded = repeat(td, "b ... -> (n_samples b) ...", n_samples=self.n_samples_predict)
         nwp_fc_expanded["timedelta"] = td_expanded
 
         # Create CFG wrapper if guidance_scale != 1
@@ -402,7 +408,7 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
             solver = self.solver
 
         # Sample batch_size * n_samples random images
-        x_init = torch.randn(x_1.size(0) * self.n_samples, *x_1.shape[1:]).to(x_1)
+        x_init = torch.randn(x_1.size(0) * self.n_samples_predict, *x_1.shape[1:]).to(x_1)
         sol = solver.sample(
             x_init=x_init,
             conditioning=nwp_fc_expanded,
@@ -411,6 +417,6 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         )
 
         # Reshape output
-        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples)
+        sol = rearrange(sol, "(n_samples b) ... -> b n_samples ...", n_samples=self.n_samples_predict)
         res_cropped = self.crop(sol)
         return res_cropped
