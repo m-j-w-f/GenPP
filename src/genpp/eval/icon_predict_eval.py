@@ -257,12 +257,37 @@ def evaluate_split(
     # Check for cached predictions
     predictions_path = model_dir / f"{split}_predictions.pt"
     gt_path = model_dir / f"{split}_ground_truth.pt"
-    use_cached = predictions_path.exists() and gt_path.exists() and not force_repredict
+    use_cached = predictions_path.exists() and not force_repredict
 
     if use_cached:
         log_msg(f"Loading cached predictions from {predictions_path}...", verbose)
         predictions_rescaled = torch.load(predictions_path, weights_only=True).cuda()
-        y_rescaled = torch.load(gt_path, weights_only=True).cuda()
+
+        # Load ground truth if it exists, otherwise collect it
+        if gt_path.exists():
+            log_msg(f"Loading cached ground truth from {gt_path}...", verbose)
+            y_rescaled = torch.load(gt_path, weights_only=True).cuda()
+        else:
+            # Collect ground truth from the dataloader
+            log_msg("Collecting ground truth from dataloader...", verbose)
+            dataloader_method = getattr(datamodule, split_config["dataloader_method"])
+            dataloader = dataloader_method()
+            y_list = []
+            for batch in tqdm(dataloader, desc="Collecting ground truth"):
+                y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
+            y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
+
+            # Rescale ground truth to original space
+            reverse_modules = datamodule.y_reverseModules
+            y_rescaled = _rescale_y(y_scaled, reverse_modules).cuda()
+            del y_scaled
+            torch.cuda.empty_cache()
+
+            # Save ground truth (only once, not per model)
+            log_msg(f"Saving ground truth to {gt_path}...", verbose)
+            torch.save(y_rescaled.cpu(), gt_path)
+            y_rescaled = y_rescaled.cuda()
+            log_msg(f"Ground truth saved to {gt_path}", verbose)
     else:
         # Get dataloader for the specified split
         dataloader_method = getattr(datamodule, split_config["dataloader_method"])
@@ -399,12 +424,16 @@ def evaluate_split(
         method=None,
     )
 
-    # Save predictions and ground truth if requested (and they were freshly computed)
+    # Save predictions if requested (and they were freshly computed)
     if save_predictions and not use_cached:
-        log_msg("Saving predictions and ground truth...", verbose)
+        log_msg("Saving predictions...", verbose)
         torch.save(predictions_rescaled.cpu(), predictions_path)
-        torch.save(y_rescaled.cpu(), gt_path)
         log_msg(f"Predictions saved to {predictions_path}", verbose)
+
+    # Save ground truth only if it doesn't exist yet (shared across all models)
+    if not use_cached and not gt_path.exists():
+        log_msg("Saving ground truth...", verbose)
+        torch.save(y_rescaled.cpu(), gt_path)
         log_msg(f"Ground truth saved to {gt_path}", verbose)
 
     return scores
