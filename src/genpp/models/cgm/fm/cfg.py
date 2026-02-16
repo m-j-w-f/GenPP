@@ -26,8 +26,6 @@ from omegaconf import DictConfig
 from genpp.models.cgm.fm.base import (
     BaseFlowMatchingModel,
     ConditionalVectorField,
-    FlowMatchingDirectModel,
-    FlowMatchingNoiseModel,
 )
 from genpp.models.cgm.utils.td_scaling import InternalTDScalingMixin
 
@@ -220,7 +218,9 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
         # Use provided guidance_scale or fall back to model default
-        effective_guidance_scale = guidance_scale if guidance_scale is not None else self.guidance_scale
+        effective_guidance_scale = (
+            guidance_scale if guidance_scale is not None else self.guidance_scale
+        )
 
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
@@ -253,7 +253,7 @@ class FlowMatchingNoiseModelCFG(InternalTDScalingMixin, BaseFlowMatchingModel):
         # Calculate the scale factor based on the lead time
         scale = self.internal_td_scaling.get_scale(td=td)
         # Rescale the deviations according to the lead time
-        sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")
+        sol = sol * rearrange(scale, "b n_vars 1 1 -> b 1 n_vars 1 1")  # type: ignore
         ens_mean = rearrange(nwp_fc["predicted_vars_mean"], "b c h w -> b 1 c h w")
         res = ens_mean + sol
         res_cropped = self.crop(res)
@@ -377,7 +377,9 @@ class FlowMatchingDirectModelCFG(BaseFlowMatchingModel):
         nwp_fc, x_1, td = batch["x"], batch["y"], batch["timedelta"]
 
         # Use provided guidance_scale or fall back to model default
-        effective_guidance_scale = guidance_scale if guidance_scale is not None else self.guidance_scale
+        effective_guidance_scale = (
+            guidance_scale if guidance_scale is not None else self.guidance_scale
+        )
 
         # Repeat shapes to generate n_samples different samples
         nwp_fc_expanded = {}
