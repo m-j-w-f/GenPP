@@ -287,6 +287,10 @@ def evaluate_split(
         predictions_rescaled = _rescale_y(predictions, reverse_modules).cuda()
         y_rescaled = _rescale_y(y_scaled, reverse_modules).cuda()
 
+        # Free memory from the original scaled tensors
+        del predictions, y_scaled
+        torch.cuda.empty_cache()
+
     # Extract leadtimes from dataset samples
     dataset = getattr(datamodule, split_config["dataset_attr"])
     timedeltas = np.array([sample[3] for sample in dataset.samples])
@@ -311,6 +315,10 @@ def evaluate_split(
             if not skip_variogram:
                 vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
+
+        # Clear GPU cache periodically to avoid OOM
+        if (i + 1) % 100 == 0:
+            torch.cuda.empty_cache()
 
     crps_per_margin = torch.cat(crps_list, dim=0)
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
