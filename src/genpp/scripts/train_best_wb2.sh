@@ -44,3 +44,7 @@ CUDA_VISIBLE_DEVICES=0 pixi run -e gpu  python src/genpp/train.py --config-name 
 # FMUViT
 CUDA_VISIBLE_DEVICES=0 pixi run -e gpu  python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data.batch_size=8 model.internal_td_scaling=abs model.optimizer.lr=0.001 model.backbone.depth=2 model.backbone.embed_dim=128 data=wb2_full_pad_xy model/lr_scheduler=reduceLROnPlateau "logger.tags=[fm_uvit, final, indirect]"
 CUDA_VISIBLE_DEVICES=0 pixi run -e gpu  python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data.batch_size=8 model.optimizer.lr=0.001 model.backbone.depth=2 model.backbone.embed_dim=128 data=wb2_full_pad_xy model/lr_scheduler=reduceLROnPlateau "logger.tags=[fm_uvit, final, direct]"
+
+# FMUViT_CFG
+CUDA_VISIBLE_DEVICES=0 pixi run -e gpu  python src/genpp/train.py --config-name base_fm_uvit_cfg model=fm_uvit_cfg_noise data.batch_size=8 model.internal_td_scaling=abs model.optimizer.lr=0.001 model.backbone.depth=2 model.backbone.embed_dim=128 data=wb2_full_pad_xy model/lr_scheduler=reduceLROnPlateau "logger.tags=[fm_uvit_cfg, final, indirect, extra]"
+CUDA_VISIBLE_DEVICES=0 pixi run -e gpu  python src/genpp/train.py --config-name base_fm_uvit_cfg model=fm_uvit_cfg_direct data.batch_size=8 model.optimizer.lr=0.001 model.backbone.depth=2 model.backbone.embed_dim=128 data=wb2_full_pad_xy model/lr_scheduler=reduceLROnPlateau "logger.tags=[fm_uvit_cfg, final, direct, extra]"
