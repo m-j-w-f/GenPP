@@ -501,7 +501,9 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
             td_scaling.n_vars = 2  # type: ignore
 
     # Create trainer
-    trainer = L.Trainer(logger=False, accelerator="gpu", devices="auto")
+    trainer = L.Trainer(
+        logger=False, accelerator="gpu", devices="auto", enable_progress_bar=True
+    )
 
     # Evaluate each requested split
     full_scores = {}
