@@ -11,7 +11,7 @@ method: grid
 
 parameters:
   +model.n_samples_train:
-    values: [2, 5, 10, 20, 50]
+    values: [2, 5, 10, 20]
 
 command:
   - pixi
@@ -22,9 +22,14 @@ command:
   - ${program}
   - --config-name
   - base_chen
-  - model=cnn_chen_direct
-  - model/lr_scheduler=reduceLROnPlateau
+  - model=cnn_chen_noise
+  - data.batch_size=8
+  - model.internal_td_scaling=abs
+  - model.optimizer.lr=0.001
+  - model.std_unet_channels=[32, 64, 128]
+  - model.decoder_unet_channels=[16, 32]
+  - model/loss_fn=patchwise_energy_score
   - data=wb2_full_pad_x
+  - model/lr_scheduler=reduceLROnPlateau
   - +model.n_samples_predict=50
-  - model/loss_fn=energy_score
   - ${args_no_hyphens}
