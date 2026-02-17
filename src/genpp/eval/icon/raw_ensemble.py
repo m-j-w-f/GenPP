@@ -109,6 +109,14 @@ def load_reanalysis_tensor(path: Path) -> torch.Tensor:
 
 def compute_scores(ensemble: torch.Tensor, truth: torch.Tensor) -> dict[str, float]:
     """Compute combined/per-variable energy score and CRPS."""
+    if ensemble.dim() != 4:
+        raise ValueError(f"Ensemble tensor must be 4D [members, 2, y, x], got {ensemble.shape}")
+    if truth.dim() != 3:
+        raise ValueError(f"Truth tensor must be 3D [2, y, x], got {truth.shape}")
+
+    ensemble = ensemble.float().contiguous()
+    truth = truth.float().contiguous()
+
     ensemble_b = ensemble.unsqueeze(0)  # [1, n, c, y, x]
     truth_b = truth.unsqueeze(0)  # [1, c, y, x]
 
@@ -192,7 +200,14 @@ def main() -> None:
             print(f"Failed to load data for {ens_path.name}: {exc}")
             continue
 
-        scores = compute_scores(ensemble, truth)
+        try:
+            scores = compute_scores(ensemble, truth)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"Failed to compute scores for {ens_path.name} "
+                f"(ensemble shape {ensemble.shape}, truth shape {truth.shape}): {exc}"
+            )
+            continue
         results.append(
             {
                 "init_time": init_str,
