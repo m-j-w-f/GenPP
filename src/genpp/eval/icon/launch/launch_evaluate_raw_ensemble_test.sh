@@ -2,8 +2,8 @@
 
 # Submit a single test job to score one day of raw ensembles before launching all months.
 
-LOG_DIR=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs
-SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/evaluate_raw_ensemble.sh
+LOG_DIR=/hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs
+SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/evaluate_raw_ensemble.sh
 
 mkdir -p "${LOG_DIR}"
 

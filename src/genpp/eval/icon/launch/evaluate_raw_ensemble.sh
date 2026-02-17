@@ -7,7 +7,7 @@
 #PBS -l memsz_job=16gb             # total memory for job
 #PBS -l vmemsz_job=16gb            # total virtual memory
 #PBS -l elapstim_req=02:00:00      # max runtime per month
-#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs/raw_ensemble_${YEAR}${MONTH}.log
+#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs/raw_ensemble_${YEAR}${MONTH}.log
 #PBS -j o                          # concatenate stderr and stdout
 
 # Required env vars: YEAR (YYYY), MONTH (MM)
@@ -80,7 +80,7 @@ if [ -n "$OUTPUT_DIR" ]; then
 fi
 
 # Ensure log directory exists
-mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs
+mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs
 
 cd "$REPO_ROOT" || exit 1
 eval "$(pixi shell-hook)"
