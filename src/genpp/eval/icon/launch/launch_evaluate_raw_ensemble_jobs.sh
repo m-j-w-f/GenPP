@@ -7,7 +7,7 @@ SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/evaluate_raw_en
 
 mkdir -p "${LOG_DIR}"
 
-for year in {2018..2024}; do
+for year in {2019..2024}; do
     for month in {01..12}; do
         # Skip future months for 2024 (adjust as needed)
         if [ $year -eq 2024 ] && [ $month -gt 09 ]; then
