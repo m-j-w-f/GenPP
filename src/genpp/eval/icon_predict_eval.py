@@ -324,7 +324,8 @@ def evaluate_split(
     log_msg("Computing evaluation scores...", verbose)
     crps_ens = EnsembleCRPS().cuda()
     es = EnergyScore(clamp=False).cuda()
-    vs = VariogramScore(p=0.5).cuda()
+    # Keep variogram score on CPU to avoid OOM from large pairwise distance matrices
+    vs = VariogramScore(p=0.5)
 
     n_times = predictions_rescaled.shape[0]
     crps_list, es_pv_list, es_full_list = [], [], []
@@ -338,8 +339,9 @@ def evaluate_split(
             es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
             es_full_list.append(es(pred_i, y_i, mode="complete").cpu())
             if not skip_variogram:
-                vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
-                vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
+                # Compute variogram score on CPU to avoid OOM from large pairwise distance matrices
+                vs_pv_list.append(vs(pred_i.cpu(), y_i.cpu(), mode="per_var"))
+                vs_full_list.append(vs(pred_i.cpu(), y_i.cpu(), mode="complete"))
 
         # Clear GPU cache periodically to avoid OOM
         if (i + 1) % 100 == 0:
