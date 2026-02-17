@@ -433,7 +433,13 @@ class TestVariogramScore:
 
 
 class TestVariogramScoreChunked:
-    """Test that the chunked VariogramScore produces the same results as the full implementation."""
+    """Test that the chunked VariogramScore produces the same results as the full implementation.
+
+    The chunked version accumulates partial sums in a different order than the full version,
+    which causes float32 rounding differences up to ~1e-6 relative. This is expected and
+    verified by the float64 test below which shows the implementations are mathematically
+    identical (differences < 1e-11).
+    """
 
     @pytest.mark.unit
     def test_chunked_matches_full_complete_mode(self):
@@ -450,7 +456,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.unit
     def test_chunked_matches_full_per_var_mode(self):
@@ -467,7 +473,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="per_var")
         result_chunked = vs_chunked(x, y, mode="per_var")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.parametrize("p", [0.5, 1.0, 2.0])
     @pytest.mark.unit
@@ -485,7 +491,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.parametrize("chunk_size", [2, 4, 8, 16])
     @pytest.mark.unit
@@ -503,7 +509,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.unit
     def test_chunked_identical_predictions(self):
@@ -517,7 +523,7 @@ class TestVariogramScoreChunked:
         vs_chunked = VariogramScore(p=0.5, chunk_size=4)
         result = vs_chunked(x, y, mode="complete")
 
-        assert torch.allclose(result, torch.zeros_like(result), atol=1e-7)
+        assert torch.allclose(result, torch.zeros_like(result), atol=1e-6)
 
     @pytest.mark.unit
     def test_chunked_batch_consistency(self):
@@ -539,8 +545,29 @@ class TestVariogramScoreChunked:
         y_batch = torch.cat([y1, y2], dim=0)
         vs_batch = vs_chunked(x_batch, y_batch, mode="complete")
 
-        torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-7, atol=1e-7)
-        torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-5, atol=1e-5)
+        torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-5, atol=1e-5)
+
+    @pytest.mark.unit
+    def test_chunked_exact_in_float64(self):
+        """Verify chunked and full are mathematically identical using float64.
+
+        Float32 differences (~1e-6 relative) are due to accumulation order, not
+        algorithmic error. In float64 the difference drops to ~1e-12.
+        """
+        batch_size, n_samples, out_features, lat, lon = 2, 5, 2, 8, 8
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon, dtype=torch.float64)
+        y = torch.randn(batch_size, out_features, lat, lon, dtype=torch.float64)
+
+        vs_full = VariogramScore(p=0.5, chunk_size=None)
+        vs_chunked = VariogramScore(p=0.5, chunk_size=4)
+
+        result_full = vs_full(x, y, mode="complete")
+        result_chunked = vs_chunked(x, y, mode="complete")
+
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-10, atol=1e-10)
 
 
 class TestCRPS_Normal:
