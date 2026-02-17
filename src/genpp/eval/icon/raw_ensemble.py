@@ -126,13 +126,14 @@ def compute_scores(ensemble: torch.Tensor, truth: torch.Tensor) -> dict[str, flo
     crps_mean = crps_map.mean()
 
     es_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
-    es_combined = es_model(ensemble_b, truth_b, mode="complete").squeeze(0)
-    es_per_var = es_model(ensemble_b, truth_b, mode="per_var").squeeze(0)
+    es_combined = es_model(ensemble_b, truth_b, mode="complete").mean()
+    es_per_var = es_model(ensemble_b, truth_b, mode="per_var").squeeze()
+    es_per_var_flat = es_per_var.view(-1)
 
     return {
-        "energy_score": float(es_combined.squeeze().item()),
-        "energy_score_T_2M": float(es_per_var[0].item()),
-        "energy_score_VMAX_10M": float(es_per_var[1].item()),
+        "energy_score": float(es_combined.item()),
+        "energy_score_T_2M": float(es_per_var_flat[0].item()),
+        "energy_score_VMAX_10M": float(es_per_var_flat[1].item()),
         "crps_mean": float(crps_mean.item()),
         "crps_T_2M": float(crps_per_var[0].item()),
         "crps_VMAX_10M": float(crps_per_var[1].item()),
