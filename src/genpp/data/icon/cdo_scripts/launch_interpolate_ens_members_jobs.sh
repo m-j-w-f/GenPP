@@ -10,7 +10,7 @@ mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs
 SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/interpolate_ens_members.sh
 
 # Loop through years and months
-for year in {2018..2024}; do
+for year in {2019..2024}; do
     for month in {01..12}; do
 
         # Skip future months for 2024 (adjust as needed)
@@ -28,7 +28,7 @@ for year in {2018..2024}; do
              ${SCRIPT_PATH}
 
         # Optional: add a small delay to avoid overwhelming the scheduler
-        sleep 0.2
+        sleep 0.01
     done
 done
 
