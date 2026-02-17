@@ -31,7 +31,7 @@ echo "=========================================="
 cd "$PBS_O_WORKDIR" || exit 1
 
 # Locate repository root (where pyproject.toml lives)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
 while [ "$REPO_ROOT" != "/" ]; do
     if [ -f "$REPO_ROOT/pyproject.toml" ]; then
