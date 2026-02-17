@@ -14,14 +14,18 @@
 # Only the 2 target variables (T_2M, VMAX_10M) are selected and remapped to the target grid.
 # Output files are named: ens_{date}_{leadtime}.nc
 
-# Year and Month should be env vars
+# Year and Month should be env vars. DAY is optional (if set, only that day is processed).
 if [ -z "$YEAR" ] || [ -z "$MONTH" ]; then
     echo "ERROR: Year and month required as environment variables"
-    echo "Usage: YEAR=YYYY MONTH=MM $0"
+    echo "Usage: YEAR=YYYY MONTH=MM [DAY=DD] $0"
     exit 1
 fi
 
-echo "Processing year: $YEAR, month: $MONTH"
+if [ -n "$DAY" ]; then
+    echo "Processing single day: $YEAR-$MONTH-$DAY"
+else
+    echo "Processing year: $YEAR, month: $MONTH"
+fi
 
 # Set number of OpenMP threads for CDO
 export OMP_NUM_THREADS=4
@@ -48,7 +52,13 @@ for leadtime in 24 48 72 96 120; do
     echo "Processing lead time ${leadtime}h..."
 
     # Find all unique dates for this specific year and month (only 00 initialization)
-    dates=$(find ${dataDir}/${YEAR}/${MONTH}/*/00 -type f 2>/dev/null \
+    # If DAY is set, only search that specific day
+    if [ -n "$DAY" ]; then
+        searchDir=${dataDir}/${YEAR}/${MONTH}/${DAY}/00
+    else
+        searchDir=${dataDir}/${YEAR}/${MONTH}/*/00
+    fi
+    dates=$(find ${searchDir} -type f 2>/dev/null \
         -regextype posix-extended \
         -regex ".*_s_${leadtime}_.*\.grib" \
         -printf "%P\n" | \
