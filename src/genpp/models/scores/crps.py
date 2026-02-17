@@ -151,3 +151,40 @@ class EnsembleCRPS(nn.Module):
             dim=[self.n_axis, self.n_axis - 1]
         )
         return dxy - 0.5 * dxx
+
+
+def crps_ensemble(
+    ensemble: torch.Tensor, observation: torch.Tensor, member_dim: int = 0
+) -> torch.Tensor:
+    """Compute sample-based CRPS for ensemble predictions using torch tensors.
+
+    Args:
+        ensemble: Tensor with ensemble members. Shape ``[n, c, h, w]`` or
+            ``[b, n, c, h, w]``. ``member_dim`` specifies which axis contains the
+            ensemble members.
+        observation: Tensor with observations. Shape ``[c, h, w]`` or
+            ``[b, c, h, w]`` matching ``ensemble`` (minus the member axis).
+        member_dim: Axis index of the member dimension in ``ensemble``.
+
+    Returns:
+        CRPS tensor with the same batch/variable/spatial dimensions as
+        ``observation`` (member dimension is reduced).
+    """
+    member_dim = member_dim if member_dim >= 0 else ensemble.dim() + member_dim
+
+    if ensemble.dim() == observation.dim() + 1:
+        # No batch dimension – move members to front and add a batch axis
+        ensemble = torch.movedim(ensemble, member_dim, 0).unsqueeze(0)
+        observation = observation.unsqueeze(0)
+        added_batch = True
+    elif ensemble.dim() == observation.dim() + 2:
+        # Batch is present – move members to axis 1
+        ensemble = torch.movedim(ensemble, member_dim, 1)
+        added_batch = False
+    else:
+        raise ValueError(
+            f"Expected ensemble dim to be observation dim + 1 or + 2, got {ensemble.dim()} and {observation.dim()}."
+        )
+
+    crps_map = EnsembleCRPS(n_axis=1)(ensemble, observation)
+    return crps_map.squeeze(0) if added_batch else crps_map

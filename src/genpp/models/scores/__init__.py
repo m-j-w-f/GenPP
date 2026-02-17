@@ -10,12 +10,13 @@ forecasts, including:
 - Sample-based CRPS (EnsembleCRPS)
 """
 
-from .crps import CRPS_Normal, CRPS_TruncatedNormal, EnsembleCRPS
+from .crps import CRPS_Normal, CRPS_TruncatedNormal, EnsembleCRPS, crps_ensemble
 from .energy import (
     EnergyScore,
     MultiScaleEnergyScore,
     MultiScalePatchwiseEnergyScore,
     PatchwiseEnergyScore,
+    energy_score,
 )
 from .rbf import MultiScalePatchwiseRBFScore, MultiScaleRBFScore, PatchwiseRBFScore, RBFScore
 from .variogram import VariogramScore
@@ -25,6 +26,7 @@ __all__ = [
     "PatchwiseEnergyScore",
     "MultiScaleEnergyScore",
     "MultiScalePatchwiseEnergyScore",
+    "energy_score",
     "RBFScore",
     "PatchwiseRBFScore",
     "MultiScaleRBFScore",
@@ -33,4 +35,5 @@ __all__ = [
     "CRPS_Normal",
     "CRPS_TruncatedNormal",
     "EnsembleCRPS",
+    "crps_ensemble",
 ]
