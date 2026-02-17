@@ -450,7 +450,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
 
     @pytest.mark.unit
     def test_chunked_matches_full_per_var_mode(self):
@@ -467,7 +467,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="per_var")
         result_chunked = vs_chunked(x, y, mode="per_var")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
 
     @pytest.mark.parametrize("p", [0.5, 1.0, 2.0])
     @pytest.mark.unit
@@ -485,7 +485,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
 
     @pytest.mark.parametrize("chunk_size", [2, 4, 8, 16])
     @pytest.mark.unit
@@ -503,7 +503,7 @@ class TestVariogramScoreChunked:
         result_full = vs_full(x, y, mode="complete")
         result_chunked = vs_chunked(x, y, mode="complete")
 
-        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-7, atol=1e-7)
 
     @pytest.mark.unit
     def test_chunked_identical_predictions(self):
@@ -517,7 +517,7 @@ class TestVariogramScoreChunked:
         vs_chunked = VariogramScore(p=0.5, chunk_size=4)
         result = vs_chunked(x, y, mode="complete")
 
-        assert torch.allclose(result, torch.zeros_like(result), atol=1e-6)
+        assert torch.allclose(result, torch.zeros_like(result), atol=1e-7)
 
     @pytest.mark.unit
     def test_chunked_batch_consistency(self):
@@ -539,8 +539,8 @@ class TestVariogramScoreChunked:
         y_batch = torch.cat([y1, y2], dim=0)
         vs_batch = vs_chunked(x_batch, y_batch, mode="complete")
 
-        torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-5, atol=1e-5)
-        torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-5, atol=1e-5)
+        torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-7, atol=1e-7)
+        torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-7, atol=1e-7)
 
 
 class TestCRPS_Normal:
