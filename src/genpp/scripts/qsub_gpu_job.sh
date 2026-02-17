@@ -183,7 +183,7 @@ echo "=============================================="
 
 # Run the provided command and capture exit status for informative error messages
 set +e  # Disable exit on error temporarily to capture the exit code
-pixi run -e gpu python src/genpp/train --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=multiscale_energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=2
+pixi run -e gpu python src/genpp/train.py --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=multiscale_energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=2
 CMD_EXIT_CODE=$?
 set -e  # Re-enable exit on error
 
