@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 
 import pandas as pd
 import torch
@@ -120,13 +120,13 @@ def compute_scores(ensemble: torch.Tensor, truth: torch.Tensor) -> dict[str, flo
     ensemble_b = ensemble.unsqueeze(0)  # [1, n, c, y, x]
     truth_b = truth.unsqueeze(0)  # [1, c, y, x]
 
-    crps_model = EnsembleCRPS(n_axis=1)
+    crps_model = EnsembleCRPS(n_axis=-4)
     crps_map = crps_model(ensemble_b, truth_b).squeeze(0)
     crps_per_var = crps_map.mean(dim=(-1, -2))
     crps_mean = crps_map.mean()
 
     es_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
-    es_combined = es_model(ensemble_b, truth_b, mode="complete").mean()
+    es_combined = es_model(ensemble_b, truth_b, mode="complete")
     es_per_var = es_model(ensemble_b, truth_b, mode="per_var").squeeze()
     es_per_var_flat = es_per_var.view(-1)
 
