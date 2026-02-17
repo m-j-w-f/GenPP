@@ -343,10 +343,6 @@ def evaluate_split(
                 vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
 
-        # Clear GPU cache periodically to avoid OOM
-        if (i + 1) % 100 == 0:
-            torch.cuda.empty_cache()
-
     crps_per_margin = torch.cat(crps_list, dim=0)
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
     energy_score_full_u = torch.cat(es_full_list, dim=0)
@@ -518,7 +514,9 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
 
         model_kwargs[param_name] = value
 
-    model_kwargs["n_samples"] = 50
+    model_kwargs["n_samples"] = (
+        40  # ICON has 40 ensemble members, so we want to predict 40 samples for scoring
+    )
 
     try:
         model = ModelClass.load_from_checkpoint(model_checkpoint, **model_kwargs)  # type: ignore
