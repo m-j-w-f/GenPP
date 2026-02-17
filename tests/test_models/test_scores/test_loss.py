@@ -432,6 +432,117 @@ class TestVariogramScore:
         torch.testing.assert_close(vs_custom, vs_reference, rtol=1e-10, atol=1e-10)
 
 
+class TestVariogramScoreChunked:
+    """Test that the chunked VariogramScore produces the same results as the full implementation."""
+
+    @pytest.mark.unit
+    def test_chunked_matches_full_complete_mode(self):
+        """Test chunked vs full computation in complete mode."""
+        batch_size, n_samples, out_features, lat, lon = 2, 5, 2, 8, 8
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        vs_full = VariogramScore(p=0.5, chunk_size=None)
+        vs_chunked = VariogramScore(p=0.5, chunk_size=4)
+
+        result_full = vs_full(x, y, mode="complete")
+        result_chunked = vs_chunked(x, y, mode="complete")
+
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+
+    @pytest.mark.unit
+    def test_chunked_matches_full_per_var_mode(self):
+        """Test chunked vs full computation in per_var mode."""
+        batch_size, n_samples, out_features, lat, lon = 2, 5, 2, 8, 8
+
+        torch.manual_seed(42)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        vs_full = VariogramScore(p=0.5, chunk_size=None)
+        vs_chunked = VariogramScore(p=0.5, chunk_size=4)
+
+        result_full = vs_full(x, y, mode="per_var")
+        result_chunked = vs_chunked(x, y, mode="per_var")
+
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+
+    @pytest.mark.parametrize("p", [0.5, 1.0, 2.0])
+    @pytest.mark.unit
+    def test_chunked_matches_full_different_p(self, p):
+        """Test chunked vs full with different p values."""
+        batch_size, n_samples, out_features, lat, lon = 2, 4, 1, 6, 6
+
+        torch.manual_seed(123)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        vs_full = VariogramScore(p=p, chunk_size=None)
+        vs_chunked = VariogramScore(p=p, chunk_size=4)
+
+        result_full = vs_full(x, y, mode="complete")
+        result_chunked = vs_chunked(x, y, mode="complete")
+
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+
+    @pytest.mark.parametrize("chunk_size", [2, 4, 8, 16])
+    @pytest.mark.unit
+    def test_chunked_matches_full_different_chunk_sizes(self, chunk_size):
+        """Test that different chunk sizes all produce the same result."""
+        batch_size, n_samples, out_features, lat, lon = 2, 3, 1, 10, 10
+
+        torch.manual_seed(456)
+        x = torch.randn(batch_size, n_samples, out_features, lat, lon)
+        y = torch.randn(batch_size, out_features, lat, lon)
+
+        vs_full = VariogramScore(p=0.5, chunk_size=None)
+        vs_chunked = VariogramScore(p=0.5, chunk_size=chunk_size)
+
+        result_full = vs_full(x, y, mode="complete")
+        result_chunked = vs_chunked(x, y, mode="complete")
+
+        torch.testing.assert_close(result_chunked, result_full, rtol=1e-4, atol=1e-4)
+
+    @pytest.mark.unit
+    def test_chunked_identical_predictions(self):
+        """Test chunked computation when predictions equal truth (score should be 0)."""
+        batch_size, n_samples, out_features, lat, lon = 1, 3, 1, 8, 8
+
+        torch.manual_seed(789)
+        y = torch.randn(batch_size, out_features, lat, lon)
+        x = y.unsqueeze(1).repeat(1, n_samples, 1, 1, 1)
+
+        vs_chunked = VariogramScore(p=0.5, chunk_size=4)
+        result = vs_chunked(x, y, mode="complete")
+
+        assert torch.allclose(result, torch.zeros_like(result), atol=1e-6)
+
+    @pytest.mark.unit
+    def test_chunked_batch_consistency(self):
+        """Test that batched chunked computation matches individual computations."""
+        n_samples, out_features, lat, lon = 4, 1, 8, 8
+
+        torch.manual_seed(101)
+        x1 = torch.randn(1, n_samples, out_features, lat, lon)
+        y1 = torch.randn(1, out_features, lat, lon)
+        x2 = torch.randn(1, n_samples, out_features, lat, lon)
+        y2 = torch.randn(1, out_features, lat, lon)
+
+        vs_chunked = VariogramScore(p=0.5, chunk_size=4)
+
+        vs1 = vs_chunked(x1, y1, mode="complete")
+        vs2 = vs_chunked(x2, y2, mode="complete")
+
+        x_batch = torch.cat([x1, x2], dim=0)
+        y_batch = torch.cat([y1, y2], dim=0)
+        vs_batch = vs_chunked(x_batch, y_batch, mode="complete")
+
+        torch.testing.assert_close(vs_batch[0:1], vs1, rtol=1e-5, atol=1e-5)
+        torch.testing.assert_close(vs_batch[1:2], vs2, rtol=1e-5, atol=1e-5)
+
+
 class TestCRPS_Normal:
     """Test cases comparing CRPS_Normal class with scoringrules.crps_normal"""
 
