@@ -8,9 +8,9 @@ SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/evaluate_raw_en
 mkdir -p "${LOG_DIR}"
 
 # Use a representative early day with all lead times
-YEAR=2018
-MONTH=02
-DAY=01
+YEAR=2019
+MONTH=01
+DAY=15
 
 echo "Submitting raw ensemble scoring test for ${YEAR}-${MONTH}-${DAY}..."
 
