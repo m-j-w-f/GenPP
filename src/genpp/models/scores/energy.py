@@ -1,7 +1,5 @@
 """Energy score implementations."""
 
-import torch
-
 from .base import KernelScore
 from .kernels.l2 import (
     L2_Beta_Kernel,
@@ -124,54 +122,3 @@ class MultiScalePatchwiseEnergyScore(KernelScore):
             normalize=normalize,
         )
         super().__init__(kernel=kernel, unbiased=unbiased)
-
-
-def energy_score(
-    ensemble: torch.Tensor,
-    observation: torch.Tensor,
-    beta: float = 1.0,
-    clamp: bool = True,
-    normalize: bool = False,
-    unbiased: bool = False,
-    per_variable: bool = False,
-    member_dim: int = 0,
-) -> torch.Tensor:
-    """Compute the (multivariate) energy score for ensemble predictions using torch tensors.
-
-    Args:
-        ensemble: Tensor with ensemble members. Shape ``[n, c, h, w]`` or
-            ``[b, n, c, h, w]``. ``member_dim`` identifies the member axis.
-        observation: Tensor with observations. Shape ``[c, h, w]`` or
-            ``[b, c, h, w]`` matching ``ensemble`` (minus the member axis).
-        beta: Exponent for the L2 distance.
-        clamp: Whether to clamp squared distances inside the kernel.
-        normalize: Whether to normalize per-variable sums in the kernel.
-        unbiased: Whether to use the unbiased estimator for the self-term.
-        per_variable: If True, return per-variable scores; otherwise return a single
-            combined score.
-        member_dim: Axis index of the member dimension in ``ensemble``.
-
-    Returns:
-        Energy score tensor with batch dimension preserved. If ``per_variable`` is
-        False, the shape is ``[b]``; otherwise ``[b, c]``. When no batch dimension is
-        provided, the leading batch axis is squeezed.
-    """
-    member_dim = member_dim if member_dim >= 0 else ensemble.dim() + member_dim
-
-    if ensemble.dim() == observation.dim() + 1:
-        ensemble = torch.movedim(ensemble, member_dim, 0).unsqueeze(0)  # [1, n, ...]
-        observation = observation.unsqueeze(0)  # [1, ...]
-        added_batch = True
-    elif ensemble.dim() == observation.dim() + 2:
-        ensemble = torch.movedim(ensemble, member_dim, 1)  # [b, n, ...]
-        added_batch = False
-    else:
-        raise ValueError(
-            f"Expected ensemble dim to be observation dim + 1 or + 2, got {ensemble.dim()} and {observation.dim()}."
-        )
-
-    scorer = EnergyScore(beta=beta, clamp=clamp, normalize=normalize, unbiased=unbiased)
-    mode = "per_var" if per_variable else "complete"
-    scores = scorer(ensemble, observation, mode=mode)
-
-    return scores.squeeze(0) if added_batch else scores

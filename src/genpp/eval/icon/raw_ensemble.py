@@ -22,7 +22,7 @@ import torch
 import xarray as xr
 
 from genpp.data.icon import DATA_DIR
-from genpp.models.scores import crps_ensemble, energy_score
+from genpp.models.scores import EnergyScore, EnsembleCRPS
 
 VARIABLES = ["T_2M", "VMAX_10M"]
 DEFAULT_LEADTIMES = [24, 48, 72, 96, 120]
@@ -109,31 +109,17 @@ def load_reanalysis_tensor(path: Path) -> torch.Tensor:
 
 def compute_scores(ensemble: torch.Tensor, truth: torch.Tensor) -> dict[str, float]:
     """Compute combined/per-variable energy score and CRPS."""
-    crps_map = crps_ensemble(ensemble, truth, member_dim=0)  # [2, y, x] or [b, 2, y, x]
+    ensemble_b = ensemble.unsqueeze(0)  # [1, n, c, y, x]
+    truth_b = truth.unsqueeze(0)  # [1, c, y, x]
+
+    crps_model = EnsembleCRPS(n_axis=1)
+    crps_map = crps_model(ensemble_b, truth_b).squeeze(0)
     crps_per_var = crps_map.mean(dim=(-1, -2))
     crps_mean = crps_map.mean()
 
-    es_combined = energy_score(
-        ensemble,
-        truth,
-        clamp=False,
-        normalize=False,
-        unbiased=False,
-        per_variable=False,
-        member_dim=0,
-    )
-    es_per_var = energy_score(
-        ensemble,
-        truth,
-        clamp=False,
-        normalize=False,
-        unbiased=False,
-        per_variable=True,
-        member_dim=0,
-    )
-
-    es_per_var = es_per_var.squeeze()
-    crps_per_var = crps_per_var.squeeze()
+    es_model = EnergyScore(beta=1.0, clamp=False, unbiased=False)
+    es_combined = es_model(ensemble_b, truth_b, mode="complete").squeeze(0)
+    es_per_var = es_model(ensemble_b, truth_b, mode="per_var").squeeze(0)
 
     return {
         "energy_score": float(es_combined.squeeze().item()),
