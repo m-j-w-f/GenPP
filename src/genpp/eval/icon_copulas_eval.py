@@ -13,6 +13,7 @@ Usage:
     python icon_copulas_eval.py --run-path feik/genpp/abc123
     python icon_copulas_eval.py --run-path feik/genpp/abc123 feik/genpp/def456 --split val test
     python icon_copulas_eval.py --run-path feik/genpp/abc123 --split test --skip-variogram
+    python icon_copulas_eval.py --run-path feik/genpp/abc123 --split test --save-predictions
     python icon_copulas_eval.py --run-path feik/genpp/abc123 --batch-size 32 -v
 """
 
@@ -89,6 +90,11 @@ def parse_args() -> argparse.Namespace:
         "--skip-variogram",
         action="store_true",
         help="Skip variogram score computation (faster)",
+    )
+    parser.add_argument(
+        "--save-predictions",
+        action="store_true",
+        help="Save ECC predictions to file",
     )
     parser.add_argument(
         "--force-repredict",
@@ -468,6 +474,7 @@ def evaluate_split(
     ens_dir: Path,
     n_quantile_samples: int,
     skip_variogram: bool,
+    save_predictions: bool,
     force_repredict: bool,
     verbose: bool,
 ) -> dict:
@@ -492,7 +499,7 @@ def evaluate_split(
     y_select_variables = list(cfg.data.y_select_variables)
 
     # Check for cached predictions
-    predictions_path = model_dir / f"{split}_ecc_predictions.pt"
+    predictions_path = model_dir / f"{split}_predictions_ecc.pt"
     use_cached = predictions_path.exists() and not force_repredict
 
     if use_cached:
@@ -520,9 +527,11 @@ def evaluate_split(
         reverse_modules = datamodule.y_reverseModules
         ecc_preds_rescaled = _rescale_y(ecc_preds, reverse_modules)
 
-        # Save cached predictions
-        log_msg(f"Saving ECC predictions to {predictions_path}...", verbose)
-        torch.save(ecc_preds_rescaled.cpu(), predictions_path)
+        # Save predictions if requested
+        if save_predictions:
+            log_msg(f"Saving ECC predictions to {predictions_path}...", verbose)
+            torch.save(ecc_preds_rescaled.cpu(), predictions_path)
+            log_msg(f"ECC predictions saved to {predictions_path}", verbose)
 
     # Collect and rescale ground truth
     gt_path = model_dir / f"{split}_ground_truth.pt"
@@ -675,6 +684,7 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
             ens_dir=ens_dir,
             n_quantile_samples=args.n_quantile_samples,
             skip_variogram=args.skip_variogram,
+            save_predictions=args.save_predictions,
             force_repredict=args.force_repredict,
             verbose=args.verbose,
         )
