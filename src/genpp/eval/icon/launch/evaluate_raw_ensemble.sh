@@ -4,9 +4,9 @@
 #PBS -S /bin/bash                  # set the executing shell
 #PBS -q rc_big
 #PBS -l cpunum_job=4               # CPUs for torch/xarray work
-#PBS -l memsz_job=16gb             # total memory for job
-#PBS -l vmemsz_job=16gb            # total virtual memory
-#PBS -l elapstim_req=02:00:00      # max runtime per month
+#PBS -l memsz_job=32gb             # total memory for job
+#PBS -l vmemsz_job=64gb            # total virtual memory
+#PBS -l elapstim_req=00:10:00      # max runtime per month
 #PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs/raw_ensemble_${YEAR}${MONTH}.log
 #PBS -j o                          # concatenate stderr and stdout
 

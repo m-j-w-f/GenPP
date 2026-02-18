@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Compute Energy Score and CRPS for raw ICON ensemble outputs.
 
 For each ensemble forecast file, this script loads the corresponding reanalysis
@@ -10,12 +9,10 @@ Results are saved to ``<output-dir>/raw_ensemble_scores_YYYYMM.csv``.
 The script is designed to run per month and iterate all lead times.
 """
 
-from __future__ import annotations
-
 import argparse
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from collections.abc import Iterable
 
 import pandas as pd
 import torch
