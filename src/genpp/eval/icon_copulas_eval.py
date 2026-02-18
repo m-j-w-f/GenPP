@@ -31,7 +31,6 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
-import xarray as xr
 from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from scipy.stats import norm, truncnorm
@@ -39,7 +38,8 @@ from tqdm import tqdm, trange
 
 from genpp import BASE_DIR
 from genpp.configs import register_resolvers
-from genpp.data.icon import DATA_DIR, VARS_REA
+from genpp.data.icon import DATA_DIR
+from genpp.eval.icon.raw_ensemble import load_ensemble_tensor
 from genpp.eval.icon_predict_eval import (
     _rescale_y,
     compute_icon_scores_per_leadtime,
@@ -218,30 +218,15 @@ def quantile_samples_icon(
 # ---------------------------------------------------------------------------
 
 
-def _stack_variables_icon(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
-    """Stack selected variables from an ICON ensemble dataset.
-
-    The raw ensemble NC files use plain variable names (e.g., ``T_2M``,
-    ``VMAX_10M``), while ``VARS_REA`` contains processed names with level
-    suffixes (e.g., ``T_2M+height_2.0``).  This function strips the suffix
-    (everything after ``+``) so that the correct variable can be looked up in
-    the dataset.
-    """
-    arrays = []
-    for var_name in variables:
-        # Raw NC files use base variable name without level suffix
-        nc_var_name = var_name.split("+")[0]
-        arr = ds[nc_var_name].squeeze(drop=True)
-        arrays.append(arr.assign_coords(variable=var_name).expand_dims("variable"))
-    return xr.concat(arrays, dim="variable")
-
-
 def load_ensemble_for_sample(
     init_date: np.datetime64,
     leadtime: np.timedelta64,
     ens_dir: Path,
 ) -> torch.Tensor | None:
     """Load raw ensemble forecast for a specific init_date and leadtime.
+
+    Uses the proven ``load_ensemble_tensor`` from ``raw_ensemble.py`` which
+    handles variable stacking (T_2M, VMAX_10M) and dimension transposing.
 
     Args:
         init_date: Forecast initialization date.
@@ -258,10 +243,7 @@ def load_ensemble_for_sample(
     if not ens_path.exists():
         return None
 
-    with xr.open_dataset(ens_path) as ds:
-        stacked = _stack_variables_icon(ds, VARS_REA)
-        stacked = stacked.transpose("time", "variable", "y", "x")
-        return torch.from_numpy(stacked.values).float()
+    return load_ensemble_tensor(ens_path)
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +288,21 @@ def do_ecc_icon(
             continue
 
         n_members = ensemble.shape[0]
+
+        # Validate spatial dimensions match on first loaded sample
+        if i == 0 or (n_missing > 0 and n_missing == i):
+            ens_h, ens_w = ensemble.shape[2], ensemble.shape[3]
+            if ens_h != h or ens_w != w:
+                raise ValueError(
+                    f"Spatial dimension mismatch: predictions ({h}, {w}) "
+                    f"vs ensemble ({ens_h}, {ens_w})"
+                )
+            if verbose:
+                print(
+                    f"  Ensemble shape: {ensemble.shape} "
+                    f"(members={n_members}, vars={ensemble.shape[1]}, "
+                    f"h={ens_h}, w={ens_w})"
+                )
 
         # Add small noise to break ties, then rank
         noise = rng.uniform(low=-1e-8, high=1e-8, size=ensemble.shape)
