@@ -68,8 +68,8 @@
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4"
 # ENG (MSPES)
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4"
-# ENG (MSES) - TODO
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/TODO --split test -v --save-predictions --batch-size 4"
+# ENG (MSES)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/2xbli9p2 --split test -v --save-predictions --batch-size 4"
 
 # ALL Engression
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 feik/genpp/7pm11esx feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
@@ -82,7 +82,7 @@
 # UViT - IND
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/zo2uhaev --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # UViT - DIR
-COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 
 #============================================
