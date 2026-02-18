@@ -32,7 +32,7 @@
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
 #PBS -N genpp_gpu_job_fast
-#PBS -q gp_norm_dgx
+#PBS -q gp_norm_smc
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
@@ -49,10 +49,10 @@
 # Evaluation
 
 # EMOS
-COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # DRN
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
+COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # LNGM
 # LNGM (MSPES)
