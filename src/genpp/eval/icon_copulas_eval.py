@@ -152,6 +152,7 @@ def quantile_samples_icon(
     stacked_preds: list[dict[str, torch.Tensor]],
     y_select_variables: list[str],
     M: int = 40,
+    chunk_size: int = 64,
 ) -> torch.Tensor:
     """Generate quantile samples from the predicted marginal distributions.
 
@@ -159,46 +160,56 @@ def quantile_samples_icon(
     for the first variable (T_2M) and a TruncatedNormal (lower=0) for the second
     (VMAX_10M).
 
+    Processes samples in chunks to avoid OOM on large datasets (ICON grids are
+    240x260 with ~1800 time steps, so the full [N, M, n_vars, h, w] array would
+    require ~37 GB for M=40).
+
     Args:
         stacked_preds: List of per-variable dicts with keys 'mu' and 'sigma',
             each of shape [N, h, w].
         y_select_variables: List of target variable names (e.g., ['T_2M...', 'VMAX_10M...']).
         M: Number of quantile samples to generate.
+        chunk_size: Number of samples to process at a time.
 
     Returns:
         Tensor of shape [N, M, n_vars, h, w] with quantile samples.
     """
     qs = np.linspace(1 / (M + 1), M / (M + 1), M)
+    N = stacked_preds[0]["mu"].shape[0]
+    n_vars = len(y_select_variables)
+    h, w = stacked_preds[0]["mu"].shape[1], stacked_preds[0]["mu"].shape[2]
 
-    all_samples = []
-    for var_idx, var_name in enumerate(y_select_variables):
-        mu = stacked_preds[var_idx]["mu"].cpu().numpy()  # [N, h, w]
-        sigma = stacked_preds[var_idx]["sigma"].cpu().numpy()  # [N, h, w]
+    result = torch.empty(N, M, n_vars, h, w, dtype=torch.float32)
 
-        if "VMAX" in var_name or "wind" in var_name.lower():
-            # Truncated normal (lower bound = 0) for wind speed variables
-            a = (0 - mu) / sigma
-            b = np.inf
-            samples = truncnorm.ppf(
-                qs[:, None, None, None],
-                a[None, ...],
-                b,
-                loc=mu[None, ...],
-                scale=sigma[None, ...],
-            )  # [M, N, h, w]
-        else:
-            # Normal distribution for temperature-like variables
-            samples = norm.ppf(
-                qs[:, None, None, None],
-                loc=mu[None, ...],
-                scale=sigma[None, ...],
-            )  # [M, N, h, w]
+    for start in trange(0, N, chunk_size, desc="Generating quantile samples"):
+        end = min(start + chunk_size, N)
 
-        all_samples.append(torch.from_numpy(samples).float())
+        for var_idx, var_name in enumerate(y_select_variables):
+            mu = stacked_preds[var_idx]["mu"][start:end].cpu().numpy()  # [chunk, h, w]
+            sigma = stacked_preds[var_idx]["sigma"][start:end].cpu().numpy()
 
-    # Stack variables: [n_vars, M, N, h, w] -> [N, M, n_vars, h, w]
-    result = torch.stack(all_samples, dim=0)
-    result = result.permute(2, 1, 0, 3, 4)
+            if "VMAX" in var_name or "wind" in var_name.lower():
+                a = (0 - mu) / sigma
+                b = np.inf
+                samples = truncnorm.ppf(
+                    qs[:, None, None, None],
+                    a[None, ...],
+                    b,
+                    loc=mu[None, ...],
+                    scale=sigma[None, ...],
+                )  # [M, chunk, h, w]
+            else:
+                samples = norm.ppf(
+                    qs[:, None, None, None],
+                    loc=mu[None, ...],
+                    scale=sigma[None, ...],
+                )  # [M, chunk, h, w]
+
+            # [M, chunk, h, w] -> [chunk, M, h, w]
+            result[start:end, :, var_idx, :, :] = torch.from_numpy(
+                samples.transpose(1, 0, 2, 3)
+            ).float()
+
     return result
 
 
@@ -271,7 +282,7 @@ def do_ecc_icon(
         Reordered samples [N, M, n_vars, h, w].
     """
     N, M, n_vars, h, w = quantile_preds.shape
-    result = quantile_preds.clone()
+    result = quantile_preds  # Modify in-place to avoid doubling memory
 
     rng = np.random.default_rng(seed=420)
     n_missing = 0
@@ -510,22 +521,26 @@ def evaluate_split(
         log_msg(f"Running predictions on {split} split...", verbose)
         raw_predictions = trainer.predict(model, dataloader, return_predictions=True)
         stacked_preds = stack_predictions(raw_predictions)  # type: ignore
+        del raw_predictions
 
-        # Step 2: Generate quantile samples
+        # Step 2: Generate quantile samples (chunked to avoid OOM)
         log_msg("Generating quantile samples from predicted distributions...", verbose)
         quantile_preds = quantile_samples_icon(
             stacked_preds, y_select_variables, M=n_quantile_samples
         )
+        del stacked_preds
         log_msg(f"Quantile samples shape: {quantile_preds.shape}", verbose)
 
         # Step 3: Apply ECC
         log_msg("Applying ECC postprocessing...", verbose)
         ecc_preds = do_ecc_icon(quantile_preds, dataset.samples, ens_dir, verbose=verbose)
+        del quantile_preds
 
         # Step 4: Rescale predictions to original space
         log_msg("Rescaling ECC predictions to original space...", verbose)
         reverse_modules = datamodule.y_reverseModules
         ecc_preds_rescaled = _rescale_y(ecc_preds, reverse_modules)
+        del ecc_preds
 
         # Save predictions if requested
         if save_predictions:
