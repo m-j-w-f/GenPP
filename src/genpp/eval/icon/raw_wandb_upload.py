@@ -97,6 +97,7 @@ def main(args):
         name="icon-raw-ensemble-baseline-scores",
         tags=["baseline", "icon", "final"],
         config={
+            "name": "Raw Ensemble",
             "method": "raw_ensemble",
             "description": "Baseline scores for raw ICON ensemble forecasts",
         },
