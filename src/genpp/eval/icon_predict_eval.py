@@ -519,11 +519,12 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     )
 
     try:
-        model = ModelClass.load_from_checkpoint(model_checkpoint, **model_kwargs)  # type: ignore
+        model = ModelClass.load_from_checkpoint(model_checkpoint, strict=False, **model_kwargs)  # type: ignore
     except (pickle.UnpicklingError, TypeError):
         model = ModelClass.load_from_checkpoint(
             model_checkpoint,
             weights_only=False,
+            strict=False,
             **model_kwargs,  # type: ignore
         )
 
