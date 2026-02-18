@@ -320,8 +320,8 @@ class ForecastDataset(Dataset):
         fc_path, rea_path, _, leadtime = self.samples[idx]
 
         # Load tensors (new unified format)
-        fc_tensor = torch.load(fc_path)  # unified tensor with all features [c_total, x, y]
-        rea = torch.load(rea_path)  # shape [c, x, y]
+        fc_tensor = torch.load(fc_path, weights_only=True)  # unified tensor with all features [c_total, x, y]
+        rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
 
         # Extract features using indices from metadata
         # Note: predicted_var indices point INTO the all_var arrays (subset relationship)
@@ -650,7 +650,7 @@ class ForecastDataModule(L.LightningDataModule):
             self._compute_norm_stats()
         else:
             print(f"Norm stats file already exists for train set (id: {train_set_id})")
-            self.norm_stats = torch.load(self.norm_stats_file)
+            self.norm_stats = torch.load(self.norm_stats_file, weights_only=True)
 
         if self.feature_metadata is None:
             print("Computing feature metadata...")
@@ -710,7 +710,7 @@ class ForecastDataModule(L.LightningDataModule):
 
         for tensor_path in tqdm(tensor_paths):
             # Load tensor (unified tensor format)
-            loaded = torch.load(tensor_path)
+            loaded = torch.load(tensor_path, weights_only=True)
 
             # Extract specific indices if provided
             if feature_indices is not None:
@@ -848,7 +848,7 @@ class ForecastDataModule(L.LightningDataModule):
                 )
 
             if self.norm_stats_file.exists():
-                self.norm_stats = torch.load(self.norm_stats_file)
+                self.norm_stats = torch.load(self.norm_stats_file, weights_only=True)
             else:
                 raise ValueError(
                     "norm_stats is None and norm_stats file does not exist. "

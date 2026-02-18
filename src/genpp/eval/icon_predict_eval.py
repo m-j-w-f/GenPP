@@ -33,6 +33,7 @@ import pandas as pd
 import torch
 from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
+from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
 from genpp import BASE_DIR
@@ -268,12 +269,19 @@ def evaluate_split(
             log_msg(f"Loading cached ground truth from {gt_path}...", verbose)
             y_rescaled = torch.load(gt_path, weights_only=True).cuda()
         else:
-            # Collect ground truth from the dataloader
+            # Collect ground truth from a dedicated eval dataloader (no shuffle)
             log_msg("Collecting ground truth from dataloader...", verbose)
-            dataloader_method = getattr(datamodule, split_config["dataloader_method"])
-            dataloader = dataloader_method()
+            dataset = getattr(datamodule, split_config["dataset_attr"])
+            gt_dataloader = DataLoader(
+                dataset,
+                batch_size=datamodule.val_batch_size or datamodule.batch_size,
+                shuffle=False,
+                num_workers=datamodule.num_workers,
+                pin_memory=datamodule.pin_memory,
+                persistent_workers=datamodule.persistent_workers if datamodule.num_workers > 0 else False,
+            )
             y_list = []
-            for batch in tqdm(dataloader, desc="Collecting ground truth"):
+            for batch in tqdm(gt_dataloader, desc="Collecting ground truth"):
                 y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
             y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
 
@@ -289,21 +297,34 @@ def evaluate_split(
             y_rescaled = y_rescaled.cuda()
             log_msg(f"Ground truth saved to {gt_path}", verbose)
     else:
-        # Get dataloader for the specified split
-        dataloader_method = getattr(datamodule, split_config["dataloader_method"])
-        dataloader = dataloader_method()
+        # Create a dedicated eval dataloader with shuffle=False to ensure
+        # predictions and ground truth are aligned. This is critical because:
+        # 1. The train_dataloader has shuffle=True, which would cause misalignment
+        #    between predictions and ground truth if iterated separately.
+        # 2. Even for val/test, using a single dataloader avoids potential
+        #    ordering issues from iterating the same dataloader twice.
+        dataset = getattr(datamodule, split_config["dataset_attr"])
+        eval_dataloader = DataLoader(
+            dataset,
+            batch_size=datamodule.val_batch_size or datamodule.batch_size,
+            shuffle=False,
+            num_workers=datamodule.num_workers,
+            pin_memory=datamodule.pin_memory,
+            persistent_workers=datamodule.persistent_workers if datamodule.num_workers > 0 else False,
+        )
 
-        # Run predictions
-        log_msg(f"Running predictions on {split} split...", verbose)
-        pred_list = trainer.predict(model, dataloader, return_predictions=True)
-        predictions = torch.cat(pred_list, dim=0)  # shape: [N, n_samples, c, x, y] # type: ignore
-
-        # Collect ground truth from the dataloader
+        # Collect ground truth from the eval dataloader FIRST, before predictions,
+        # to guarantee alignment: both iterations use sequential ordering.
         log_msg("Collecting ground truth from dataloader...", verbose)
         y_list = []
-        for batch in tqdm(dataloader, desc="Collecting ground truth"):
+        for batch in tqdm(eval_dataloader, desc="Collecting ground truth"):
             y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
         y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
+
+        # Run predictions using the same eval dataloader (sequential, no shuffle)
+        log_msg(f"Running predictions on {split} split...", verbose)
+        pred_list = trainer.predict(model, eval_dataloader, return_predictions=True)
+        predictions = torch.cat(pred_list, dim=0)  # shape: [N, n_samples, c, x, y] # type: ignore
 
         # Rescale both predictions and ground truth to original space
         log_msg("Rescaling predictions and ground truth...", verbose)

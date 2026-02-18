@@ -89,33 +89,33 @@ def _stack_variables(ds: xr.Dataset) -> xr.DataArray:
 
 
 def load_ensemble_tensor(path: Path) -> torch.Tensor:
-    """Load ensemble NetCDF into a torch tensor of shape [members, 2, y, x]."""
+    """Load ensemble NetCDF into a torch tensor of shape [members, 2, x, y]."""
     with xr.open_dataset(path) as ds:
         stacked = _stack_variables(ds)
-        stacked = stacked.transpose("time", "variable", "y", "x")
+        stacked = stacked.transpose("time", "variable", "x", "y")
         return torch.from_numpy(stacked.values).float()
 
 
 def load_reanalysis_tensor(path: Path) -> torch.Tensor:
-    """Load reanalysis NetCDF into a torch tensor of shape [2, y, x]."""
+    """Load reanalysis NetCDF into a torch tensor of shape [2, x, y]."""
     with xr.open_dataset(path) as ds:
         stacked = _stack_variables(ds)
-        stacked = stacked.transpose("variable", "y", "x")
+        stacked = stacked.transpose("variable", "x", "y")
         return torch.from_numpy(stacked.values).float()
 
 
 def compute_scores(ensemble: torch.Tensor, truth: torch.Tensor) -> dict[str, float]:
     """Compute combined/per-variable energy score and CRPS."""
     if ensemble.dim() != 4:
-        raise ValueError(f"Ensemble tensor must be 4D [members, 2, y, x], got {ensemble.shape}")
+        raise ValueError(f"Ensemble tensor must be 4D [members, 2, x, y], got {ensemble.shape}")
     if truth.dim() != 3:
-        raise ValueError(f"Truth tensor must be 3D [2, y, x], got {truth.shape}")
+        raise ValueError(f"Truth tensor must be 3D [2, x, y], got {truth.shape}")
 
     ensemble = ensemble.float().contiguous()
     truth = truth.float().contiguous()
 
-    ensemble_b = ensemble.unsqueeze(0)  # [1, n, c, y, x]
-    truth_b = truth.unsqueeze(0)  # [1, c, y, x]
+    ensemble_b = ensemble.unsqueeze(0)  # [1, n, c, x, y]
+    truth_b = truth.unsqueeze(0)  # [1, c, x, y]
 
     crps_model = EnsembleCRPS(n_axis=-4)
     crps_map = crps_model(ensemble_b, truth_b).squeeze(0)
