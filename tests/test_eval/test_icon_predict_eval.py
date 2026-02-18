@@ -96,3 +96,80 @@ class TestRescaleY:
         y_roundtrip = _rescale_y(y_normalized, reverse_modules)
 
         assert torch.allclose(y_roundtrip, y_original, atol=1e-5)
+
+
+class TestRescaleYSpatial:
+    """Test suite for _rescale_y with spatial (per-coordinate) reverse modules."""
+
+    @pytest.mark.unit
+    def test_rescale_spatial_ground_truth_4d(self):
+        """Test rescaling with spatial [x, y] mean/scale on ground truth."""
+        x_dim, y_dim = 8, 6
+        # Per-coordinate mean and scale
+        mean_ch0 = torch.randn(x_dim, y_dim) * 10 + 280  # T_2M
+        scale_ch0 = torch.rand(x_dim, y_dim) * 5 + 5  # std > 0
+        mean_ch1 = torch.randn(x_dim, y_dim) * 3 + 5  # VMAX
+        scale_ch1 = torch.rand(x_dim, y_dim) * 2 + 1
+
+        reverse_modules = [
+            ReverseAffineTransform(mean=mean_ch0, scale=scale_ch0),
+            ReverseAffineTransform(mean=mean_ch1, scale=scale_ch1),
+        ]
+
+        N = 4
+        y_normalized = torch.randn(N, 2, x_dim, y_dim)
+        y_rescaled = _rescale_y(y_normalized, reverse_modules)
+
+        assert y_rescaled.shape == (N, 2, x_dim, y_dim)
+        expected_ch0 = y_normalized[:, 0, :, :] * scale_ch0 + mean_ch0
+        expected_ch1 = y_normalized[:, 1, :, :] * scale_ch1 + mean_ch1
+        assert torch.allclose(y_rescaled[:, 0, :, :], expected_ch0)
+        assert torch.allclose(y_rescaled[:, 1, :, :], expected_ch1)
+
+    @pytest.mark.unit
+    def test_rescale_spatial_predictions_5d(self):
+        """Test rescaling with spatial [x, y] mean/scale on predictions."""
+        x_dim, y_dim = 8, 6
+        mean_ch0 = torch.randn(x_dim, y_dim) + 280
+        scale_ch0 = torch.rand(x_dim, y_dim) + 5
+        mean_ch1 = torch.randn(x_dim, y_dim) + 5
+        scale_ch1 = torch.rand(x_dim, y_dim) + 1
+
+        reverse_modules = [
+            ReverseAffineTransform(mean=mean_ch0, scale=scale_ch0),
+            ReverseAffineTransform(mean=mean_ch1, scale=scale_ch1),
+        ]
+
+        N, n_samples = 3, 40
+        pred_normalized = torch.randn(N, n_samples, 2, x_dim, y_dim)
+        pred_rescaled = _rescale_y(pred_normalized, reverse_modules)
+
+        assert pred_rescaled.shape == (N, n_samples, 2, x_dim, y_dim)
+        expected_ch0 = pred_normalized[:, :, 0, :, :] * scale_ch0 + mean_ch0
+        expected_ch1 = pred_normalized[:, :, 1, :, :] * scale_ch1 + mean_ch1
+        assert torch.allclose(pred_rescaled[:, :, 0, :, :], expected_ch0)
+        assert torch.allclose(pred_rescaled[:, :, 1, :, :], expected_ch1)
+
+    @pytest.mark.unit
+    def test_rescale_spatial_roundtrip(self):
+        """Test spatial normalization -> denormalization roundtrip."""
+        x_dim, y_dim = 5, 5
+        mean_ch0 = torch.randn(x_dim, y_dim) + 280
+        std_ch0 = torch.rand(x_dim, y_dim) + 5
+        mean_ch1 = torch.randn(x_dim, y_dim) + 5
+        std_ch1 = torch.rand(x_dim, y_dim) + 1
+
+        reverse_modules = [
+            ReverseAffineTransform(mean=mean_ch0, scale=std_ch0),
+            ReverseAffineTransform(mean=mean_ch1, scale=std_ch1),
+        ]
+
+        y_original = torch.randn(3, 2, x_dim, y_dim)
+        # Normalize spatially (per-coordinate zscore)
+        y_normalized = y_original.clone()
+        y_normalized[:, 0] = (y_original[:, 0] - mean_ch0) / std_ch0
+        y_normalized[:, 1] = (y_original[:, 1] - mean_ch1) / std_ch1
+
+        # Denormalize
+        y_roundtrip = _rescale_y(y_normalized, reverse_modules)
+        assert torch.allclose(y_roundtrip, y_original, atol=1e-4)
