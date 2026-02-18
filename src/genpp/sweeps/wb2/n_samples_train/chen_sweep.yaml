@@ -12,7 +12,7 @@ method: grid
 
 parameters:
   +model.n_samples_train:
-    values: [2, 4, 8, 10, 20, 30, 40, 50, 60, 70, 80]
+    values: [2, 4, 8, 10, 20, 30, 40, 50, 60, 70]
 
 command:
   - pixi
@@ -33,5 +33,5 @@ command:
   - data=wb2_full_pad_x
   - model/lr_scheduler=reduceLROnPlateau
   - +model.n_samples_predict=50
-  - logger.tags=["lngm", "final", "indirect", "pes", "wb2", "extra"]
+  - logger.tags=["lngm", "final", "indirect", "pes", "wb2", "extra", "n_samples_experiment"]
   - ${args_no_hyphens}
