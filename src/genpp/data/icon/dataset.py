@@ -816,8 +816,10 @@ class ForecastDataModule(L.LightningDataModule):
         fc_tensor_paths = self._filter_train_tensor_paths(fc_tensor_paths)
 
         if fc_tensor_paths:
-            print(f"Computing all_vars_mean stats from {len(fc_tensor_paths)} train set FC tensors"
-                  f" (mode={self.norm_mode})")
+            print(
+                f"Computing all_vars_mean stats from {len(fc_tensor_paths)} "
+                f"train set FC tensors (mode={self.norm_mode})"
+            )
             # all_vars_mean are at the beginning of the tensor
             all_mean, all_std, all_min, all_max = self._compute_tensor_stats(
                 fc_tensor_paths,
@@ -834,8 +836,10 @@ class ForecastDataModule(L.LightningDataModule):
             )
 
             # Compute statistics for all variables (std) in FC tensors
-            print(f"Computing all_vars_std stats from {len(fc_tensor_paths)} train set FC tensors"
-                  f" (mode={self.norm_mode})")
+            print(
+                f"Computing all_vars_std stats from {len(fc_tensor_paths)} "
+                f"train set FC tensors (mode={self.norm_mode})"
+            )
             # all_vars_std come after all_vars_mean
             aux_mean, aux_std, aux_min, aux_max = self._compute_tensor_stats(
                 fc_tensor_paths,
@@ -857,8 +861,10 @@ class ForecastDataModule(L.LightningDataModule):
         rea_tensor_paths = self._filter_train_tensor_paths(rea_tensor_paths)
 
         if rea_tensor_paths:
-            print(f"Computing rea stats from {len(rea_tensor_paths)} train set REA tensors"
-                  f" (mode={self.norm_mode})")
+            print(
+                f"Computing rea stats from {len(rea_tensor_paths)} "
+                f"train set REA tensors (mode={self.norm_mode})"
+            )
             rea_mean, rea_std, rea_min, rea_max = self._compute_tensor_stats(
                 rea_tensor_paths,
                 feature_indices=None,  # REA tensors are already just the y variables
