@@ -39,7 +39,7 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=03:00:00
+#PBS -l elapstim_req=00:30:00
 #PBS -j o
 #PBS -o logs/eval_fast_%r.log
 
@@ -52,7 +52,7 @@
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # DRN
-COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # LNGM
 # LNGM (MSPES)
@@ -69,13 +69,13 @@ COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-pat
 
 # Engression
 # ENG (ES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # ENG (PES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # ENG (MSPES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # ENG (MSES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/2xbli9p2 --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/2xbli9p2 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # ALL Engression
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 feik/genpp/7pm11esx feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
