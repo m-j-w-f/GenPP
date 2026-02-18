@@ -48,6 +48,12 @@
 #============================================
 # Evaluation
 
+# EMOS
+COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4"
+
+# DRN
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4"
+
 # LNGM
 # LNGM (MSPES)
 #COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o --split test -v --save-predictions --batch-size 4"
@@ -94,6 +100,7 @@ set -euo pipefail
 export OMP_NUM_THREADS=16
 export MKL_NUM_THREADS=16
 export OPENBLAS_NUM_THREADS=16
+export PYTHONUNBUFFERED=1
 
 # Configuration - use shared data directly
 SHARED_DATA_DIR="/shared/data/$USER/icon"
