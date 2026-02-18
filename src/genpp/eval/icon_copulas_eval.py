@@ -234,7 +234,7 @@ def load_ensemble_for_sample(
         ens_dir: Path to the ensemble NetCDF directory.
 
     Returns:
-        Tensor of shape [n_members, n_vars, y, x] or None if file not found.
+        Tensor of shape [n_members, n_vars, x, y] or None if file not found.
     """
     init_str = pd.Timestamp(init_date).strftime("%Y%m%d%H")
     leadtime_hours = int(leadtime / np.timedelta64(1, "h"))
@@ -243,7 +243,10 @@ def load_ensemble_for_sample(
     if not ens_path.exists():
         return None
 
-    return load_ensemble_tensor(ens_path)
+    # load_ensemble_tensor returns [members, n_vars, y, x] but the ICON
+    # dataset stores tensors as [c, x, y], so transpose the spatial dims.
+    ens = load_ensemble_tensor(ens_path)
+    return ens.permute(0, 1, 3, 2)  # [members, n_vars, y, x] -> [members, n_vars, x, y]
 
 
 # ---------------------------------------------------------------------------
