@@ -219,10 +219,19 @@ def quantile_samples_icon(
 
 
 def _stack_variables_icon(ds: xr.Dataset, variables: list[str]) -> xr.DataArray:
-    """Stack selected variables from an ICON ensemble dataset."""
+    """Stack selected variables from an ICON ensemble dataset.
+
+    The raw ensemble NC files use plain variable names (e.g., ``T_2M``,
+    ``VMAX_10M``), while ``VARS_REA`` contains processed names with level
+    suffixes (e.g., ``T_2M+height_2.0``).  This function strips the suffix
+    (everything after ``+``) so that the correct variable can be looked up in
+    the dataset.
+    """
     arrays = []
     for var_name in variables:
-        arr = ds[var_name].squeeze(drop=True)
+        # Raw NC files use base variable name without level suffix
+        nc_var_name = var_name.split("+")[0]
+        arr = ds[nc_var_name].squeeze(drop=True)
         arrays.append(arr.assign_coords(variable=var_name).expand_dims("variable"))
     return xr.concat(arrays, dim="variable")
 
@@ -680,8 +689,19 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     # Create trainer
     trainer = L.Trainer(logger=False, accelerator="gpu", devices="auto", enable_progress_bar=True)
 
-    # Determine ensemble directory
+    # Determine ensemble directory.
+    # DATA_DIR may be overridden via GENPP_DATA_DIR env var to a temp directory
+    # that only contains tensors, not the raw ensemble NC files. Fall back to
+    # the source location if the ens/ subdirectory is not found.
     ens_dir = DATA_DIR / "ens"
+    if not ens_dir.exists():
+        ens_dir_fallback = BASE_DIR / "data" / "icon" / "data" / "ens"
+        log_msg(
+            f"Ensemble directory not found at {ens_dir}, "
+            f"falling back to {ens_dir_fallback}",
+            args.verbose,
+        )
+        ens_dir = ens_dir_fallback
     log_msg(f"Ensemble directory: {ens_dir}", args.verbose)
 
     # Evaluate each requested split
