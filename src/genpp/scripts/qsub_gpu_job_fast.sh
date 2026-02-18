@@ -49,10 +49,10 @@
 # Evaluation
 
 # EMOS
-COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4"
+COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # DRN
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # LNGM
 # LNGM (MSPES)
