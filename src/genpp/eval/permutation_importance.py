@@ -236,7 +236,7 @@ def _get_channel_info(cache_metadata: dict) -> list[dict[str, Any]]:
             cat = "all_var_std"
         elif idx in fm.get("meta_var_indices", []):
             cat = "meta_var"
-        elif fm.get("pixel_idx_index") and idx in fm["pixel_idx_index"]:
+        elif fm.get("pixel_idx_index") is not None and idx in fm["pixel_idx_index"]:
             cat = "pixel_idx"
         else:
             cat = "unknown"
@@ -357,6 +357,10 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
 
         repeat_scores: list[float] = []
         for r in range(args.n_repeats):
+            # Seed global RNG for reproducibility across runs;
+            # each sample still gets an independent random permutation
+            # because PermuteChannel(seed=None) creates an unseeded generator.
+            torch.manual_seed(args.seed + ch_idx * args.n_repeats + r)
             perm_transform = _build_x_transform(original_x_transform, ch_idx, seed=None)
 
             perm_dataset = TransformTensorDataset(
@@ -376,7 +380,7 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
 
         mean_es = float(np.mean(repeat_scores))
         std_es = float(np.std(repeat_scores)) if len(repeat_scores) > 1 else 0.0
-        importance = (mean_es - baseline_es) / baseline_es if baseline_es != 0 else float("inf")
+        importance = (mean_es - baseline_es) / baseline_es if baseline_es != 0 else np.nan
 
         results.append({
             "channel_index": ch_idx,
@@ -385,7 +389,7 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
             "baseline_es": baseline_es,
             "permuted_es": mean_es,
             "importance": importance,
-            "importance_std": std_es / abs(baseline_es) if baseline_es != 0 else 0.0,
+            "importance_std": std_es / abs(baseline_es) if baseline_es != 0 else np.nan,
         })
 
         log_msg(

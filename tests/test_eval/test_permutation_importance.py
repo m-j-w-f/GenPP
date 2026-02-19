@@ -136,3 +136,19 @@ class TestGetChannelInfo:
         }
         info = _get_channel_info(cache_metadata)
         assert info == []
+
+    @pytest.mark.unit
+    def test_empty_pixel_idx_list(self):
+        """Handle pixel_idx_index as empty list (falsy but not None)."""
+        cache_metadata = {
+            "feature_metadata": {
+                "all_var_mean_indices": [0],
+                "all_var_std_indices": [],
+                "meta_var_indices": [],
+                "pixel_idx_index": [],
+            },
+            "x_variables": ["temp+statistic_mean"],
+        }
+        info = _get_channel_info(cache_metadata)
+        assert len(info) == 1
+        assert info[0]["category"] == "all_var_mean"
