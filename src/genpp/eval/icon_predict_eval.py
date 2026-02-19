@@ -514,10 +514,14 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     ModelClass = getattr(module, class_name)
 
     # Build model_kwargs dynamically from the model's __init__ signature and config.
+    # Skip loss_fn since it's not needed for prediction and may cause state_dict
+    # mismatches (e.g., missing keys like loss_fn.kernel.scale_weights).
     sig = inspect.signature(ModelClass.__init__)
     model_kwargs = {}
     for param_name, param in sig.parameters.items():
         if param_name == "self":
+            continue
+        if param_name == "loss_fn":
             continue
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue

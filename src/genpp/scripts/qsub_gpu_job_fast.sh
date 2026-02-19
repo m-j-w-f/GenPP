@@ -32,14 +32,14 @@
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
 #PBS -N genpp_gpu_job_fast
-#PBS -q gp_norm_dgx
+#PBS -q gp_norm_smc
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=03:00:00
+#PBS -l elapstim_req=00:30:00
 #PBS -j o
 #PBS -o logs/eval_fast_%r.log
 
@@ -47,6 +47,12 @@
 # EDIT THIS: Specify your command here
 #============================================
 # Evaluation
+
+# EMOS
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
+
+# DRN
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # LNGM
 # LNGM (MSPES)
@@ -63,13 +69,13 @@
 
 # Engression
 # ENG (ES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # ENG (PES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # ENG (MSPES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4"
-# ENG (MSES) - TODO
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/TODO --split test -v --save-predictions --batch-size 4"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# ENG (MSES)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/2xbli9p2 --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # ALL Engression
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 feik/genpp/7pm11esx feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
@@ -82,7 +88,7 @@
 # UViT - IND
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/zo2uhaev --split test -v --save-predictions --batch-size 4 --skip-variogram"
 # UViT - DIR
-COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 
 #============================================
@@ -94,6 +100,7 @@ set -euo pipefail
 export OMP_NUM_THREADS=16
 export MKL_NUM_THREADS=16
 export OPENBLAS_NUM_THREADS=16
+export PYTHONUNBUFFERED=1
 
 # Configuration - use shared data directly
 SHARED_DATA_DIR="/shared/data/$USER/icon"
