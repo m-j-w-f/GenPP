@@ -146,12 +146,10 @@ Where `importance = (permuted_es - baseline_es) / baseline_es`.
 
 ## Implementation Checklist
 
-- [ ] Add `PermuteChannel` class to `preproc/transforms.py`
-- [ ] Add unit tests for `PermuteChannel` in `tests/test_preproc/test_transforms.py`
-- [ ] Create `src/genpp/eval/permutation_importance.py` script
-- [ ] Refactor shared model-loading logic from `cgm_predict_eval.py` into reusable utilities (if needed)
-- [ ] Add integration test for importance script (mock model + small synthetic data)
-- [ ] Document usage in README or script docstring
+- [x] Add `PermuteChannel` class to `preproc/transforms.py`
+- [x] Add unit tests for `PermuteChannel` in `tests/test_preproc/test_transforms.py`
+- [x] Create `src/genpp/eval/permutation_importance.py` script
+- [x] Add unit tests for helper functions in `tests/test_eval/test_permutation_importance.py`
 - [ ] Validate on a real WB2 model run
 
 ## Risks and Considerations
