@@ -89,6 +89,11 @@ class PermuteChannel(Transform):
     def transform(self, data: torch.Tensor) -> torch.Tensor:
         """Permute spatial dimensions of the specified channel.
 
+        For 4D inputs, each batch element receives an independent random
+        permutation. When a seed is set, the generator is seeded once and
+        successive batch elements consume sequential random states, so results
+        are reproducible but differ across the batch dimension.
+
         Args:
             data: Tensor with shape (feature, longitude, latitude) or
                   (batch, feature, longitude, latitude).
