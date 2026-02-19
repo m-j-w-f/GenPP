@@ -780,8 +780,17 @@ class ForecastDataModule(L.LightningDataModule):
 
         mean = tensor_sum / tensor_count
         var = (tensor_sum_sq / tensor_count) - (mean**2)
+        # Clamp variance to non-negative: the textbook formula E[x²]-E[x]² is numerically
+        # unstable and can produce tiny negative values due to floating-point cancellation,
+        # especially in spatial mode where each cell aggregates over few samples.
+        var = torch.clamp(var, min=0.0)
         std = torch.sqrt(var).float()
         mean = mean.float()
+        if spatial:
+            # In spatial mode, some grid cells may have zero variance (constant values,
+            # e.g. albedo=0 over water). Clamp std to a small epsilon to prevent
+            # division by zero (→ Inf/NaN) during normalization in __getitem__.
+            std = torch.clamp(std, min=1e-6)
 
         return mean, std, tensor_min, tensor_max
 

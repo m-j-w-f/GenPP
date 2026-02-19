@@ -16,9 +16,9 @@ The model produces NaN/Inf scores. With `per_variable` mode (default), everythin
 
 ---
 
-## Bug 1 (CRITICAL): Division by zero — spatial `std` can be zero at individual grid cells
+## Bug 1 (CRITICAL): Division by zero — spatial `std` can be zero at individual grid cells — ✅ FIXED
 
-**Location:** `_compute_tensor_stats` in `dataset.py` (line ~780-783) and `__getitem__` (lines 350-352, 367-369, 389-391)
+**Location:** `_compute_tensor_stats` in `dataset.py` (line ~780-793)
 
 **Problem:**  
 In `per_variable` mode, the std is computed across **all spatial positions and all samples**, so it averages over `N_samples × H × W` values — practically never zero.  
@@ -35,7 +35,7 @@ this produces **Inf** or **NaN** values that propagate through the entire traini
 - `nonzero / 0 = Inf`
 - These values propagate into the loss function and gradients, causing NaN/Inf scores.
 
-**Fix:** Clamp the spatial std to a small epsilon before dividing, e.g. `std = torch.clamp(std, min=1e-6)`.
+**Fix (applied):** `std = torch.clamp(std, min=1e-6)` in spatial mode in `_compute_tensor_stats`.
 
 ---
 
@@ -79,9 +79,9 @@ In spatial mode, `all_max[c, x, y] - all_min[c, x, y]` can be **exactly zero** f
 
 ---
 
-## Bug 4 (POSSIBLE): Numerical precision — variance computation can go negative
+## Bug 4 (POSSIBLE): Numerical precision — variance computation can go negative — ✅ FIXED
 
-**Location:** `_compute_tensor_stats` (lines 780-783)
+**Location:** `_compute_tensor_stats` (lines 780-786)
 
 **Problem:**  
 The variance is computed using the formula:
@@ -94,7 +94,7 @@ This is the "textbook" formula, which is known to be **numerically unstable**. W
 
 In `per_variable` mode, the aggregation is over `N_samples × H × W` values (millions), making the estimates very stable. In `spatial` mode, aggregation is over only `N_samples` values (potentially hundreds or thousands), making the estimates much more susceptible to numerical instability.
 
-**Fix:** Use Welford's online algorithm or clamp variance to zero: `var = torch.clamp(var, min=0.0)`.
+**Fix (applied):** `var = torch.clamp(var, min=0.0)` before `sqrt` in `_compute_tensor_stats`.
 
 ---
 
@@ -140,14 +140,12 @@ In spatial mode, the initial `tensor_min` and `tensor_max` are created with `.cl
 
 ## Summary / Priority
 
-| # | Bug | Severity | Likely cause of NaN/Inf? |
-|---|-----|----------|--------------------------|
-| 1 | Spatial std = 0 → division by zero | **CRITICAL** | **YES** — most likely cause |
-| 4 | Negative variance → NaN from sqrt | **HIGH** | **YES** — second most likely |
-| 3 | MinMax `max - min = 0` → division by zero | HIGH | Only if minmax is used |
-| 5 | TD scaling fit produces bad scales | MEDIUM | Possible amplification |
-| 6 | Float32 conversion loses small std | MEDIUM | Contributes to Bug 1 |
-| 2 | Padding + spatial norm mismatch | LOW | Only with non-zero padding |
-| 7 | Type mismatch in min/max | LOW | Unlikely |
-
-**Recommended investigation order:** Bug 1 → Bug 4 → Bug 5 → Bug 6
+| # | Bug | Severity | Likely cause of NaN/Inf? | Status |
+|---|-----|----------|--------------------------|--------|
+| 1 | Spatial std = 0 → division by zero | **CRITICAL** | **YES** — most likely cause | ✅ FIXED |
+| 4 | Negative variance → NaN from sqrt | **HIGH** | **YES** — second most likely | ✅ FIXED |
+| 3 | MinMax `max - min = 0` → division by zero | HIGH | Only if minmax is used | Open |
+| 5 | TD scaling fit produces bad scales | MEDIUM | Possible amplification | Open |
+| 6 | Float32 conversion loses small std | MEDIUM | Contributes to Bug 1 | ✅ Mitigated by Bug 1 fix |
+| 2 | Padding + spatial norm mismatch | LOW | Only with non-zero padding | Open |
+| 7 | Type mismatch in min/max | LOW | Unlikely | Open |
