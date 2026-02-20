@@ -306,9 +306,11 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     datamodule.setup(stage="validate")
     datamodule.setup(stage="test")
 
-    # Grab the original x_transform so we can wrap it later
-    original_x_transform = cfg.data.module.dataset_config.train.x_transform
-    y_transform = cfg.data.module.dataset_config.train.y_transform
+    # Grab the original x_transform so we can wrap it later.
+    # Read from the *instantiated* datamodule (not the raw cfg) so that
+    # _target_ configs (e.g. Pad) are already real Transform objects.
+    original_x_transform = datamodule.dataset_config.train.x_transform
+    y_transform = datamodule.dataset_config.train.y_transform
 
     # ----- load model -----
     log_msg(f"Loading model from {model_checkpoint}...", args.verbose)
