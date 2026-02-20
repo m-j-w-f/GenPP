@@ -32,20 +32,31 @@
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
 #PBS -N genpp_gpu_job_fast
-#PBS -q gp_norm_smc
+#PBS -q gp_norm_dgx
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=1
 #PBS --cpunum-lhost=16
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=00:30:00
+#PBS -l elapstim_req=07:00:00
 #PBS -j o
-#PBS -o logs/eval_fast_%r.log
+#PBS -o logs/fmuvit_fast_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
+
+# Train
+
+# FM UNET - DIR
+#COMMAND='pixi run -e gpu python src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.norm_mode=spatial data.dataloader.num_workers=10 data.batch_size=32 "model.backbone.channels=[64, 128]" model.backbone.num_residual_layers=2 model.optimizer.lr=0.001'
+
+# FM UVIT - IND
+COMMAND='pixi run -e gpu python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise model.internal_td_scaling=std model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.norm_mode=spatial data.dataloader.num_workers=10 data.batch_size=8 model.backbone.depth=2 model.backbone.embed_dim=128 model.optimizer.lr=0.001'
+
+
+
 # Evaluation
 
 # EMOS
@@ -65,7 +76,7 @@
 #COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # ALL LNGM
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o feik/genpp/rc4yel5e feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o feik/genpp/5wv59jka feik/genpp/rc4yel5e feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # Engression
 # ENG (ES)

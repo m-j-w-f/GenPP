@@ -107,6 +107,11 @@ test_batch_size: null
 x_default_normalize_type: zscore
 y_default_normalize_type: zscore
 
+# Normalization mode: how statistics are computed.
+# 'per_variable': one mean/std per variable (stats shape [c, 1, 1])
+# 'spatial': mean/std per variable and per spatial coordinate (stats shape [c, x, y])
+norm_mode: per_variable
+
 # ============================================================================
 # PER-VARIABLE NORMALIZATION (Optional)
 # ============================================================================
@@ -164,3 +169,4 @@ module:
   test_split: ${data.splits.test}
   x_normalize_types: ${data.x_normalize_types}
   y_normalize_types: ${data.y_normalize_types}
+  norm_mode: ${data.norm_mode}
