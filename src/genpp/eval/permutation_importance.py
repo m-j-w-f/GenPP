@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--split",
         type=str,
-        default="val",
+        default="test",
         choices=["train", "val", "test"],
         help="Dataset split to evaluate on",
     )
@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-repeats",
         type=int,
-        default=1,
+        default=5,
         help="Number of permutation repeats per channel (for robust estimates)",
     )
     parser.add_argument(
@@ -119,9 +119,21 @@ def log_msg(msg: str, verbose: bool) -> None:
 def _get_split_config(split: str) -> dict[str, str]:
     """Get configuration for the specified split."""
     return {
-        "train": {"setup_stage": "fit", "dataloader_method": "train_dataloader", "metadata_key": "train"},
-        "val": {"setup_stage": "validate", "dataloader_method": "val_dataloader", "metadata_key": "val"},
-        "test": {"setup_stage": "test", "dataloader_method": "test_dataloader", "metadata_key": "test"},
+        "train": {
+            "setup_stage": "fit",
+            "dataloader_method": "train_dataloader",
+            "metadata_key": "train",
+        },
+        "val": {
+            "setup_stage": "validate",
+            "dataloader_method": "val_dataloader",
+            "metadata_key": "val",
+        },
+        "test": {
+            "setup_stage": "test",
+            "dataloader_method": "test_dataloader",
+            "metadata_key": "test",
+        },
     }[split]
 
 
@@ -248,6 +260,7 @@ def _get_channel_info(cache_metadata: dict) -> list[dict[str, Any]]:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:  # noqa: C901 — sequential orchestration script
     """Entry point for permutation importance evaluation."""
     args = parse_args()
@@ -265,9 +278,7 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
 
     model_dirs = list(output_dir.rglob(f"*{model_id}*"))
     if not model_dirs:
-        raise FileNotFoundError(
-            f"No model directory found for run ID '{model_id}' in {output_dir}"
-        )
+        raise FileNotFoundError(f"No model directory found for run ID '{model_id}' in {output_dir}")
     model_dir = model_dirs[0].parent.parent.parent
 
     checkpoints = list(model_dir.rglob("*.ckpt"))
@@ -280,9 +291,7 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
 
     # ----- load Hydra config -----
     log_msg("Loading Hydra config...", args.verbose)
-    with hydra.initialize_config_dir(
-        config_dir=str(model_dir / ".hydra"), version_base=None
-    ):
+    with hydra.initialize_config_dir(config_dir=str(model_dir / ".hydra"), version_base=None):
         cfg: DictConfig = hydra.compose(config_name="config")
 
     cfg.data.module.dataloader_config.train.shuffle = False
@@ -321,20 +330,19 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     channel_info = _get_channel_info(cache_metadata)
     n_channels = x_tensor.shape[1]  # feature dim
 
-    channels_to_permute = (
-        args.channels if args.channels is not None else list(range(n_channels))
-    )
+    channels_to_permute = args.channels if args.channels is not None else list(range(n_channels))
 
     # ----- baseline (no permutation) -----
     log_msg("Computing baseline energy score (no permutation)...", args.verbose)
     # Rebuild the dataset with the original transform to get baseline predictions
     baseline_dataset = TransformTensorDataset(
-        x_tensor, y_tensor, td_tensor,
+        x_tensor,
+        y_tensor,
+        td_tensor,
         feature_metadata=feature_metadata,
         x_transform=original_x_transform,
         y_transform=y_transform,
     )
-    split_config = _get_split_config(split)
     dl_kwargs = OmegaConf.to_container(
         getattr(cfg.data.module.dataloader_config, split), resolve=True
     )
@@ -342,7 +350,8 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     baseline_dl = torch.utils.data.DataLoader(baseline_dataset, **dl_kwargs)  # type: ignore
 
     baseline_preds = torch.cat(
-        trainer.predict(model, baseline_dl, return_predictions=True), dim=0  # type: ignore
+        trainer.predict(model, baseline_dl, return_predictions=True),
+        dim=0,  # type: ignore
     )
     baseline_es = _compute_energy_score(baseline_preds, y_tensor, device="cuda")
     log_msg(f"Baseline energy score: {baseline_es:.6f}", args.verbose)
@@ -351,7 +360,9 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     results: list[dict[str, Any]] = []
 
     for ch_idx in channels_to_permute:
-        ch_name = channel_info[ch_idx]["name"] if ch_idx < len(channel_info) else f"channel_{ch_idx}"
+        ch_name = (
+            channel_info[ch_idx]["name"] if ch_idx < len(channel_info) else f"channel_{ch_idx}"
+        )
         ch_cat = channel_info[ch_idx]["category"] if ch_idx < len(channel_info) else "unknown"
         log_msg(f"\nPermuting channel {ch_idx} ({ch_name})...", args.verbose)
 
@@ -364,7 +375,9 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
             perm_transform = _build_x_transform(original_x_transform, ch_idx, seed=None)
 
             perm_dataset = TransformTensorDataset(
-                x_tensor, y_tensor, td_tensor,
+                x_tensor,
+                y_tensor,
+                td_tensor,
                 feature_metadata=feature_metadata,
                 x_transform=perm_transform,
                 y_transform=y_transform,
@@ -372,7 +385,8 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
             perm_dl = torch.utils.data.DataLoader(perm_dataset, **dl_kwargs)  # type: ignore
 
             perm_preds = torch.cat(
-                trainer.predict(model, perm_dl, return_predictions=True), dim=0  # type: ignore
+                trainer.predict(model, perm_dl, return_predictions=True),
+                dim=0,  # type: ignore
             )
             es_permuted = _compute_energy_score(perm_preds, y_tensor, device="cuda")
             repeat_scores.append(es_permuted)
@@ -382,15 +396,17 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
         std_es = float(np.std(repeat_scores)) if len(repeat_scores) > 1 else 0.0
         importance = (mean_es - baseline_es) / baseline_es if baseline_es != 0 else np.nan
 
-        results.append({
-            "channel_index": ch_idx,
-            "channel_name": ch_name,
-            "category": ch_cat,
-            "baseline_es": baseline_es,
-            "permuted_es": mean_es,
-            "importance": importance,
-            "importance_std": std_es / abs(baseline_es) if baseline_es != 0 else np.nan,
-        })
+        results.append(
+            {
+                "channel_index": ch_idx,
+                "channel_name": ch_name,
+                "category": ch_cat,
+                "baseline_es": baseline_es,
+                "permuted_es": mean_es,
+                "importance": importance,
+                "importance_std": std_es / abs(baseline_es) if baseline_es != 0 else np.nan,
+            }
+        )
 
         log_msg(
             f"  → importance = {importance:.4f} "
@@ -401,8 +417,13 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     # ----- write results -----
     output_path = Path(args.output) if args.output else model_dir / "permutation_importance.csv"
     fieldnames = [
-        "channel_index", "channel_name", "category",
-        "baseline_es", "permuted_es", "importance", "importance_std",
+        "channel_index",
+        "channel_name",
+        "category",
+        "baseline_es",
+        "permuted_es",
+        "importance",
+        "importance_std",
     ]
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
