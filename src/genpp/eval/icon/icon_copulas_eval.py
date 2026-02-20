@@ -241,10 +241,8 @@ def load_ensemble_for_sample(
     if not ens_path.exists():
         return None
 
-    # load_ensemble_tensor returns [members, n_vars, y, x] but the ICON
-    # dataset stores tensors as [c, x, y], so transpose the spatial dims.
-    ens = load_ensemble_tensor(ens_path)
-    return ens.permute(0, 1, 3, 2)  # [members, n_vars, y, x] -> [members, n_vars, x, y]
+    # load_ensemble_tensor already transposes to [members, n_vars, x, y]
+    return load_ensemble_tensor(ens_path)
 
 
 # ---------------------------------------------------------------------------
