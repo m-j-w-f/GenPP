@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from genpp.eval import best_encoders, best_models
+from genpp.eval.wb2 import best_encoders, best_models
 
 
 def test_encoder_model_entry_properties():

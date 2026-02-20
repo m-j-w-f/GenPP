@@ -19,8 +19,6 @@ Usage:
     python icon_predict_eval.py --run-path feik/genpp/abc123 --batch-size 32 -v
 """
 
-from __future__ import annotations
-
 import argparse
 import importlib
 import inspect
@@ -278,7 +276,9 @@ def evaluate_split(
                 shuffle=False,
                 num_workers=datamodule.num_workers,
                 pin_memory=datamodule.pin_memory,
-                persistent_workers=datamodule.persistent_workers if datamodule.num_workers > 0 else False,
+                persistent_workers=datamodule.persistent_workers
+                if datamodule.num_workers > 0
+                else False,
             )
             y_list = []
             for batch in tqdm(gt_dataloader, desc="Collecting ground truth"):
@@ -310,7 +310,9 @@ def evaluate_split(
             shuffle=False,
             num_workers=datamodule.num_workers,
             pin_memory=datamodule.pin_memory,
-            persistent_workers=datamodule.persistent_workers if datamodule.num_workers > 0 else False,
+            persistent_workers=datamodule.persistent_workers
+            if datamodule.num_workers > 0
+            else False,
         )
 
         # Collect ground truth from the eval dataloader FIRST, before predictions,

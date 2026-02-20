@@ -13,8 +13,6 @@ Usage:
     python copulas_eval.py --device 1 -v
 """
 
-from __future__ import annotations
-
 import argparse
 from collections import defaultdict
 
@@ -35,7 +33,7 @@ from genpp.data.weatherbench2 import (
     FORECAST_ENS_PATH,
     OBSERVATIONS_FLAT_PATH,
 )
-from genpp.eval import best_models
+from src.genpp.eval.wb2 import best_models
 from genpp.eval.utils import (
     compute_scores_per_leadtime,
     log_scores,

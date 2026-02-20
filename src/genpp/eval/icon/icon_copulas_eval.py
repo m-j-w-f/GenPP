@@ -17,8 +17,6 @@ Usage:
     python icon_copulas_eval.py --run-path feik/genpp/abc123 --batch-size 32 -v
 """
 
-from __future__ import annotations
-
 import argparse
 import importlib
 import inspect
@@ -697,8 +695,7 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     if not ens_dir.exists():
         ens_dir_fallback = BASE_DIR / "data" / "icon" / "data" / "ens"
         log_msg(
-            f"Ensemble directory not found at {ens_dir}, "
-            f"falling back to {ens_dir_fallback}",
+            f"Ensemble directory not found at {ens_dir}, falling back to {ens_dir_fallback}",
             args.verbose,
         )
         ens_dir = ens_dir_fallback
