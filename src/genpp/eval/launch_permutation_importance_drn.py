@@ -289,7 +289,7 @@ def main() -> None:
 
             # Brief sleep to avoid busy-waiting
             if pending:
-                time.sleep(2)
+                time.sleep(0.5)
 
     # ----- merge results -----
     if args.verbose:
