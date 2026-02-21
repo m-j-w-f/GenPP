@@ -87,12 +87,35 @@ def parse_args() -> argparse.Namespace:
         help="Force re-running the model forward pass even if saved predictions exist",
     )
     parser.add_argument(
+        "--leadtimes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Subset of leadtimes (in hours) to evaluate (e.g., --leadtimes 6 12 24). If not set, all leadtimes are used.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="Enable verbose output",
     )
     return parser.parse_args()
+
+
+def filter_samples_by_leadtimes(
+    samples: list, leadtimes_hours: list[int]
+) -> list:
+    """Filter dataset samples to only include specified leadtimes.
+
+    Args:
+        samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+        leadtimes_hours: List of leadtime values in hours to keep.
+
+    Returns:
+        Filtered list of samples.
+    """
+    lt_set = {np.timedelta64(h, "h") for h in leadtimes_hours}
+    return [s for s in samples if s[3] in lt_set]
 
 
 def log_msg(msg: str, verbose: bool) -> None:
@@ -506,6 +529,19 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     # ICON's setup() creates all splits regardless of stage, so one call suffices
     splits = args.split
     datamodule.setup(stage="fit")
+
+    # Filter samples by leadtime if requested
+    if args.leadtimes is not None:
+        for attr in ("train_dataset", "val_dataset", "test_dataset"):
+            ds = getattr(datamodule, attr, None)
+            if ds is not None:
+                orig_len = len(ds.samples)
+                ds.samples = filter_samples_by_leadtimes(ds.samples, args.leadtimes)
+                log_msg(
+                    f"Filtered {attr}: {orig_len} → {len(ds.samples)} samples "
+                    f"(leadtimes={args.leadtimes}h)",
+                    args.verbose,
+                )
 
     # Load model
     log_msg(f"Loading model from {model_checkpoint}...", args.verbose)

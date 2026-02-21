@@ -38,9 +38,10 @@ from genpp import BASE_DIR
 from genpp.configs import register_resolvers
 from genpp.data.icon import DATA_DIR
 from genpp.eval.icon.raw_ensemble import load_ensemble_tensor
-from genpp.eval.icon_predict_eval import (
+from genpp.eval.icon.icon_cgm_predict_eval import (
     _rescale_y,
     compute_icon_scores_per_leadtime,
+    filter_samples_by_leadtimes,
     get_split_config,
 )
 from genpp.eval.utils import (
@@ -98,6 +99,13 @@ def parse_args() -> argparse.Namespace:
         "--force-repredict",
         action="store_true",
         help="Force re-running model predictions even if cached",
+    )
+    parser.add_argument(
+        "--leadtimes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Subset of leadtimes (in hours) to evaluate (e.g., --leadtimes 6 12 24). If not set, all leadtimes are used.",
     )
     parser.add_argument(
         "-v",
@@ -641,6 +649,19 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
     datamodule = hydra.utils.instantiate(cfg.data.module)
     datamodule.prepare_data()
     datamodule.setup(stage="fit")
+
+    # Filter samples by leadtime if requested
+    if args.leadtimes is not None:
+        for attr in ("train_dataset", "val_dataset", "test_dataset"):
+            ds = getattr(datamodule, attr, None)
+            if ds is not None:
+                orig_len = len(ds.samples)
+                ds.samples = filter_samples_by_leadtimes(ds.samples, args.leadtimes)
+                log_msg(
+                    f"Filtered {attr}: {orig_len} → {len(ds.samples)} samples "
+                    f"(leadtimes={args.leadtimes}h)",
+                    args.verbose,
+                )
 
     # Load model
     log_msg(f"Loading model from {model_checkpoint}...", args.verbose)
