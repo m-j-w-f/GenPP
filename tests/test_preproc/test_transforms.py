@@ -4,7 +4,7 @@ import pytest
 import torch
 import xarray as xr
 
-from genpp.preproc.transforms import Pad, Pipe
+from genpp.preproc.transforms import Pad, PermuteChannel, Pipe
 
 
 class TestPad:
@@ -323,4 +323,154 @@ class TestPipe:
         # Should return doubled data (mock transform multiplies by 2)
         assert isinstance(result, torch.Tensor)
         expected = tensor_data * 2
+        torch.testing.assert_close(result, expected)
+
+
+class TestPermuteChannel:
+    """Test suite for PermuteChannel transform class."""
+
+    @pytest.fixture
+    def sample_tensor_3d(self):
+        """Create a sample 3D tensor (feature, lon, lat)."""
+        return torch.randn(4, 5, 6)
+
+    @pytest.fixture
+    def sample_tensor_4d(self):
+        """Create a sample 4D tensor (batch, feature, lon, lat)."""
+        return torch.randn(3, 4, 5, 6)
+
+    @pytest.mark.unit
+    def test_initialization_defaults(self):
+        """Test PermuteChannel initialization with default seed."""
+        pc = PermuteChannel(channel_index=2)
+        assert pc.channel_index == 2
+        assert pc.seed is None
+
+    @pytest.mark.unit
+    def test_initialization_with_seed(self):
+        """Test PermuteChannel initialization with explicit seed."""
+        pc = PermuteChannel(channel_index=0, seed=42)
+        assert pc.channel_index == 0
+        assert pc.seed == 42
+
+    @pytest.mark.unit
+    def test_3d_output_shape(self, sample_tensor_3d):
+        """Test that 3D input produces same shape output."""
+        pc = PermuteChannel(channel_index=1, seed=0)
+        result = pc.transform(sample_tensor_3d)
+        assert result.shape == sample_tensor_3d.shape
+
+    @pytest.mark.unit
+    def test_4d_output_shape(self, sample_tensor_4d):
+        """Test that 4D input produces same shape output."""
+        pc = PermuteChannel(channel_index=1, seed=0)
+        result = pc.transform(sample_tensor_4d)
+        assert result.shape == sample_tensor_4d.shape
+
+    @pytest.mark.unit
+    def test_only_target_channel_changes_3d(self, sample_tensor_3d):
+        """Test that only the specified channel is permuted in 3D tensor."""
+        target = 2
+        pc = PermuteChannel(channel_index=target, seed=0)
+        result = pc.transform(sample_tensor_3d)
+
+        # Other channels should be unchanged
+        for c in range(sample_tensor_3d.shape[0]):
+            if c != target:
+                torch.testing.assert_close(result[c], sample_tensor_3d[c])
+
+    @pytest.mark.unit
+    def test_only_target_channel_changes_4d(self, sample_tensor_4d):
+        """Test that only the specified channel is permuted in 4D tensor."""
+        target = 1
+        pc = PermuteChannel(channel_index=target, seed=0)
+        result = pc.transform(sample_tensor_4d)
+
+        # Other channels should be unchanged
+        for b in range(sample_tensor_4d.shape[0]):
+            for c in range(sample_tensor_4d.shape[1]):
+                if c != target:
+                    torch.testing.assert_close(result[b, c], sample_tensor_4d[b, c])
+
+    @pytest.mark.unit
+    def test_permuted_channel_preserves_values(self, sample_tensor_3d):
+        """Test that permuted channel contains the same set of values (just reordered)."""
+        target = 0
+        pc = PermuteChannel(channel_index=target, seed=42)
+        result = pc.transform(sample_tensor_3d)
+
+        original_sorted = sample_tensor_3d[target].flatten().sort().values
+        permuted_sorted = result[target].flatten().sort().values
+        torch.testing.assert_close(original_sorted, permuted_sorted)
+
+    @pytest.mark.unit
+    def test_seed_reproducibility(self, sample_tensor_3d):
+        """Test that the same seed produces the same permutation."""
+        pc1 = PermuteChannel(channel_index=0, seed=123)
+        pc2 = PermuteChannel(channel_index=0, seed=123)
+
+        result1 = pc1.transform(sample_tensor_3d)
+        result2 = pc2.transform(sample_tensor_3d)
+        torch.testing.assert_close(result1, result2)
+
+    @pytest.mark.unit
+    def test_different_seeds_differ(self, sample_tensor_3d):
+        """Test that different seeds produce different permutations."""
+        pc1 = PermuteChannel(channel_index=0, seed=0)
+        pc2 = PermuteChannel(channel_index=0, seed=999)
+
+        result1 = pc1.transform(sample_tensor_3d)
+        result2 = pc2.transform(sample_tensor_3d)
+
+        # The permuted channels should differ (with extremely high probability)
+        assert not torch.equal(result1[0], result2[0])
+
+    @pytest.mark.unit
+    def test_does_not_mutate_input(self, sample_tensor_3d):
+        """Test that the original tensor is not modified."""
+        original = sample_tensor_3d.clone()
+        pc = PermuteChannel(channel_index=0, seed=0)
+        pc.transform(sample_tensor_3d)
+        torch.testing.assert_close(sample_tensor_3d, original)
+
+    @pytest.mark.unit
+    def test_invalid_ndim_raises(self):
+        """Test that tensors with unsupported dimensions raise ValueError."""
+        pc = PermuteChannel(channel_index=0, seed=0)
+        with pytest.raises(ValueError, match="Expected 3D"):
+            pc.transform(torch.randn(5))
+
+    @pytest.mark.unit
+    def test_call_method_with_tensor(self, sample_tensor_3d):
+        """Test that __call__ works correctly with tensor input."""
+        pc = PermuteChannel(channel_index=0, seed=42)
+        result_call = pc(sample_tensor_3d)
+        result_transform = pc.transform(sample_tensor_3d)
+        torch.testing.assert_close(result_call, result_transform)
+
+    @pytest.mark.unit
+    def test_call_method_with_xarray(self):
+        """Test that __call__ works with xarray DataArray input."""
+        data = np.random.randn(3, 4, 5)
+        da = xr.DataArray(data, dims=["feature", "lon", "lat"])
+
+        pc = PermuteChannel(channel_index=1, seed=0)
+        result = pc(da)
+        assert isinstance(result, torch.Tensor)
+        assert result.shape == (3, 4, 5)
+
+    @pytest.mark.unit
+    def test_composable_with_pipe(self, sample_tensor_3d):
+        """Test that PermuteChannel works inside a Pipe."""
+        pc = PermuteChannel(channel_index=0, seed=42)
+        from genpp.preproc.transforms import Transform
+
+        class IdentityTransform(Transform):
+            def transform(self, data):
+                return data
+
+        pipe = Pipe([pc, IdentityTransform()])
+        result = pipe.transform(sample_tensor_3d)
+
+        expected = pc.transform(sample_tensor_3d)
         torch.testing.assert_close(result, expected)
