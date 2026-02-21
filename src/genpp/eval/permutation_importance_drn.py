@@ -250,7 +250,9 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
     dl_kwargs["shuffle"] = False  # type: ignore
 
     # ----- baseline (no permutation) -----
-    log_msg(f"Computing baseline energy score (no permutation, copula={args.copula})...", args.verbose)
+    log_msg(
+        f"Computing baseline energy score (no permutation, copula={args.copula})...", args.verbose
+    )
     predictions_xr, y_obs, prediction_index = get_split_predictions_and_obs(
         split, model, trainer, datamodule, cfg, args.verbose
     )
@@ -330,10 +332,8 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
             args.verbose,
         )
 
-    # ----- write results -----
-    output_path = (
-        Path(args.output) if args.output else model_dir / "permutation_importance_drn.csv"
-    )
+    # ----- write results (append if file exists) -----
+    output_path = Path(args.output) if args.output else model_dir / "permutation_importance_drn.csv"
     fieldnames = [
         "channel_index",
         "channel_name",
@@ -343,9 +343,11 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
         "importance",
         "importance_std",
     ]
-    with open(output_path, "w", newline="") as f:
+    write_header = not output_path.exists()
+    with open(output_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+        if write_header:
+            writer.writeheader()
         writer.writerows(results)
 
     print(f"\nResults saved to {output_path}")

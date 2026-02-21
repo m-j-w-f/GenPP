@@ -416,7 +416,7 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
             args.verbose,
         )
 
-    # ----- write results -----
+    # ----- write results (append if file exists) -----
     output_path = Path(args.output) if args.output else model_dir / "permutation_importance.csv"
     fieldnames = [
         "channel_index",
@@ -427,9 +427,11 @@ def main() -> None:  # noqa: C901 — sequential orchestration script
         "importance",
         "importance_std",
     ]
-    with open(output_path, "w", newline="") as f:
+    write_header = not output_path.exists()
+    with open(output_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+        if write_header:
+            writer.writeheader()
         writer.writerows(results)
 
     print(f"\nResults saved to {output_path}")
