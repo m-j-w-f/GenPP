@@ -144,6 +144,13 @@ features:
 
 
 # ============================================================================
+# LEADTIME FILTERING (Optional)
+# ============================================================================
+# Filter to specific leadtimes (in hours). Set to null to use all leadtimes.
+# Example: [24] for only 24h leadtime, [6, 12, 24] for multiple leadtimes
+leadtimes_hours: null
+
+# ============================================================================
 # DATA MODULE
 # ============================================================================
 module:
@@ -170,3 +177,4 @@ module:
   x_normalize_types: ${data.x_normalize_types}
   y_normalize_types: ${data.y_normalize_types}
   norm_mode: ${data.norm_mode}
+  leadtimes_hours: ${data.leadtimes_hours}

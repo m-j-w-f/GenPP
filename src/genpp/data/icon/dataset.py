@@ -458,6 +458,7 @@ class ForecastDataModule(L.LightningDataModule):
         y_normalize_types: dict[str, str | None] | None = None,
         select_meta_features: list[str] | None = None,
         norm_mode: str = "per_variable",
+        leadtimes_hours: list[int] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -501,6 +502,9 @@ class ForecastDataModule(L.LightningDataModule):
             norm_mode (str): Normalization mode. 'per_variable' computes a single mean/std per variable
                 (stats shape [c, 1, 1]). 'spatial' computes mean/std per variable and per spatial
                 coordinate (stats shape [c, x, y]). Defaults to 'per_variable'.
+            leadtimes_hours (list[int] | None): Optional list of leadtime values in hours to keep.
+                When provided, only samples whose leadtime matches one of the specified values are
+                used for training, validation, and testing. If None, all leadtimes are used.
         """
         super().__init__()
         if norm_mode not in ("per_variable", "spatial"):
@@ -543,6 +547,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = test_split
+        self.leadtimes_hours = leadtimes_hours
 
     def _get_train_set_identifier(self) -> str:
         """Generate a unique identifier for the train set configuration.
@@ -923,6 +928,15 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
+
+        # Filter by leadtimes if specified
+        if self.leadtimes_hours is not None:
+            lt_set = {np.timedelta64(h, "h") for h in self.leadtimes_hours}
+            all_samples = [s for s in all_samples if s[3] in lt_set]
+            logger.info(
+                f"Filtered to leadtimes {self.leadtimes_hours}h: {len(all_samples)} samples remaining"
+            )
+
         all_samples.sort(key=lambda x: x[2] + x[3])  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
