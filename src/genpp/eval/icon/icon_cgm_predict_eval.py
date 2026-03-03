@@ -8,9 +8,10 @@ Variogram Score), and logs results to WandB and local files.
 
 Unlike cgm_predict_eval.py (which uses WeatherBench2 data), this script handles
 the ICON dataset structure where:
-  - Ground truth is loaded from per-date .pt tensor files via the dataloader
+  - Ground truth is loaded directly from per-date .pt rea tensor files via dataset.samples
   - Both predictions and ground truth are rescaled to the original space before scoring
   - Leadtimes are extracted from the dataset sample tuples
+  - Predictions are saved as NetCDF with proper dimension labels
 
 Usage:
     python icon_predict_eval.py --run-path feik/genpp/abc123 --split val
@@ -22,13 +23,13 @@ Usage:
 import argparse
 import importlib
 import inspect
-import pickle
 
 import hydra
 import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+import xarray as xr
 from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from torch.utils.data import DataLoader
@@ -42,6 +43,14 @@ from genpp.eval.utils import (
     update_wandb_run,
 )
 from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
+
+# Grid definition from target_grid.txt (rotated lat/lon grid)
+GRID_XSIZE = 260
+GRID_YSIZE = 240
+GRID_XFIRST = -16.64
+GRID_YFIRST = -15.0
+GRID_XINC = 0.13
+GRID_YINC = 0.13
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,12 +108,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable verbose output",
     )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=40,
+        help="Number of ensemble samples to predict (default 40 for ICON)",
+    )
     return parser.parse_args()
 
 
-def filter_samples_by_leadtimes(
-    samples: list, leadtimes_hours: list[int]
-) -> list:
+def filter_samples_by_leadtimes(samples: list, leadtimes_hours: list[int]) -> list:
     """Filter dataset samples to only include specified leadtimes.
 
     Args:
@@ -169,6 +182,126 @@ def _rescale_y(y: torch.Tensor, reverse_modules: list) -> torch.Tensor:
     for i, mod in enumerate(reverse_modules):
         y_rescaled[..., i, :, :] = y_rescaled[..., i, :, :] * mod.scale + mod.mean
     return y_rescaled
+
+
+def _rescale_y_batched(
+    y: torch.Tensor, reverse_modules: list, batch_size: int = 64
+) -> torch.Tensor:
+    """Rescale normalized y values back to original space in CPU batches.
+
+    Processes the tensor in chunks along dim-0 to avoid OOM when the full
+    tensor is too large to clone at once.
+
+    Args:
+        y: Normalized tensor with shape (N, ..., c, x, y) on CPU.
+        reverse_modules: List of ReverseAffineTransform modules, one per channel.
+        batch_size: Number of samples to rescale at a time.
+
+    Returns:
+        Rescaled tensor (CPU) in original space, same shape as input.
+    """
+    n = y.shape[0]
+    out = torch.empty_like(y)
+    for start in trange(0, n, batch_size, desc="Rescaling predictions"):
+        end = min(start + batch_size, n)
+        chunk = y[start:end].clone()
+        for i, mod in enumerate(reverse_modules):
+            chunk[..., i, :, :] = chunk[..., i, :, :] * mod.scale + mod.mean
+        out[start:end] = chunk
+    return out
+
+
+def _build_grid_coords() -> tuple[np.ndarray, np.ndarray]:
+    """Build rotated longitude/latitude coordinate arrays from the grid definition.
+
+    Returns:
+        Tuple of (rlon, rlat) coordinate arrays.
+    """
+    rlon = np.arange(GRID_XSIZE) * GRID_XINC + GRID_XFIRST
+    rlat = np.arange(GRID_YSIZE) * GRID_YINC + GRID_YFIRST
+    return rlon, rlat
+
+
+def _load_ground_truth_from_samples(
+    samples: list,
+    verbose: bool = False,
+) -> torch.Tensor:
+    """Load raw ground truth tensors directly from dataset sample rea_paths.
+
+    This avoids the overhead of a DataLoader and guarantees identical ordering
+    to the predictions since we iterate samples in sequential order.
+
+    Args:
+        samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+        verbose: Whether to show progress bar.
+
+    Returns:
+        Tensor of shape [N, c, x, y] with raw (unscaled) ground truth.
+    """
+    y_list = []
+    for sample in tqdm(
+        samples, desc="Loading raw ground truth from rea files", disable=not verbose
+    ):
+        rea_path = sample[1]
+        rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
+        y_list.append(rea)
+    return torch.stack(y_list, dim=0)  # shape [N, c, x, y]
+
+
+def _predictions_to_xarray(
+    predictions: torch.Tensor,
+    samples: list,
+    y_select_variables: list[str],
+) -> xr.Dataset:
+    """Convert prediction tensor to an xarray Dataset with proper coordinates.
+
+    Args:
+        predictions: Tensor of shape [N, n_samples, c, x, y] in original space.
+        samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+        y_select_variables: List of target variable names.
+
+    Returns:
+        xr.Dataset with predictions and coordinate labels.
+    """
+    rlon, rlat = _build_grid_coords()
+
+    # Extract metadata from samples
+    init_dates = np.array([s[2] for s in samples])  # np.datetime64
+    leadtimes = np.array([s[3] for s in samples])  # np.timedelta64
+    valid_times = init_dates + leadtimes
+
+    n_samples = predictions.shape[1]
+
+    pred_np = predictions.cpu().numpy()
+
+    ds = xr.Dataset(
+        {
+            "prediction": xr.DataArray(
+                data=pred_np,
+                dims=["time", "sample", "variable", "rlon", "rlat"],
+                coords={
+                    "time": valid_times,
+                    "sample": np.arange(n_samples),
+                    "variable": y_select_variables,
+                    "rlon": rlon,
+                    "rlat": rlat,
+                },
+            ),
+        },
+        attrs={
+            "grid_mapping_name": "rotated_latitude_longitude",
+            "grid_north_pole_longitude": -170.0,
+            "grid_north_pole_latitude": 40.0,
+            "description": "Ensemble predictions on ICON rotated lat/lon grid",
+        },
+    )
+    # Add init_date and leadtime as non-dimension coordinates
+    ds = ds.assign_coords(
+        init_date=("time", init_dates),
+        leadtime=("time", leadtimes),
+    )
+
+    return ds
 
 
 def compute_icon_scores_per_leadtime(
@@ -267,66 +400,34 @@ def evaluate_split(
 ) -> dict:
     """Run prediction and evaluation for a single data split on ICON data.
 
-    Ground truth (y) is loaded from the dataloader in scaled form, then both
-    predictions and ground truth are rescaled back to the original space before
+    Ground truth is loaded directly from the rea tensor files referenced in
+    dataset.samples. Predictions are rescaled to the original space before
     computing evaluation scores.
 
     Returns:
         Dict of scores per leadtime for this split.
     """
     split_config = get_split_config(split)
+    dataset = getattr(datamodule, split_config["dataset_attr"])
+    samples = dataset.samples
+    y_select_variables = list(cfg.data.y_select_variables)
 
-    # Check for cached predictions
-    predictions_path = model_dir / f"{split}_predictions.pt"
-    gt_path = model_dir / f"{split}_ground_truth.pt"
+    # Check for cached predictions (.nc format)
+    predictions_path = model_dir / f"{split}_predictions.nc"
     use_cached = predictions_path.exists() and not force_repredict
 
     if use_cached:
         log_msg(f"Loading cached predictions from {predictions_path}...", verbose)
-        predictions_rescaled = torch.load(predictions_path, weights_only=True).cuda()
+        ds = xr.open_dataset(predictions_path)
+        predictions_rescaled = torch.from_numpy(ds["prediction"].values)
+        ds.close()
 
-        # Load ground truth if it exists, otherwise collect it
-        if gt_path.exists():
-            log_msg(f"Loading cached ground truth from {gt_path}...", verbose)
-            y_rescaled = torch.load(gt_path, weights_only=True).cuda()
-        else:
-            # Collect ground truth from a dedicated eval dataloader (no shuffle)
-            log_msg("Collecting ground truth from dataloader...", verbose)
-            dataset = getattr(datamodule, split_config["dataset_attr"])
-            gt_dataloader = DataLoader(
-                dataset,
-                batch_size=datamodule.val_batch_size or datamodule.batch_size,
-                shuffle=False,
-                num_workers=datamodule.num_workers,
-                pin_memory=datamodule.pin_memory,
-                persistent_workers=datamodule.persistent_workers
-                if datamodule.num_workers > 0
-                else False,
-            )
-            y_list = []
-            for batch in tqdm(gt_dataloader, desc="Collecting ground truth"):
-                y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
-            y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
-
-            # Rescale ground truth to original space
-            reverse_modules = datamodule.y_reverseModules
-            y_rescaled = _rescale_y(y_scaled, reverse_modules).cuda()
-            del y_scaled
-            torch.cuda.empty_cache()
-
-            # Save ground truth (only once, not per model)
-            log_msg(f"Saving ground truth to {gt_path}...", verbose)
-            torch.save(y_rescaled.cpu(), gt_path)
-            y_rescaled = y_rescaled.cuda()
-            log_msg(f"Ground truth saved to {gt_path}", verbose)
+        # Load ground truth directly from rea files in dataset.samples
+        log_msg("Loading raw ground truth from dataset samples...", verbose)
+        y_original = _load_ground_truth_from_samples(samples, verbose=verbose)
     else:
         # Create a dedicated eval dataloader with shuffle=False to ensure
-        # predictions and ground truth are aligned. This is critical because:
-        # 1. The train_dataloader has shuffle=True, which would cause misalignment
-        #    between predictions and ground truth if iterated separately.
-        # 2. Even for val/test, using a single dataloader avoids potential
-        #    ordering issues from iterating the same dataloader twice.
-        dataset = getattr(datamodule, split_config["dataset_attr"])
+        # predictions align with ground truth ordering.
         eval_dataloader = DataLoader(
             dataset,
             batch_size=datamodule.val_batch_size or datamodule.batch_size,
@@ -338,33 +439,28 @@ def evaluate_split(
             else False,
         )
 
-        # Collect ground truth from the eval dataloader FIRST, before predictions,
-        # to guarantee alignment: both iterations use sequential ordering.
-        log_msg("Collecting ground truth from dataloader...", verbose)
-        y_list = []
-        for batch in tqdm(eval_dataloader, desc="Collecting ground truth"):
-            y_list.append(batch["y"])  # shape per batch: [B, c, x, y]
-        y_scaled = torch.cat(y_list, dim=0)  # shape: [N, c, x, y]
+        # Load raw ground truth directly from rea files in dataset.samples
+        # (same ordering as eval_dataloader since both use sequential access)
+        log_msg("Loading raw ground truth from dataset samples...", verbose)
+        y_original = _load_ground_truth_from_samples(samples, verbose=verbose)
 
-        # Run predictions using the same eval dataloader (sequential, no shuffle)
+        # Run predictions using the eval dataloader (sequential, no shuffle)
         log_msg(f"Running predictions on {split} split...", verbose)
         pred_list = trainer.predict(model, eval_dataloader, return_predictions=True)
         predictions = torch.cat(pred_list, dim=0)  # shape: [N, n_samples, c, x, y] # type: ignore
 
-        # Rescale both predictions and ground truth to original space
-        log_msg("Rescaling predictions and ground truth...", verbose)
+        # Rescale predictions to original space (ground truth is already in original space)
+        # Process in batches on CPU to avoid OOM (full tensor can be >11 GB).
+        log_msg("Rescaling predictions...", verbose)
+        log_msg("Predictions shape: " + str(predictions.shape), verbose)
         reverse_modules = datamodule.y_reverseModules
+        predictions_rescaled = _rescale_y_batched(predictions, reverse_modules, batch_size=64)
 
-        predictions_rescaled = _rescale_y(predictions, reverse_modules).cuda()
-        y_rescaled = _rescale_y(y_scaled, reverse_modules).cuda()
-
-        # Free memory from the original scaled tensors
-        del predictions, y_scaled
+        del predictions
         torch.cuda.empty_cache()
 
     # Extract leadtimes from dataset samples
-    dataset = getattr(datamodule, split_config["dataset_attr"])
-    timedeltas = np.array([sample[3] for sample in dataset.samples])
+    timedeltas = np.array([sample[3] for sample in samples])
 
     # Compute scores (loop over time steps to avoid OOM from pairwise expansions)
     log_msg("Computing evaluation scores...", verbose)
@@ -378,8 +474,8 @@ def evaluate_split(
     vs_pv_list, vs_full_list = [], []
 
     for i in trange(n_times, desc="Computing scores"):
-        pred_i = predictions_rescaled[i : i + 1]  # [1, n_samples, c, x, y]
-        y_i = y_rescaled[i : i + 1]  # [1, c, x, y]
+        pred_i = predictions_rescaled[i : i + 1].cuda()  # [1, n_samples, c, x, y]
+        y_i = y_original[i : i + 1].cuda()  # [1, c, x, y]
         with torch.no_grad():
             crps_list.append(crps_ens(pred_i, y_i).cpu())
             es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
@@ -462,23 +558,18 @@ def evaluate_split(
         crps_per_margin,
         energy_score_per_var_u,
         energy_score_full_u,
-        y_select_variables=list(cfg.data.y_select_variables),
+        y_select_variables=y_select_variables,
         vss_per_var=variogram_score_per_var_u if not skip_variogram else None,
         vss_complete=variogram_score_full_u if not skip_variogram else None,
         method=None,
     )
 
-    # Save predictions if requested (and they were freshly computed)
+    # Save predictions as NetCDF if requested (and they were freshly computed)
     if save_predictions and not use_cached:
-        log_msg("Saving predictions...", verbose)
-        torch.save(predictions_rescaled.cpu(), predictions_path)
+        log_msg("Saving predictions as NetCDF...", verbose)
+        ds = _predictions_to_xarray(predictions_rescaled, samples, y_select_variables)
+        ds.to_netcdf(predictions_path)
         log_msg(f"Predictions saved to {predictions_path}", verbose)
-
-    # Save ground truth only if it doesn't exist yet (shared across all models)
-    if not use_cached and not gt_path.exists():
-        log_msg("Saving ground truth...", verbose)
-        torch.save(y_rescaled.cpu(), gt_path)
-        log_msg(f"Ground truth saved to {gt_path}", verbose)
 
     return scores
 
@@ -538,7 +629,7 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
                 orig_len = len(ds.samples)
                 ds.samples = filter_samples_by_leadtimes(ds.samples, args.leadtimes)
                 log_msg(
-                    f"Filtered {attr}: {orig_len} → {len(ds.samples)} samples "
+                    f"Filtered {attr}: {orig_len} \u2192 {len(ds.samples)} samples "
                     f"(leadtimes={args.leadtimes}h)",
                     args.verbose,
                 )
@@ -577,21 +668,45 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
 
         model_kwargs[param_name] = value
 
-    model_kwargs["n_samples"] = (
-        40  # ICON has 40 ensemble members, so we want to predict 40 samples for scoring
-    )
+    # ICON has 40 ensemble members, so we want to predict 40 samples for scoring
+    model_kwargs["n_samples"] = 40
+
+    # Load checkpoint state dict to inspect td_scaling buffer sizes before
+    # constructing the model. FixedTDScaling registers lead_times/lookup_table
+    # buffers with a default size that may differ from the checkpoint (which was
+    # fitted on the actual training data). We resize the buffers to match before
+    # loading the state dict so that load_state_dict does not raise a size
+    # mismatch error.
+    try:
+        ckpt = torch.load(model_checkpoint, map_location="cpu", weights_only=True)
+    except Exception:
+        ckpt = torch.load(model_checkpoint, map_location="cpu", weights_only=False)
+    ckpt_state_dict = ckpt.get("state_dict", ckpt)
 
     try:
-        model = ModelClass.load_from_checkpoint(model_checkpoint, strict=False, **model_kwargs)  # type: ignore
-    except (pickle.UnpicklingError, TypeError):
-        model = ModelClass.load_from_checkpoint(
-            model_checkpoint,
-            weights_only=False,
-            strict=False,
-            **model_kwargs,  # type: ignore
-        )
+        model_kwargs["n_samples_predict"] = 40
+        model = ModelClass(**model_kwargs)
+    except TypeError:
+        model_kwargs.pop("n_samples_predict", None)
+        model = ModelClass(**model_kwargs)
 
-    # Fix internal_td_scaling if needed
+    # Resize internal_td_scaling buffers to match checkpoint shapes
+    if hasattr(model, "internal_td_scaling"):
+        for buf_name in ("lead_times", "lookup_table"):
+            key = f"internal_td_scaling.{buf_name}"
+            if key in ckpt_state_dict and hasattr(model.internal_td_scaling, buf_name):
+                log_msg(
+                    f"Resizing {key}: {getattr(model.internal_td_scaling, buf_name).shape}"
+                    f" -> {ckpt_state_dict[key].shape}",
+                    args.verbose,
+                )
+                model.internal_td_scaling.register_buffer(
+                    buf_name, torch.zeros_like(ckpt_state_dict[key])
+                )
+
+    model.load_state_dict(ckpt_state_dict, strict=False)
+
+    # Fix internal_td_scaling metadata if needed
     if hasattr(model, "internal_td_scaling"):
         td_scaling = model.internal_td_scaling
         if not getattr(td_scaling, "is_fitted", False):

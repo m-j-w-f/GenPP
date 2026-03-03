@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--tags",
         nargs="+",
         type=str,
-        default=["raw_ensemble", "icon", "final"],
+        default=["raw_ensemble", "icon", "final", "baseline"],
         help="Tags to associate with the wandb run.",
     )
     return parser.parse_args()
@@ -91,7 +91,7 @@ def main(args):
         score = row["score"]
 
         result.setdefault(split, {}).setdefault(metric, {})[leadtime] = score
-
+    print(result)
     run = wandb.init(
         project="genpp",
         name="icon-raw-ensemble-baseline-scores",

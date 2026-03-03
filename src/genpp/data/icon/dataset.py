@@ -320,7 +320,9 @@ class ForecastDataset(Dataset):
         fc_path, rea_path, _, leadtime = self.samples[idx]
 
         # Load tensors (new unified format)
-        fc_tensor = torch.load(fc_path, weights_only=True)  # unified tensor with all features [c_total, x, y]
+        fc_tensor = torch.load(
+            fc_path, weights_only=True
+        )  # unified tensor with all features [c_total, x, y]
         rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
 
         # Extract features using indices from metadata
@@ -429,6 +431,47 @@ class ForecastDataset(Dataset):
             "y": rea,
             "timedelta": timedelta_normalized,
         }
+
+
+class RawGroundTruthDataset(Dataset):
+    """A minimal dataset that returns raw (unscaled, unpadded) ground truth.
+
+    This dataset loads the same rea tensor files as ForecastDataset but skips
+    all normalization and transforms. It uses the same samples list to guarantee
+    identical ordering when iterated with shuffle=False.
+
+    Intended for evaluation, where ground truth should be in the original data
+    space to avoid issues with reversing normalization and padding.
+    """
+
+    def __init__(
+        self,
+        samples: list[tuple[Path, Path, np.datetime64, np.timedelta64]],
+    ) -> None:
+        """Initialize the RawGroundTruthDataset.
+
+        Args:
+            samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+                Must be the same samples list used by the corresponding
+                ForecastDataset to guarantee identical ordering.
+        """
+        self.samples = samples
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        """Load raw ground truth tensor without any normalization or transforms.
+
+        Args:
+            idx: Sample index.
+
+        Returns:
+            Dict with key 'y' containing the raw rea tensor of shape [c, x, y].
+        """
+        _, rea_path, _, _ = self.samples[idx]
+        rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
+        return {"y": rea}
 
 
 # %%
@@ -626,10 +669,11 @@ class ForecastDataModule(L.LightningDataModule):
                     # Calculate valid_time
                     valid_time = init_date + leadtime
                 elif len(parts) == 2:
-                    # REA file format: rea_YYYYMMDD.pt
-                    date_str = parts[1]  # YYYYMMDD
-                    # For REA files, the date is the valid_time (no leadtime)
-                    valid_time = np.datetime64(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+                    # REA file format: rea_YYYYMMDDHH.pt
+                    date_str = parts[1]  # YYYYMMDDHH
+                    valid_time = np.datetime64(
+                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T{date_str[8:10]}:00:00"
+                    )
                 else:
                     continue
 
@@ -1326,7 +1370,10 @@ class ForecastDataModule(L.LightningDataModule):
 
                 # Calculate target date
                 target_date = init_date + leadtime
-                target_date_str = str(target_date)[:10].replace("-", "")  # YYYYMMDD
+                # Format as YYYYMMDDHH to match rea tensor filenames
+                target_date_str = (
+                    str(target_date)[:13].replace("-", "").replace("T", "")
+                )  # YYYYMMDDHH
 
                 # Build corresponding rea path
                 rea_path = self.rea_tensor_dir / f"rea_{target_date_str}.pt"
@@ -1395,6 +1442,44 @@ class ForecastDataModule(L.LightningDataModule):
         if self.multiprocessing_context is not None and self.num_workers > 0:
             dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context  # type: ignore
         return DataLoader(self.test_dataset, **dataloader_kwargs)  # type: ignore
+
+    def raw_gt_dataloader(self, split: str) -> DataLoader:
+        """Create a DataLoader that yields raw (unscaled, unpadded) ground truth.
+
+        Uses the same samples list as the corresponding ForecastDataset to
+        guarantee identical ordering when iterated with shuffle=False.
+
+        Args:
+            split: One of 'train', 'val', or 'test'.
+
+        Returns:
+            DataLoader yielding dicts with key 'y' (raw rea tensors).
+        """
+        dataset_attr = {"train": "train_dataset", "val": "val_dataset", "test": "test_dataset"}
+        if split not in dataset_attr:
+            raise ValueError(f"Unknown split '{split}'. Must be one of 'train', 'val', 'test'.")
+
+        forecast_dataset = getattr(self, dataset_attr[split])
+        raw_dataset = RawGroundTruthDataset(samples=forecast_dataset.samples)
+
+        batch_size = {
+            "train": self.train_batch_size,
+            "val": self.val_batch_size,
+            "test": self.test_batch_size,
+        }[split]
+
+        dataloader_kwargs: dict = {
+            "batch_size": batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(raw_dataset, **dataloader_kwargs)  # type: ignore
 
     @property
     def y_reverseModules(self) -> list[ReverseAffineTransform]:

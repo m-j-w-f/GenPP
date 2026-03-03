@@ -29,21 +29,24 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+import xarray as xr
 from einops import reduce
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from scipy.stats import norm, truncnorm
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from genpp import BASE_DIR
 from genpp.configs import register_resolvers
 from genpp.data.icon import DATA_DIR
-from genpp.eval.icon.raw_ensemble import load_ensemble_tensor
 from genpp.eval.icon.icon_cgm_predict_eval import (
+    _load_ground_truth_from_samples,
+    _predictions_to_xarray,
     _rescale_y,
     compute_icon_scores_per_leadtime,
     filter_samples_by_leadtimes,
     get_split_config,
 )
+from genpp.eval.icon.icon_raw_ensemble import load_ensemble_tensor
 from genpp.eval.utils import (
     log_scores,
     save_scores_df,
@@ -456,14 +459,14 @@ def compute_ecc_scores(
             model=method_label,
             metric="VariogramScore",
             variables=y_select_variables,
-            scores=vs_per_var,
+            scores=vs_per_var,  # type: ignore
         )
         log_scores(
             file=score_file,
             model=method_label,
             metric="VariogramScore",
             variables=["combined"],
-            scores=vs_full,
+            scores=vs_full,  # type: ignore
         )
 
     # Per-leadtime scores
@@ -522,13 +525,15 @@ def evaluate_split(
     dataset = getattr(datamodule, split_config["dataset_attr"])
     y_select_variables = list(cfg.data.y_select_variables)
 
-    # Check for cached predictions
-    predictions_path = model_dir / f"{split}_predictions_ecc.pt"
+    # Check for cached predictions (.nc format)
+    predictions_path = model_dir / f"{split}_predictions_ecc.nc"
     use_cached = predictions_path.exists() and not force_repredict
 
     if use_cached:
         log_msg(f"Loading cached ECC predictions from {predictions_path}...", verbose)
-        ecc_preds_rescaled = torch.load(predictions_path, weights_only=True)
+        ds = xr.open_dataset(predictions_path)
+        ecc_preds_rescaled = torch.from_numpy(ds["prediction"].values)
+        ds.close()
     else:
         # Step 1: Run model forward pass
         log_msg(f"Running predictions on {split} split...", verbose)
@@ -555,30 +560,17 @@ def evaluate_split(
         ecc_preds_rescaled = _rescale_y(ecc_preds, reverse_modules)
         del ecc_preds
 
-        # Save predictions if requested
+        # Save predictions as NetCDF if requested
         if save_predictions:
             log_msg(f"Saving ECC predictions to {predictions_path}...", verbose)
-            torch.save(ecc_preds_rescaled.cpu(), predictions_path)
+            ds = _predictions_to_xarray(ecc_preds_rescaled, dataset.samples, y_select_variables)
+            ds.to_netcdf(predictions_path)
             log_msg(f"ECC predictions saved to {predictions_path}", verbose)
 
-    # Collect and rescale ground truth
-    gt_path = model_dir / f"{split}_ground_truth.pt"
-    if gt_path.exists():
-        log_msg(f"Loading cached ground truth from {gt_path}...", verbose)
-        y_rescaled = torch.load(gt_path, weights_only=True)
-    else:
-        log_msg("Collecting ground truth from dataloader...", verbose)
-        y_list = []
-        for batch in tqdm(dataloader, desc="Collecting ground truth"):
-            y_list.append(batch["y"])
-        y_scaled = torch.cat(y_list, dim=0)
-
-        reverse_modules = datamodule.y_reverseModules
-        y_rescaled = _rescale_y(y_scaled, reverse_modules)
-        del y_scaled
-
-        log_msg(f"Saving ground truth to {gt_path}...", verbose)
-        torch.save(y_rescaled.cpu(), gt_path)
+    # Load ground truth directly from rea files in dataset.samples
+    # (already in original space, no rescaling needed)
+    log_msg("Loading raw ground truth from dataset samples...", verbose)
+    y_rescaled = _load_ground_truth_from_samples(dataset.samples, verbose=verbose)
 
     # Extract leadtimes from dataset samples
     timedeltas = np.array([sample[3] for sample in dataset.samples])

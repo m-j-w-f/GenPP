@@ -31,7 +31,7 @@
 #============================================
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
-#PBS -N genpp_gpu_job_fast
+#PBS -N train_fm_fast
 #PBS -q gp_norm_dgx
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=1
@@ -39,9 +39,9 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=07:00:00
+#PBS -l elapstim_req=04:00:00
 #PBS -j o
-#PBS -o logs/fmuvit_fast_%r.log
+#PBS -o logs/eval_cgm_final_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here
@@ -49,57 +49,113 @@
 
 # Train
 
-# FM UNET - DIR
-#COMMAND='pixi run -e gpu python src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.norm_mode=spatial data.dataloader.num_workers=10 data.batch_size=32 "model.backbone.channels=[64, 128]" model.backbone.num_residual_layers=2 model.optimizer.lr=0.001'
+#FM UVit - DIR
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_uvit model=fm_uvit_direct \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=2 data.spatial.padding.y_bottom=2 \
+# model.backbone.depth=8 model.backbone.num_heads=8 model.backbone.embed_dim=512 model.backbone.patch_size_height=8 model.backbone.patch_size_width=8 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
 
-# FM UVIT - IND
-COMMAND='pixi run -e gpu python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise model.internal_td_scaling=std model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.norm_mode=spatial data.dataloader.num_workers=10 data.batch_size=8 model.backbone.depth=2 model.backbone.embed_dim=128 model.optimizer.lr=0.001'
+#FM UVit - IND
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_uvit model=fm_uvit_noise \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=2 data.spatial.padding.y_bottom=2 \
+# model.internal_td_scaling=abs \
+# model.backbone.depth=8 model.backbone.num_heads=8 model.backbone.embed_dim=512 model.backbone.patch_size_height=8 model.backbone.patch_size_width=8 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
 
 
+# FM UNet - DIR
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_unet model=fm_unet_direct \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=0 data.spatial.padding.y_bottom=0 \
+# model.backbone.channels=[64,128] model.backbone.num_residual_layers=2 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+# FM UNet - IND
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_unet model=fm_unet_noise \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=0 data.spatial.padding.y_bottom=0 \
+# model.internal_td_scaling=abs \
+# model.backbone.channels=[64,128] model.backbone.num_residual_layers=2 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+# LNGM - PES (Done)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_chen model=cnn_chen_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=8 data.val_batch_size=8 data.test_batch_size=8 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.decoder_unet_channels=[16,32] \
+# model.std_unet_channels=[32,64,128] \
+# model.internal_td_scaling=abs \
+# model/loss_fn=multiscale_energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant"
+
+# ENGREESSION - PES (Done)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_engression model=cnn_engression_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.channels=[16,32] \
+# model.internal_td_scaling=learned \
+# model/loss_fn=multiscale_energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant \
+# trainer.accumulate_grad_batches=2"
+
+# DRN (Done)
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_drn data=icon_full_minmax \
+# data.dataloader.num_workers=10 \
+# model/lr_scheduler=reduceLROnPlateau \
+# data.batch_size=32 \
+# model.hidden_channels=[128,64] \
+# model.optimizer.lr=0.0001 \
+# data.norm_mode=per_variable"
+
+# EMOS
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_emos \
+# data=icon_cut \
+# model/lr_scheduler=reduceLROnPlateau \
+# data.batch_size=8 \
+# model.optimizer.lr=0.001 \
+# data.norm_mode=spatial"
 
 # Evaluation
 
-# EMOS
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/3zggrfqs --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# EMOS (DONE)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_copulas_eval.py --run-path feik/genpp/fm8sfy6b --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # DRN
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_copulas_eval.py --run-path feik/genpp/db1bgpg5 --split test -v --save-predictions --batch-size 4 --skip-variogram"
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_copulas_eval.py --run-path feik/genpp/qmge5ywq --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
-# LNGM
-# LNGM (MSPES)
-#COMMAND="pixi run -e gpu python src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o --split test -v --save-predictions --batch-size 4"
-# LNGM (MSES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/5wv59jka --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# LNGM (PES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/rc4yel5e --split test -v --save-predictions --batch-size --skip-variogram4"
-# LNGM (ES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# LNGM/Engression Eval (PES)
+COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/9c6zdg7p feik/genpp/q6sdblyf --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
-# ALL LNGM
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/j2rg4w0o feik/genpp/5wv59jka feik/genpp/rc4yel5e feik/genpp/fngro7wf --split test -v --save-predictions --batch-size 4 --skip-variogram"
-
-# Engression
-# ENG (ES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# ENG (PES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/7pm11esx --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# ENG (MSPES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# ENG (MSES)
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/2xbli9p2 --split test -v --save-predictions --batch-size 4 --skip-variogram"
-
-# ALL Engression
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9o3mnwa8 feik/genpp/7pm11esx feik/genpp/xzafsu8a --split test -v --save-predictions --batch-size 4 --skip-variogram"
 
 # FM
-# UNET - IND
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/ibbb3wdk --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# UNET - DIR
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/38tym6f0 --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# UViT - IND
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/zo2uhaev --split test -v --save-predictions --batch-size 4 --skip-variogram"
-# UViT - DIR
-#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon_predict_eval.py --run-path feik/genpp/9au1bayh --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# UNET - IND (Started)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/n5klic9q --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# UNET - DIR (DONE)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/ql4z0tt0 --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# UViT - IND (TODO)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/24yqcvzc --split test -v --save-predictions --batch-size 8 --skip-variogram"
+# UViT - DIR (DONE)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/2axfzlre --split test -v --save-predictions --batch-size 8 --skip-variogram"
 
 
 #============================================
@@ -234,7 +290,7 @@ echo "=============================================="
 
 # Run the provided command and capture exit status for informative error messages
 set +e  # Disable exit on error temporarily to capture the exit code
-eval "${COMMAND}"
+$COMMAND
 CMD_EXIT_CODE=$?
 set -e  # Re-enable exit on error
 

@@ -20,14 +20,14 @@ spatial:
 # Note: ICON ForecastDataModule handles splits internally based on valid_time
 splits:
   train:
-    start: "2019-01-01"
-    end: "2022-09-01"
+    start: "2019-01-15"
+    end: "2020-11-22"
   val:
-    start: "2022-09-02"
-    end: "2023-09-01"
+    start: "2020-11-23"
+    end: "2021-11-22"
   test:
-    start: "2023-09-02"
-    end: "2024-09-01"
+    start: "2021-11-23"
+    end: "2022-11-22"
 
 # ============================================================================
 # VARIABLE SELECTION

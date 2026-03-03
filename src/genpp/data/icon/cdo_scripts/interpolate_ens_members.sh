@@ -1,31 +1,37 @@
 #!/bin/bash -l
 
-#PBS -N icon_eu_eps_ens_members     # Job name (will be modified per month)
+#PBS -N icon_eu_eps_ens_members     # Job name
 #PBS -S /bin/bash                    # set the executing shell
 #PBS -q rc_big                       # queue name
 #PBS -l cpunum_job=4                 # use 4 CPUs (for CDO OpenMP)
 #PBS -l memsz_job=8gb                # total memory for job
 #PBS -l vmemsz_job=8gb               # total virtual memory
-#PBS -l elapstim_req=03:00:00        # max runtime: 3 hours (per month)
-#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs/icon_ens_members_${YEAR}${MONTH}.log
+#PBS -l elapstim_req=03:00:00        # max runtime: 3 hours
+#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs/icon_ens_members.log
 #PBS -j o                            # concatenate stderr and stdout
 
 # This script saves all 40 ensemble members per date/leadtime into a single .nc file.
 # Only the 2 target variables (T_2M, VMAX_10M) are selected and remapped to the target grid.
 # Output files are named: ens_{date}_{leadtime}.nc
 
-# Year and Month should be env vars. DAY is optional (if set, only that day is processed).
-if [ -z "$YEAR" ] || [ -z "$MONTH" ]; then
-    echo "ERROR: Year and month required as environment variables"
-    echo "Usage: YEAR=YYYY MONTH=MM [DAY=DD] $0"
+# --- Read task parameters from task list using sub-request number ---
+if [ -z "$TASK_LIST" ] || [ -z "$PBS_SUBREQNO" ]; then
+    echo "ERROR: TASK_LIST and PBS_SUBREQNO must be set."
+    echo "This script is meant to be submitted as an array job."
     exit 1
 fi
 
-if [ -n "$DAY" ]; then
-    echo "Processing single day: $YEAR-$MONTH-$DAY"
-else
-    echo "Processing year: $YEAR, month: $MONTH"
+TASK_LINE=$(sed -n "${PBS_SUBREQNO}p" "$TASK_LIST")
+if [ -z "$TASK_LINE" ]; then
+    echo "ERROR: No task found for sub-request number ${PBS_SUBREQNO}"
+    exit 1
 fi
+
+YEAR=$(echo $TASK_LINE | awk '{print $1}')
+MONTH=$(echo $TASK_LINE | awk '{print $2}')
+LEADTIME=$(echo $TASK_LINE | awk '{print $3}')
+
+echo "Sub-request ${PBS_SUBREQNO}: Processing year=$YEAR, month=$MONTH, leadtime=${LEADTIME}h"
 
 # Set number of OpenMP threads for CDO
 export OMP_NUM_THREADS=4
@@ -45,87 +51,79 @@ output_dir=/hpc/uwork/extmfeik/data
 tmpDir_ens=${output_dir}/ens
 mkdir -p $tmpDir_ens
 
-echo "Saving ensemble members..."
+echo "Saving ensemble members for leadtime ${LEADTIME}h..."
 
-# For each lead time
-for leadtime in 24 48 72 96 120; do
-    echo "Processing lead time ${leadtime}h..."
+leadtime=$LEADTIME
 
-    # Find all unique dates for this specific year and month (only 00 initialization)
-    # If DAY is set, only search that specific day
-    if [ -n "$DAY" ]; then
-        searchDir=${dataDir}/${YEAR}/${MONTH}/${DAY}/00
-    else
-        searchDir=${dataDir}/${YEAR}/${MONTH}/*/00
-    fi
-    dates=$(find ${searchDir} -type f 2>/dev/null \
-        -regextype posix-extended \
-        -regex ".*_s_${leadtime}_.*\.grib" \
-        -printf "%P\n" | \
-        grep -oP '\d{10}' | sort -u)
+# Find all unique dates for this specific year and month (only 00 initialization)
+searchDir=${dataDir}/${YEAR}/${MONTH}/*/00
+dates=$(find ${searchDir} -type f 2>/dev/null \
+    -regextype posix-extended \
+    -regex ".*_s_${leadtime}_.*\.grib" \
+    -printf "%P\n" | \
+    grep -oP '\d{10}' | sort -u)
 
-    if [ -z "$dates" ]; then
-        echo "No data found for ${YEAR}-${MONTH}, leadtime ${leadtime}h"
+if [ -z "$dates" ]; then
+    echo "No data found for ${YEAR}-${MONTH}, leadtime ${leadtime}h"
+    exit 0
+fi
+
+# For each date, save all ensemble members
+for date in $dates; do
+
+    # Check if this date/leadtime combination has already been computed
+    if [ -f "${tmpDir_ens}/ens_${date}_${leadtime}.nc" ]; then
+        echo "Skipping ${date} (leadtime ${leadtime}h) - already computed"
         continue
     fi
 
-    # For each date, save all ensemble members
-    for date in $dates; do
+    # Extract date components (date format: YYYYMMDDHH)
+    year=${date:0:4}
+    month=${date:4:2}
+    day=${date:6:2}
+    hour=${date:8:2}
 
-        # Check if this date/leadtime combination has already been computed
-        if [ -f "${tmpDir_ens}/ens_${date}_${leadtime}.nc" ]; then
-            echo "Skipping ${date} (leadtime ${leadtime}h) - already computed"
-            continue
-        fi
+    # Skip dates at or after the grid switch date
+    if [ $date -ge $switchDate ]; then
+        echo "Skipping ${date} (leadtime ${leadtime}h) - at or after switch date ${switchDate}"
+        continue
+    fi
+    intWeights=$intWeights_old
 
-        # Extract date components (date format: YYYYMMDDHH)
-        year=${date:0:4}
-        month=${date:4:2}
-        day=${date:6:2}
-        hour=${date:8:2}
+    # Construct the specific directory path
+    dateDir=${dataDir}/${year}/${month}/${day}/${hour}
 
-        # Select appropriate interpolation weights based on date
-        if [ $date -lt $switchDate ]; then
-            intWeights=$intWeights_old
-        else
-            intWeights=$intWeights_new
-        fi
+    # Check if directory exists
+    if [ ! -d "$dateDir" ]; then
+        continue
+    fi
 
-        # Construct the specific directory path
-        dateDir=${dataDir}/${year}/${month}/${day}/${hour}
+    # Get all member files for this date and lead time (only in this directory!)
+    memberFiles=$(find ${dateDir} -maxdepth 1 -type f -name "*_${date}_mem_*_s_${leadtime}_*.grib" | sort -V)
 
-        # Check if directory exists
-        if [ ! -d "$dateDir" ]; then
-            continue
-        fi
+    if [ -z "$memberFiles" ]; then
+        continue
+    fi
 
-        # Get all member files for this date and lead time (only in this directory!)
-        memberFiles=$(find ${dateDir} -maxdepth 1 -type f -name "*_${date}_mem_*_s_${leadtime}_*.grib" | sort -V)
+    echo "Saving ensemble members for ${date} (leadtime ${leadtime}h)..."
 
-        if [ -z "$memberFiles" ]; then
-            continue
-        fi
-
-        echo "Saving ensemble members for ${date} (leadtime ${leadtime}h)..."
-
-        # Process each member: select T_2M and VMAX_10M, remap to target grid
-        tmpMemDir=$(mktemp -d)
-        memIdx=0
-        for memberFile in $memberFiles; do
-            cdo -f nc4 -z zip_6 \
-                remap,$targetDomain,$intWeights \
-                -selname,T_2M,VMAX_10M \
-                $memberFile \
-                ${tmpMemDir}/mem_$(printf "%03d" $memIdx).nc
-            memIdx=$((memIdx + 1))
-        done
-
-        # Concatenate all processed members into a single file
-        cdo -O cat ${tmpMemDir}/mem_*.nc ${tmpDir_ens}/ens_${date}_${leadtime}.nc
-
-        # Clean up temporary member files
-        rm -rf $tmpMemDir
+    # Process each member: select T_2M and VMAX_10M, remap to target grid
+    tmpMemDir=$(mktemp -d)
+    memIdx=0
+    for memberFile in $memberFiles; do
+        cdo -f nc4 -z zip_6 \
+            remap,$targetDomain,$intWeights \
+            -selname,T_2M,VMAX_10M \
+            $memberFile \
+            ${tmpMemDir}/mem_$(printf "%03d" $memIdx).nc
+        memIdx=$((memIdx + 1))
     done
+
+    # Concatenate all processed members into a single file
+    cdo -O cat ${tmpMemDir}/mem_*.nc ${tmpDir_ens}/ens_${date}_${leadtime}.nc
+
+    # Clean up temporary member files
+    rm -rf $tmpMemDir
 done
 
-echo "Done processing ${YEAR}-${MONTH}!"
+echo "Done processing ${YEAR}-${MONTH}, leadtime ${LEADTIME}h!"
