@@ -127,6 +127,12 @@ def compute_scores_per_leadtime(
     ess_complete,
     vss_per_var=None,
     vss_complete=None,
+    pw_es_per_var=None,
+    pw_es_complete=None,
+    ms_es_per_var=None,
+    ms_es_complete=None,
+    mspw_es_per_var=None,
+    mspw_es_complete=None,
     method: str | None = None,
 ):
     """Compute scores per lead time for a given method.
@@ -140,6 +146,12 @@ def compute_scores_per_leadtime(
             (time, feature). Defaults to None.
         vss_complete (torch.Tensor, optional): Variogram scores complete with shape (time,).
             Defaults to None.
+        pw_es_per_var (torch.Tensor, optional): Patchwise Energy scores per variable.
+        pw_es_complete (torch.Tensor, optional): Patchwise Energy scores complete.
+        ms_es_per_var (torch.Tensor, optional): Multiscale Energy scores per variable.
+        ms_es_complete (torch.Tensor, optional): Multiscale Energy scores complete.
+        mspw_es_per_var (torch.Tensor, optional): Multiscale Patchwise Energy scores per variable.
+        mspw_es_complete (torch.Tensor, optional): Multiscale Patchwise Energy scores complete.
         method (str | None, optional): Method name for the scores. Defaults to None.
 
     Returns:
@@ -167,6 +179,22 @@ def compute_scores_per_leadtime(
                 "VariogramScore_10m_windspeed": {},
             }
         )
+
+    # Add optional new energy score variants
+    optional_scores = [
+        (pw_es_per_var, pw_es_complete, "PatchwiseEnergyScore"),
+        (ms_es_per_var, ms_es_complete, "MultiScaleEnergyScore"),
+        (mspw_es_per_var, mspw_es_complete, "MultiScalePatchwiseEnergyScore"),
+    ]
+    for pv, comp, name in optional_scores:
+        if pv is not None and comp is not None:
+            scores_delta[method].update(
+                {
+                    f"{name}_combined": {},
+                    f"{name}_2m_temperature": {},
+                    f"{name}_10m_windspeed": {},
+                }
+            )
 
     for delta, delta_str in zip(td, td_str):
         mask = prediction_timedeltas == delta
@@ -206,6 +234,19 @@ def compute_scores_per_leadtime(
             scores_delta[method]["VariogramScore_10m_windspeed"][delta_str] = (
                 vss_per_var_delta.mean(dim=0)[1].item()
             )
+
+        for pv, comp, name in optional_scores:
+            if pv is not None and comp is not None:
+                pv_delta = pv[mask]
+                comp_delta = comp[mask]
+                scores_delta[method][f"{name}_combined"][delta_str] = comp_delta.mean(dim=0).item()
+                scores_delta[method][f"{name}_2m_temperature"][delta_str] = pv_delta.mean(dim=0)[
+                    0
+                ].item()
+                scores_delta[method][f"{name}_10m_windspeed"][delta_str] = pv_delta.mean(dim=0)[
+                    1
+                ].item()
+
     if method is None:
         return scores_delta[None]
     return scores_delta

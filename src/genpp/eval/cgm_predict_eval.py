@@ -44,7 +44,14 @@ from genpp.eval.utils import (
     save_scores_df,
     update_wandb_run,
 )
-from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
+from genpp.models.scores import (
+    EnergyScore,
+    EnsembleCRPS,
+    MultiScaleEnergyScore,
+    MultiScalePatchwiseEnergyScore,
+    PatchwiseEnergyScore,
+    VariogramScore,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -271,10 +278,33 @@ def evaluate_split(
     log_msg("Computing evaluation scores...", verbose)
     crps_ens = EnsembleCRPS().cuda()
     es = EnergyScore(clamp=False).cuda()
+    pw_es = PatchwiseEnergyScore(
+        beta=1.0, clamp=True, patch_size=3, normalize=True, unbiased=True
+    ).cuda()
+    ms_es = MultiScaleEnergyScore(
+        beta=1.0,
+        clamp=True,
+        blur_kernel_sizes=[3, 7],
+        scale_weights=[1.0, 1.0, 1.0],
+        normalize=True,
+        unbiased=True,
+    ).cuda()
+    mspw_es = MultiScalePatchwiseEnergyScore(
+        beta=1.0,
+        clamp=True,
+        blur_kernel_sizes=[3, 7],
+        scale_weights=[1.0, 1.0, 1.0],
+        patch_size=3,
+        normalize=True,
+        unbiased=True,
+    ).cuda()
     vs = VariogramScore(p=0.5).cuda()
 
     n_times = predictions_rescaled.shape[0]
     crps_list, es_pv_list, es_full_list = [], [], []
+    pw_es_pv_list, pw_es_full_list = [], []
+    ms_es_pv_list, ms_es_full_list = [], []
+    mspw_es_pv_list, mspw_es_full_list = [], []
     vs_pv_list, vs_full_list = [], []
 
     for i in range(n_times):
@@ -284,6 +314,12 @@ def evaluate_split(
             crps_list.append(crps_ens(pred_i, y_i).cpu())
             es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
             es_full_list.append(es(pred_i, y_i, mode="complete").cpu())
+            pw_es_pv_list.append(pw_es(pred_i, y_i, mode="per_var").cpu())
+            pw_es_full_list.append(pw_es(pred_i, y_i, mode="complete").cpu())
+            ms_es_pv_list.append(ms_es(pred_i, y_i, mode="per_var").cpu())
+            ms_es_full_list.append(ms_es(pred_i, y_i, mode="complete").cpu())
+            mspw_es_pv_list.append(mspw_es(pred_i, y_i, mode="per_var").cpu())
+            mspw_es_full_list.append(mspw_es(pred_i, y_i, mode="complete").cpu())
             if not skip_variogram:
                 vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
@@ -291,6 +327,12 @@ def evaluate_split(
     crps_per_margin = torch.cat(crps_list, dim=0)
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
     energy_score_full_u = torch.cat(es_full_list, dim=0)
+    pw_es_per_var_u = torch.cat(pw_es_pv_list, dim=0)
+    pw_es_full_u = torch.cat(pw_es_full_list, dim=0)
+    ms_es_per_var_u = torch.cat(ms_es_pv_list, dim=0)
+    ms_es_full_u = torch.cat(ms_es_full_list, dim=0)
+    mspw_es_per_var_u = torch.cat(mspw_es_pv_list, dim=0)
+    mspw_es_full_u = torch.cat(mspw_es_full_list, dim=0)
     variogram_score_per_var_u = torch.cat(vs_pv_list, dim=0) if not skip_variogram else None
     variogram_score_full_u = torch.cat(vs_full_list, dim=0) if not skip_variogram else None
 
@@ -300,6 +342,12 @@ def evaluate_split(
     crps_full = reduce(crps_per_margin, "t d h w -> 1", "mean")
     energy_score_per_var = reduce(energy_score_per_var_u, "t d -> d", "mean")
     energy_score_full = reduce(energy_score_full_u, "t -> 1", "mean")
+    pw_es_per_var = reduce(pw_es_per_var_u, "t d -> d", "mean")
+    pw_es_full = reduce(pw_es_full_u, "t -> 1", "mean")
+    ms_es_per_var = reduce(ms_es_per_var_u, "t d -> d", "mean")
+    ms_es_full = reduce(ms_es_full_u, "t -> 1", "mean")
+    mspw_es_per_var = reduce(mspw_es_per_var_u, "t d -> d", "mean")
+    mspw_es_full = reduce(mspw_es_full_u, "t -> 1", "mean")
 
     if not skip_variogram:
         variogram_score_per_var = reduce(variogram_score_per_var_u, "t d -> d", "mean")
@@ -337,6 +385,48 @@ def evaluate_split(
         variables=["combined"],
         scores=energy_score_full,
     )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="PatchwiseEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=pw_es_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="PatchwiseEnergyScore",
+        variables=["combined"],
+        scores=pw_es_full,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScaleEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=ms_es_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScaleEnergyScore",
+        variables=["combined"],
+        scores=ms_es_full,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=mspw_es_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=["combined"],
+        scores=mspw_es_full,
+    )
 
     if not skip_variogram:
         log_scores(
@@ -363,6 +453,12 @@ def evaluate_split(
         energy_score_full_u,
         variogram_score_per_var_u if not skip_variogram else None,
         variogram_score_full_u if not skip_variogram else None,
+        pw_es_per_var=pw_es_per_var_u,
+        pw_es_complete=pw_es_full_u,
+        ms_es_per_var=ms_es_per_var_u,
+        ms_es_complete=ms_es_full_u,
+        mspw_es_per_var=mspw_es_per_var_u,
+        mspw_es_complete=mspw_es_full_u,
         method=None,
     )
 
