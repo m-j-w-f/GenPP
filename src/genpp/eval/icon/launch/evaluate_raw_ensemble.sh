@@ -6,7 +6,7 @@
 #PBS -l cpunum_job=4               # CPUs for torch/xarray work
 #PBS -l memsz_job=32gb             # total memory for job
 #PBS -l vmemsz_job=64gb            # total virtual memory
-#PBS -l elapstim_req=00:10:00      # max runtime per month
+#PBS -l elapstim_req=00:30:00      # max runtime per month
 #PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs/raw_ensemble_${YEAR}${MONTH}.log
 #PBS -j o                          # concatenate stderr and stdout
 
@@ -84,7 +84,7 @@ mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/eval/icon/launch/logs
 
 cd "$REPO_ROOT" || exit 1
 eval "$(pixi shell-hook)"
-pixi run python src/genpp/eval/icon/raw_ensemble.py --year "$YEAR" --month "$MONTH" ${extra_args}
+pixi run python src/genpp/eval/icon/icon_raw_ensemble.py --year "$YEAR" --month "$MONTH" ${extra_args}
 EXIT_CODE=$?
 
 echo "=========================================="

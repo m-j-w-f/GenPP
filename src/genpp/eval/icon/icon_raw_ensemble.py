@@ -22,7 +22,7 @@ from genpp.data.icon import DATA_DIR
 from genpp.models.scores import EnergyScore, EnsembleCRPS
 
 VARIABLES = ["T_2M", "VMAX_10M"]
-DEFAULT_LEADTIMES = [24, 48, 72, 96, 120]
+DEFAULT_LEADTIMES = [12, 24, 36, 48, 60, 72, 84, 96, 108, 120]
 
 
 def parse_args() -> argparse.Namespace:
@@ -186,7 +186,7 @@ def main() -> None:
             continue
 
         valid_time = init_time + timedelta(hours=leadtime)
-        rea_path = rea_dir / f"rea_{valid_time:%Y%m%d}.nc"
+        rea_path = rea_dir / f"rea_{valid_time:%Y%m%d%H}.nc"
         if not rea_path.exists():
             print(f"Skipping {ens_path.name}: missing reanalysis file {rea_path.name}")
             continue

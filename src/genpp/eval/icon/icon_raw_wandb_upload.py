@@ -77,8 +77,8 @@ def main(args):
                 "energy_score_T_2M": "EnergyScore_T_2M+height_2.0",
                 "energy_score_VMAX_10M": "EnergyScore_VMAX_10M+height_2_10.0",
                 "crps_mean": "CRPS_combined",
-                "crps_mean_T_2M": "CRPS_T_2M+height_2.0",
-                "crps_mean_VMAX_10M": "CRPS_VMAX_10M+height_2_10.0",
+                "crps_T_2M": "CRPS_T_2M+height_2.0",
+                "crps_VMAX_10M": "CRPS_VMAX_10M+height_2_10.0",
             }
         )
     )
