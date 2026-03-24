@@ -20,14 +20,14 @@ spatial:
 # Note: ICON ForecastDataModule handles splits internally based on valid_time
 splits:
   train:
-    start: "2019-01-01"
-    end: "2022-09-01"
+    start: "2019-01-15"
+    end: "2020-11-22"
   val:
-    start: "2022-09-02"
-    end: "2023-09-01"
+    start: "2020-11-23"
+    end: "2021-11-22"
   test:
-    start: "2023-09-02"
-    end: "2024-09-01"
+    start: "2021-11-23"
+    end: "2022-11-22"
 
 # ============================================================================
 # VARIABLE SELECTION
@@ -107,6 +107,11 @@ test_batch_size: null
 x_default_normalize_type: zscore
 y_default_normalize_type: zscore
 
+# Normalization mode: how statistics are computed.
+# 'per_variable': one mean/std per variable (stats shape [c, 1, 1])
+# 'spatial': mean/std per variable and per spatial coordinate (stats shape [c, x, y])
+norm_mode: per_variable
+
 # ============================================================================
 # PER-VARIABLE NORMALIZATION (Optional)
 # ============================================================================
@@ -139,6 +144,13 @@ features:
 
 
 # ============================================================================
+# LEADTIME FILTERING (Optional)
+# ============================================================================
+# Filter to specific leadtimes (in hours). Set to null to use all leadtimes.
+# Example: [24] for only 24h leadtime, [6, 12, 24] for multiple leadtimes
+leadtimes_hours: null
+
+# ============================================================================
 # DATA MODULE
 # ============================================================================
 module:
@@ -164,3 +176,5 @@ module:
   test_split: ${data.splits.test}
   x_normalize_types: ${data.x_normalize_types}
   y_normalize_types: ${data.y_normalize_types}
+  norm_mode: ${data.norm_mode}
+  leadtimes_hours: ${data.leadtimes_hours}

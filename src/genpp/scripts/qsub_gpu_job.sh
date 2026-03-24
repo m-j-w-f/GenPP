@@ -38,7 +38,7 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=18:00:00
+#PBS -l elapstim_req=10:00:00
 #PBS -j o
 #PBS -o logs/train_%r.log
 
@@ -46,7 +46,6 @@
 # EDIT THIS: Specify your command here
 #============================================
 # Use -u flag for unbuffered Python output to see progress in real-time
-COMMAND="pixi run -e gpu wandb agent feik/GenPP-src_genpp/qe2zyjhj"
 
 #============================================
 # Do not edit below this line
@@ -78,7 +77,6 @@ echo "Job ID: ${JOB_ID}"
 echo "PBS Job ID: ${PBS_JOBID:-N/A}"
 echo "Source data: ${SOURCE_DATA_DIR}"
 echo "Local data: ${JOB_DATA_DIR}"
-echo "Command: ${COMMAND}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-not set}"
 echo "Current WD: $(pwd)"
 echo "=============================================="
@@ -185,7 +183,31 @@ echo "=============================================="
 
 # Run the provided command and capture exit status for informative error messages
 set +e  # Disable exit on error temporarily to capture the exit code
-eval "${COMMAND}"
+# EMOS (DONE)
+# pixi run -e gpu python src/genpp/train.py --config-name base_emos data=icon_cut model/lr_scheduler=reduceLROnPlateau data.batch_size=8 model.optimizer.lr=0.001 data.norm_mode=spatial
+# DRN (DONE)
+# pixi run -e gpu python src/genpp/train.py --config-name base_drn data=icon_full_minmax data.dataloader.num_workers=10 model/lr_scheduler=reduceLROnPlateau data.batch_size=8 "model.hidden_channels=[256, 128, 64]" model.optimizer.lr=0.0003 data.norm_mode=spatial
+
+# LNGM
+# pixi run -e gpu python src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=8 data.val_batch_size=8 data.test_batch_size=8 model/loss_fn=energy_score model.optimizer.lr=0.001 "model.decoder_unet_channels=[16, 32]" "model.std_unet_channels=[32, 64, 128]" model.internal_td_scaling=abs data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=patchwise_energy_score model.optimizer.lr=0.001 "model.decoder_unet_channels=[16, 32]" "model.std_unet_channels=[32, 64, 128]" model.internal_td_scaling=abs trainer.accumulate_grad_batches=2 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=8 data.val_batch_size=8 data.test_batch_size=8 model/loss_fn=multiscale_energy_score model.optimizer.lr=0.001 "model.decoder_unet_channels=[16, 32]" "model.std_unet_channels=[32, 64, 128]" model.internal_td_scaling=abs data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score model.optimizer.lr=0.001 "model.decoder_unet_channels=[16, 32]" "model.std_unet_channels=[32, 64, 128]" model.internal_td_scaling=abs trainer.accumulate_grad_batches=4 data.norm_mode=spatial
+
+# Engression
+# pixi run -e gpu python src/genpp/train.py --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=2 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=patchwise_energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=4 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=multiscale_energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=2 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_engression model=cnn_engression_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score model.optimizer.lr=0.001 "model.channels=[16, 32]" model.internal_td_scaling=learned trainer.accumulate_grad_batches=4 data.norm_mode=spatial
+
+
+# FM (DONE)
+#pixi run -e gpu python src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise model.internal_td_scaling=std model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.dataloader.num_workers=10 data.batch_size=8 "model.backbone.channels=[64, 128]" model.backbone.num_residual_layers=2 model.optimizer.lr=0.001 data.norm_mode=spatial model.n_samples=40
+#pixi run -e gpu python src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.dataloader.num_workers=10 data.batch_size=32 "model.backbone.channels=[64, 128]" model.backbone.num_residual_layers=2 model.optimizer.lr=0.001 data.norm_mode=spatial model.n_samples=40
+#pixi run -e gpu python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise model.internal_td_scaling=std model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.dataloader.num_workers=10 data.batch_size=8 model.backbone.depth=2 model.backbone.embed_dim=128 model.optimizer.lr=0.001 data.norm_mode=spatial model.n_samples=40
+#pixi run -e gpu python src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct model/lr_scheduler=reduceLROnPlateau data=icon_full_pad_xy data.dataloader.num_workers=10 data.batch_size=8 model.backbone.depth=2 model.backbone.embed_dim=128 model.optimizer.lr=0.0003 data.norm_mode=spatial model.n_samples=40
+
+
 CMD_EXIT_CODE=$?
 set -e  # Re-enable exit on error
 
@@ -193,7 +215,6 @@ if [ $CMD_EXIT_CODE -ne 0 ]; then
     echo ""
     echo "=============================================="
     echo "ERROR: Command failed with exit code ${CMD_EXIT_CODE}"
-    echo "Command: ${COMMAND}"
     echo "=============================================="
     exit $CMD_EXIT_CODE
 fi

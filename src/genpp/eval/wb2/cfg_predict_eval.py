@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 """
-Predict and evaluate with Flow Matching, CGM, or Engression models.
+Predict and evaluate with CFG Flow Matching models at different guidance strengths.
 
-This script loads a trained model from a WandB run, runs predictions on the
-specified data split, computes evaluation metrics (CRPS, Energy Score,
-Variogram Score), and logs results to WandB and local files.
+This script loads a trained CFG model from a WandB run, runs predictions at
+multiple guidance scales, computes evaluation metrics (CRPS, Energy Score,
+Variogram Score) for each, and logs results to WandB and local files.
+
+The guidance strength adds an extra layer to the scores dictionary so that
+results for each strength are tracked separately.
 
 Usage:
-    python cgm_predict_eval.py --run-path feik/genpp/abc123 --split val
-    python cgm_predict_eval.py --run-path feik/genpp/abc123 feik/genpp/def456 --split val test
-    python cgm_predict_eval.py --run-path feik/genpp/abc123 --split test --skip-variogram
-    python cgm_predict_eval.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 -v
-    python cgm_predict_eval.py --run-path feik/genpp/hbuy7eio --split val --device 0,1 --batch-size 32 --skip-variogram --save-predictions -v
+    python cfg_predict_eval.py --run-path feik/genpp/abc123 --split val --guidance-strengths 0.5 1.0 2.0
+    python cfg_predict_eval.py --run-path feik/genpp/abc123 --split val test --guidance-strengths 1.0 1.5 2.0 3.0
+    python cfg_predict_eval.py --run-path feik/genpp/abc123 --device 0,1 --batch-size 32 --guidance-strengths 1.0 2.0 -v
+    python cfg_predict_eval.py --run-path feik/genpp/abc123 --split val --skip-variogram --guidance-strengths 0.0 1.0 2.0
 """
-
-from __future__ import annotations
 
 import argparse
 import importlib
@@ -44,20 +44,13 @@ from genpp.eval.utils import (
     save_scores_df,
     update_wandb_run,
 )
-from genpp.models.scores import (
-    EnergyScore,
-    EnsembleCRPS,
-    MultiScaleEnergyScore,
-    MultiScalePatchwiseEnergyScore,
-    PatchwiseEnergyScore,
-    VariogramScore,
-)
+from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Predict and evaluate with Flow Matching, CGM, or Engression models.",
+        description="Predict and evaluate with CFG Flow Matching models at different guidance strengths.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -74,6 +67,13 @@ def parse_args() -> argparse.Namespace:
         default=["val"],
         choices=["train", "val", "test"],
         help="Dataset split(s) to evaluate (e.g., --split val test)",
+    )
+    parser.add_argument(
+        "--guidance-strengths",
+        type=float,
+        nargs="+",
+        required=True,
+        help="Guidance scale values to evaluate (e.g., --guidance-strengths 0.5 1.0 2.0 3.0)",
     )
     parser.add_argument(
         "--device",
@@ -205,6 +205,18 @@ def store_original_command_config(run_path: str, cmd: str, verbose: bool = False
         log_msg(f"Failed to store original command: {e}", verbose)
 
 
+def guidance_strength_label(guidance_scale: float) -> str:
+    """Create a consistent string label for a guidance scale value.
+
+    Args:
+        guidance_scale: The guidance scale value.
+
+    Returns:
+        A string label, e.g., "guidance_1.0".
+    """
+    return f"guidance_{guidance_scale}"
+
+
 def evaluate_split(
     split: str,
     *,
@@ -214,20 +226,23 @@ def evaluate_split(
     cfg: DictConfig,
     score_file,
     model_dir,
+    guidance_scale: float,
     skip_variogram: bool,
     save_predictions: bool,
     force_repredict: bool,
     verbose: bool,
 ) -> dict:
-    """Run prediction and evaluation for a single data split.
+    """Run prediction and evaluation for a single data split at a given guidance scale.
 
     Returns:
         Dict of scores per leadtime for this split.
     """
     split_config = get_split_config(split)
 
-    # Check for cached predictions
-    predictions_path = model_dir / f"{split}_predictions.zarr"
+    gs_label = guidance_strength_label(guidance_scale)
+
+    # Check for cached predictions (include guidance scale in path)
+    predictions_path = model_dir / f"{split}_{gs_label}_predictions.zarr"
     use_cached = predictions_path.exists() and not force_repredict
 
     if use_cached:
@@ -239,9 +254,19 @@ def evaluate_split(
         dataloader_method = getattr(datamodule, split_config["dataloader_method"])
         dataloader = dataloader_method()
 
-        # Run predictions
-        log_msg(f"Running predictions on {split} split...", verbose)
+        # Override guidance_scale on model for this prediction run
+        log_msg(
+            f"Running predictions on {split} split with guidance_scale={guidance_scale}...",
+            verbose,
+        )
+        original_guidance_scale = model.guidance_scale
+        model.guidance_scale = guidance_scale
+
         pred_list = trainer.predict(model, dataloader, return_predictions=True)
+
+        # Restore original guidance_scale
+        model.guidance_scale = original_guidance_scale
+
         predictions = torch.cat(pred_list, dim=0)  # type: ignore
 
         # Rescale predictions
@@ -278,33 +303,10 @@ def evaluate_split(
     log_msg("Computing evaluation scores...", verbose)
     crps_ens = EnsembleCRPS().cuda()
     es = EnergyScore(clamp=False).cuda()
-    pw_es = PatchwiseEnergyScore(
-        beta=1.0, clamp=True, patch_size=3, normalize=True, unbiased=True
-    ).cuda()
-    ms_es = MultiScaleEnergyScore(
-        beta=1.0,
-        clamp=True,
-        blur_kernel_sizes=[3, 7],
-        scale_weights=[1.0, 1.0, 1.0],
-        normalize=True,
-        unbiased=True,
-    ).cuda()
-    mspw_es = MultiScalePatchwiseEnergyScore(
-        beta=1.0,
-        clamp=True,
-        blur_kernel_sizes=[3, 7],
-        scale_weights=[1.0, 1.0, 1.0],
-        patch_size=3,
-        normalize=True,
-        unbiased=True,
-    ).cuda()
     vs = VariogramScore(p=0.5).cuda()
 
     n_times = predictions_rescaled.shape[0]
     crps_list, es_pv_list, es_full_list = [], [], []
-    pw_es_pv_list, pw_es_full_list = [], []
-    ms_es_pv_list, ms_es_full_list = [], []
-    mspw_es_pv_list, mspw_es_full_list = [], []
     vs_pv_list, vs_full_list = [], []
 
     for i in range(n_times):
@@ -314,12 +316,6 @@ def evaluate_split(
             crps_list.append(crps_ens(pred_i, y_i).cpu())
             es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
             es_full_list.append(es(pred_i, y_i, mode="complete").cpu())
-            pw_es_pv_list.append(pw_es(pred_i, y_i, mode="per_var").cpu())
-            pw_es_full_list.append(pw_es(pred_i, y_i, mode="complete").cpu())
-            ms_es_pv_list.append(ms_es(pred_i, y_i, mode="per_var").cpu())
-            ms_es_full_list.append(ms_es(pred_i, y_i, mode="complete").cpu())
-            mspw_es_pv_list.append(mspw_es(pred_i, y_i, mode="per_var").cpu())
-            mspw_es_full_list.append(mspw_es(pred_i, y_i, mode="complete").cpu())
             if not skip_variogram:
                 vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
@@ -327,12 +323,6 @@ def evaluate_split(
     crps_per_margin = torch.cat(crps_list, dim=0)
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
     energy_score_full_u = torch.cat(es_full_list, dim=0)
-    pw_es_per_var_u = torch.cat(pw_es_pv_list, dim=0)
-    pw_es_full_u = torch.cat(pw_es_full_list, dim=0)
-    ms_es_per_var_u = torch.cat(ms_es_pv_list, dim=0)
-    ms_es_full_u = torch.cat(ms_es_full_list, dim=0)
-    mspw_es_per_var_u = torch.cat(mspw_es_pv_list, dim=0)
-    mspw_es_full_u = torch.cat(mspw_es_full_list, dim=0)
     variogram_score_per_var_u = torch.cat(vs_pv_list, dim=0) if not skip_variogram else None
     variogram_score_full_u = torch.cat(vs_full_list, dim=0) if not skip_variogram else None
 
@@ -342,103 +332,56 @@ def evaluate_split(
     crps_full = reduce(crps_per_margin, "t d h w -> 1", "mean")
     energy_score_per_var = reduce(energy_score_per_var_u, "t d -> d", "mean")
     energy_score_full = reduce(energy_score_full_u, "t -> 1", "mean")
-    pw_es_per_var = reduce(pw_es_per_var_u, "t d -> d", "mean")
-    pw_es_full = reduce(pw_es_full_u, "t -> 1", "mean")
-    ms_es_per_var = reduce(ms_es_per_var_u, "t d -> d", "mean")
-    ms_es_full = reduce(ms_es_full_u, "t -> 1", "mean")
-    mspw_es_per_var = reduce(mspw_es_per_var_u, "t d -> d", "mean")
-    mspw_es_full = reduce(mspw_es_full_u, "t -> 1", "mean")
 
     if not skip_variogram:
         variogram_score_per_var = reduce(variogram_score_per_var_u, "t d -> d", "mean")
         variogram_score_full = reduce(variogram_score_full_u, "t -> 1", "mean")
 
-    # Log scores to file
+    # Log scores to file (include guidance scale in model name)
     log_msg(f"Logging scores to {score_file}...", verbose)
     model_class = cfg.model._target_.split(".")[-1]
+    model_label = f"{model_class}_{gs_label}"
 
     log_scores(
         file=score_file,
-        model=model_class,
+        model=model_label,
         metric="CRPS",
         variables=datamodule.y_select_variables,
         scores=crps_per_var,
     )
     log_scores(
         file=score_file,
-        model=model_class,
+        model=model_label,
         metric="CRPS",
         variables=["combined"],
         scores=crps_full,
     )
     log_scores(
         file=score_file,
-        model=model_class,
+        model=model_label,
         metric="EnergyScore",
         variables=datamodule.y_select_variables,
         scores=energy_score_per_var,
     )
     log_scores(
         file=score_file,
-        model=model_class,
+        model=model_label,
         metric="EnergyScore",
         variables=["combined"],
         scores=energy_score_full,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="PatchwiseEnergyScore",
-        variables=datamodule.y_select_variables,
-        scores=pw_es_per_var,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="PatchwiseEnergyScore",
-        variables=["combined"],
-        scores=pw_es_full,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="MultiScaleEnergyScore",
-        variables=datamodule.y_select_variables,
-        scores=ms_es_per_var,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="MultiScaleEnergyScore",
-        variables=["combined"],
-        scores=ms_es_full,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="MultiScalePatchwiseEnergyScore",
-        variables=datamodule.y_select_variables,
-        scores=mspw_es_per_var,
-    )
-    log_scores(
-        file=score_file,
-        model=model_class,
-        metric="MultiScalePatchwiseEnergyScore",
-        variables=["combined"],
-        scores=mspw_es_full,
     )
 
     if not skip_variogram:
         log_scores(
             file=score_file,
-            model=model_class,
+            model=model_label,
             metric="VariogramScore",
             variables=datamodule.y_select_variables,
             scores=variogram_score_per_var,  # type: ignore
         )
         log_scores(
             file=score_file,
-            model=model_class,
+            model=model_label,
             metric="VariogramScore",
             variables=["combined"],
             scores=variogram_score_full,  # type: ignore
@@ -453,12 +396,6 @@ def evaluate_split(
         energy_score_full_u,
         variogram_score_per_var_u if not skip_variogram else None,
         variogram_score_full_u if not skip_variogram else None,
-        pw_es_per_var=pw_es_per_var_u,
-        pw_es_complete=pw_es_full_u,
-        ms_es_per_var=ms_es_per_var_u,
-        ms_es_complete=ms_es_full_u,
-        mspw_es_per_var=mspw_es_per_var_u,
-        mspw_es_complete=mspw_es_full_u,
         method=None,
     )
 
@@ -487,7 +424,7 @@ def evaluate_split(
 
 
 def process_run(run_path: str, args: argparse.Namespace) -> None:
-    """Process a single WandB run: load model, predict, evaluate, and log results."""
+    """Process a single WandB run: load model, predict at multiple guidance strengths, evaluate, and log results."""
     log_msg(f"\n{'#' * 60}\nProcessing run: {run_path}\n{'#' * 60}", args.verbose)
 
     # Capture the original W&B command before any updates
@@ -613,30 +550,51 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
             log_msg("Setting internal_td_scaling.n_vars = 2", args.verbose)
             td_scaling.n_vars = 2  # type: ignore
 
+    # Verify the model supports guidance_scale
+    if not hasattr(model, "guidance_scale"):
+        raise AttributeError(
+            f"Model {class_name} does not have a 'guidance_scale' attribute. "
+            "This script is intended for CFG models (FlowMatchingNoiseModelCFG or FlowMatchingDirectModelCFG)."
+        )
+
     # Create trainer
     devices = parse_device(args.device)
     trainer = L.Trainer(logger=False, accelerator="gpu", devices=devices)
 
-    # Evaluate each requested split
-    full_scores = {}
-    for split in splits:
-        log_msg(f"\n{'=' * 60}\nEvaluating split: {split}\n{'=' * 60}", args.verbose)
-        scores = evaluate_split(
-            split,
-            model=model,
-            trainer=trainer,
-            datamodule=datamodule,
-            cfg=cfg,
-            score_file=score_file,
-            model_dir=model_dir,
-            skip_variogram=args.skip_variogram,
-            save_predictions=args.save_predictions,
-            force_repredict=args.force_repredict,
-            verbose=args.verbose,
-        )
-        full_scores[split] = scores
+    # Evaluate each requested split at each guidance strength
+    # Structure: {guidance_label: {split: scores_per_leadtime}}
+    full_scores: dict[str, dict[str, dict]] = {}
 
-    # Update WandB run with all split scores
+    for guidance_scale in args.guidance_strengths:
+        gs_label = guidance_strength_label(guidance_scale)
+        log_msg(
+            f"\n{'*' * 60}\nGuidance strength: {guidance_scale} ({gs_label})\n{'*' * 60}",
+            args.verbose,
+        )
+        full_scores[gs_label] = {}
+
+        for split in splits:
+            log_msg(
+                f"\n{'=' * 60}\nEvaluating split: {split} | guidance_scale={guidance_scale}\n{'=' * 60}",
+                args.verbose,
+            )
+            scores = evaluate_split(
+                split,
+                model=model,
+                trainer=trainer,
+                datamodule=datamodule,
+                cfg=cfg,
+                score_file=score_file,
+                model_dir=model_dir,
+                guidance_scale=guidance_scale,
+                skip_variogram=args.skip_variogram,
+                save_predictions=args.save_predictions,
+                force_repredict=args.force_repredict,
+                verbose=args.verbose,
+            )
+            full_scores[gs_label][split] = scores
+
+    # Update WandB run with all guidance-strength-keyed scores
     log_msg("Updating WandB run...", args.verbose)
     update_wandb_run(run_path, full_scores)
 
@@ -646,20 +604,31 @@ def process_run(run_path: str, args: argparse.Namespace) -> None:
 
     # Save scores DataFrame
     records = []
-    for dataset, metrics in full_scores.items():
-        for metric_name, horizons in metrics.items():
-            for horizon, value in horizons.items():
-                records.append(
-                    (f"{model.__class__.__name__}", dataset, metric_name, horizon, value)
-                )
-    df = pd.DataFrame(records, columns=["method", "dataset", "metric", "horizon", "value"])
+    for gs_label, split_scores in full_scores.items():
+        for dataset, metrics in split_scores.items():
+            for metric_name, horizons in metrics.items():
+                for horizon, value in horizons.items():
+                    records.append(
+                        (
+                            f"{model.__class__.__name__}",
+                            gs_label,
+                            dataset,
+                            metric_name,
+                            horizon,
+                            value,
+                        )
+                    )
+    df = pd.DataFrame(
+        records,
+        columns=["method", "guidance_strength", "dataset", "metric", "horizon", "value"],
+    )
     save_scores_df(df=df, run_path=run_path)
 
     log_msg(f"Done with run: {run_path}", args.verbose)
 
 
 def main() -> None:
-    """Main entry point for the prediction script."""
+    """Main entry point for the CFG prediction script."""
     args = parse_args()
 
     # Register Hydra resolvers

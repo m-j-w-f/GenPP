@@ -125,13 +125,9 @@ best_models: BestModels = BestModels(
         ModelEntry(id="2ajwxmir", tag="ind_pes"),
         ModelEntry(id="euak9uee", tag="ind_mses"),
         ModelEntry(id="3eevjkfj", tag="ind_mspes"),
-        # ModelEntry(id="iet9dund", tag="dir_es"),  # deprecated
         ModelEntry(id="5jjbvdex", tag="dir_es"),
-        # ModelEntry(id="7urden2d", tag="dir_pes"),  # deprecated
         ModelEntry(id="kf7uayf6", tag="dir_pes"),
-        # ModelEntry(id="ku0pbqp1", tag="dir_mses"), # deprecated
         ModelEntry(id="gpdka5qd", tag="dir_mses"),
-        # ModelEntry(id="1vnjy1mj", tag="dir_mspes"), # deprecated
         ModelEntry(id="7ww3tj56", tag="dir_mspes"),
     ],
     fm=[

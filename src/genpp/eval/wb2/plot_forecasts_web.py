@@ -18,8 +18,6 @@ Requirements:
 The dashboard will open automatically in your default web browser.
 """
 
-from __future__ import annotations
-
 import argparse
 from collections import OrderedDict
 from typing import Any

@@ -27,8 +27,8 @@ spatial:
     - ${data.spatial.padding.y_bottom}
 
   padded:
-    latitude: ${eval:'${data.spatial.original.latitude} + ${data.spatial.padding.y_top} + ${data.spatial.padding.y_bottom}'}
-    longitude: ${eval:'${data.spatial.original.longitude} + ${data.spatial.padding.x_left} + ${data.spatial.padding.x_right}'}
+    latitude: ${eval:'${data.spatial.original.latitude} + ${data.spatial.padding.x_left} + ${data.spatial.padding.x_right}'}
+    longitude: ${eval:'${data.spatial.original.longitude} + ${data.spatial.padding.y_top} + ${data.spatial.padding.y_bottom}'}
 
   x_transform:
     _target_: genpp.preproc.transforms.Pad

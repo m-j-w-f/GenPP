@@ -1,59 +1,50 @@
 #!/bin/bash -l
 
-#PBS -N process_rea_tensors           # Job name (will be modified per month)
+#PBS -N process_tensors                # Job name
 #PBS -S /bin/bash                      # set the executing shell
 #PBS -q rc_big
-#PBS -l cpunum_job=1                   # use 1 CPUs
+#PBS -l cpunum_job=1                   # use 1 CPU
 #PBS -l memsz_job=4gb                  # total memory for job
 #PBS -l vmemsz_job=64gb                # total virtual memory
-#PBS -l elapstim_req=00:10:00          # max runtime: 1 hour (per month)
+#PBS -l elapstim_req=02:00:00          # max runtime: 10 minutes
+#PBS -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/scripts/logs/process_tensors.log
 #PBS -j o                              # concatenate stderr and stdout
 
-# Year and Month should be env vars passed via qsub -v
-if [ -z "$YEAR" ] || [ -z "$MONTH" ]; then
-    echo "ERROR: Year and month required as environment variables"
-    echo "Usage: qsub -v YEAR=YYYY,MONTH=MM $0"
+# --- Read task parameters from task list using sub-request number ---
+if [ -z "$TASK_LIST" ] || [ -z "$PBS_SUBREQNO" ]; then
+    echo "ERROR: TASK_LIST and PBS_SUBREQNO must be set."
+    echo "This script is meant to be submitted as an array job."
     exit 1
 fi
+
+TASK_LINE=$(sed -n "${PBS_SUBREQNO}p" "$TASK_LIST")
+if [ -z "$TASK_LINE" ]; then
+    echo "ERROR: No task found for sub-request number ${PBS_SUBREQNO}"
+    exit 1
+fi
+
+export JOB_TYPE=$(echo $TASK_LINE | awk '{print $1}')
+export YEAR=$(echo $TASK_LINE | awk '{print $2}')
+export MONTH=$(echo $TASK_LINE | awk '{print $3}')
+export DAY=$(echo $TASK_LINE | awk '{print $4}')
 
 echo "=========================================="
 echo "Job started at: $(date)"
 echo "Running on host: $(hostname)"
-echo "Job ID: $PBS_JOBID"
-echo "Processing year: $YEAR, month: $MONTH"
+echo "Sub-request: ${PBS_SUBREQNO}"
+echo "Processing: JOB_TYPE=$JOB_TYPE, YEAR=$YEAR, MONTH=$MONTH, DAY=$DAY"
 echo "=========================================="
 
-# Export environment variables for the Python script
-export YEAR
-export MONTH
-export JOB_TYPE=rea
-
-# Change to the working directory from which qsub was called
-# This assumes you run qsub from src/genpp/data/icon directory
-cd "$PBS_O_WORKDIR" || exit 1
-
 # Store the script directory
-SCRIPT_DIR="$(pwd)"
+SCRIPT_DIR=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/scripts
 
-# Find the repository root by looking for pyproject.toml
-REPO_ROOT="$SCRIPT_DIR"
-while [ "$REPO_ROOT" != "/" ]; do
-    if [ -f "$REPO_ROOT/pyproject.toml" ]; then
-        break
-    fi
-    REPO_ROOT="$(dirname "$REPO_ROOT")"
-done
-
-if [ ! -f "$REPO_ROOT/pyproject.toml" ]; then
-    echo "ERROR: Could not find pyproject.toml in parent directories"
-    exit 1
-fi
+# Repository root
+REPO_ROOT=/hpc/uhome/extmfeik/GenPP
 
 # Change to repository root for pixi
 cd "$REPO_ROOT" || exit 1
 
 # Add pixi to PATH if not already present
-# Common installation locations for pixi
 if [ -f "$HOME/.pixi/bin/pixi" ]; then
     export PATH="$HOME/.pixi/bin:$PATH"
 elif [ -f "$HOME/.local/bin/pixi" ]; then
@@ -63,7 +54,6 @@ fi
 # Verify pixi is available
 if ! command -v pixi &> /dev/null; then
     echo "ERROR: pixi command not found in PATH"
-    echo "Please ensure pixi is installed and accessible"
     exit 1
 fi
 

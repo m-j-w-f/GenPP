@@ -31,7 +31,7 @@
 #============================================
 # NQSV Batch System Directives (gp_norm_dgx)
 #============================================
-#PBS -N genpp_gpu_job_fast
+#PBS -N train_fm_fast
 #PBS -q gp_norm_dgx
 #PBS -S /bin/bash
 #PBS --gpunum-lhost=1
@@ -39,33 +39,156 @@
 #PBS -l memsz_job=240gb
 #PBS -l vmemsz_job=1Tb
 #PBS -l vmemsz_prc=1Tb
-#PBS -l elapstim_req=02:00:00
+#PBS -l elapstim_req=05:00:00
 #PBS -j o
-#PBS -o logs/train_fast_%r.log
+#PBS -o logs/eval_final_%r.log
 
 #============================================
 # EDIT THIS: Specify your command here
 #============================================
-# Use -u flag for unbuffered Python output to see progress in real-time
+
+# Train
+
+#FM UVit - DIR
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_uvit model=fm_uvit_direct \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=2 data.spatial.padding.y_bottom=2 \
+# model.backbone.depth=8 model.backbone.num_heads=8 model.backbone.embed_dim=512 model.backbone.patch_size_height=8 model.backbone.patch_size_width=8 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+#FM UVit - IND
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_uvit model=fm_uvit_noise \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=2 data.spatial.padding.y_bottom=2 \
+# model.internal_td_scaling=abs \
+# model.backbone.depth=8 model.backbone.num_heads=8 model.backbone.embed_dim=512 model.backbone.patch_size_height=8 model.backbone.patch_size_width=8 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+
+# FM UNet - DIR
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_unet model=fm_unet_direct \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=0 data.spatial.padding.y_bottom=0 \
+# model.backbone.channels=[64,128] model.backbone.num_residual_layers=2 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+# FM UNet - IND
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_fm_unet model=fm_unet_noise \
+# data=icon_full_pad_xy data.norm_mode=per_variable \
+# data.dataloader.num_workers=10 data.batch_size=32 \
+# data.spatial.padding.y_top=0 data.spatial.padding.y_bottom=0 \
+# model.internal_td_scaling=abs \
+# model.backbone.channels=[64,128] model.backbone.num_residual_layers=2 \
+# model/lr_scheduler=constant model.optimizer.lr=0.0003"
+
+#TODO: there was a typo so npt the patchwise energy score was used
+#LNGM - PES (Running)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_chen model=cnn_chen_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.decoder_unet_channels=[16,32] \
+# model.std_unet_channels=[32,64,128] \
+# model.internal_td_scaling=abs \
+# model/loss_fn=patchwise_energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant \
+# trainer.accumulate_grad_batches=2"
+
+#LNGM - ES (Running)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_chen model=cnn_chen_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.decoder_unet_channels=[16,32] \
+# model.std_unet_channels=[32,64,128] \
+# model.internal_td_scaling=abs \
+# model/loss_fn=energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant"
+
+#TODO: there was a typo so npt the patchwise energy score was used
+# ENGREESSION - PES (Running)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_engression model=cnn_engression_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.channels=[16,32] \
+# model.internal_td_scaling=learned \
+# model/loss_fn=patchwise_energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant \
+# trainer.accumulate_grad_batches=2"
+
+#TODO: there was a typo so npt the patchwise energy score was used
+# ENGREESSION - ES (Running)
+# COMMAND="pixi run -e gpu python src/genpp/train.py \
+# --config-name base_engression model=cnn_engression_noise \
+# data=icon_full_pad_x \
+# data.dataloader.num_workers=10 \
+# data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 \
+# +model.n_samples_train=20 +model.n_samples_predict=40 \
+# model.channels=[16,32] \
+# model.internal_td_scaling=learned \
+# model/loss_fn=energy_score \
+# model.optimizer.lr=0.0003 \
+# model/lr_scheduler=constant \
+# trainer.accumulate_grad_batches=2"
+
+# DRN (Done)
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_drn data=icon_full_minmax \
+# data.dataloader.num_workers=10 \
+# model/lr_scheduler=reduceLROnPlateau \
+# data.batch_size=32 \
+# model.hidden_channels=[128,64] \
+# model.optimizer.lr=0.0001 \
+# data.norm_mode=per_variable"
+
 # EMOS
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_emos data=icon_cut trainer=debug_gpu"
+# COMMAND="pixi run -e gpu python -O src/genpp/train.py \
+# --config-name base_emos \
+# data=icon_cut \
+# model/lr_scheduler=reduceLROnPlateau \
+# data.batch_size=8 \
+# model.optimizer.lr=0.001 \
+# data.norm_mode=spatial"
 
-# DRN
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_drn data=icon_full_minmax data.batch_size=32 trainer=debug_gpu"
+# Evaluation
 
-# LNGM
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=4 data.val_batch_size=4 data.test_batch_size=4 model/loss_fn=patchwise_energy_score"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
+# RAW
+COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_raw_ensemble.py --predictions-path /hpc/uhome/extmfeik/GenPP/outputs/BASELINE/test_predictions.nc --data-dir /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/data --output-dir /hpc/uhome/extmfeik/GenPP/outputs/BASELINE --skip-variogram --overwrite --device cuda"
 
-# Engression
-COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_engression model=cnn_engression_direct data=icon_full_pad_x trainer=debug_gpu +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=2 data.val_batch_size=1 data.test_batch_size=1 model/loss_fn=multiscale_patchwise_energy_score"
+# EMOS (Running)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_copulas_eval.py --run-path feik/genpp/fm8sfy6b --split test -v --save-predictions --batch-size 16 --skip-variogram"
 
-# Flow Matching
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_direct data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_unet model=fm_unet_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_direct data=icon_full_pad_xy data.batch_size=128 trainer=debug_gpu"
-#COMMAND="pixi run -e gpu python -u src/genpp/train.py --config-name base_fm_uvit model=fm_uvit_noise data=icon_full_pad_xy data.batch_size=32 trainer=debug_gpu"
+# DRN (Running)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_copulas_eval.py --run-path feik/genpp/qmge5ywq --split test -v --save-predictions --batch-size 4 --skip-variogram"
+
+# LNGM (Running)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/57it6opq feik/genpp/xa1kwv7b feik/genpp/9c6zdg7p --split test -v --save-predictions --batch-size 4 --skip-variogram"
+
+# ENGRESSION
+# Done
+# COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/3xyv0tvc --split test -v --save-predictions --batch-size 4 --skip-variogram"
+# Done
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/03xpce4v feik/genpp/q6sdblyf --split test -v --save-predictions --batch-size 4 --skip-variogram"
+
+# FM (Running)
+#COMMAND="pixi run -e gpu python -u src/genpp/eval/icon/icon_cgm_predict_eval.py --run-path feik/genpp/iy9kmiv2 --split test -v --save-predictions --batch-size 8 --skip-variogram"
 
 
 #============================================
@@ -77,6 +200,7 @@ set -euo pipefail
 export OMP_NUM_THREADS=16
 export MKL_NUM_THREADS=16
 export OPENBLAS_NUM_THREADS=16
+export PYTHONUNBUFFERED=1
 
 # Configuration - use shared data directly
 SHARED_DATA_DIR="/shared/data/$USER/icon"
@@ -199,7 +323,7 @@ echo "=============================================="
 
 # Run the provided command and capture exit status for informative error messages
 set +e  # Disable exit on error temporarily to capture the exit code
-eval "${COMMAND}"
+$COMMAND
 CMD_EXIT_CODE=$?
 set -e  # Re-enable exit on error
 

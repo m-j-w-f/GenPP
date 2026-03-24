@@ -1,52 +1,46 @@
 #!/bin/bash
 
-# Script to launch parallel jobs for each day to process reanalysis data
-# Each job processes one day of data
+# Script to launch a single array job for all (year, month) combinations
+# Each sub-request processes one month of reanalysis data
 
 # Create log directory
-mkdir -p /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs
+SCRIPT_DIR=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts
+mkdir -p ${SCRIPT_DIR}/logs
 
 # Path to the processing script
-SCRIPT_PATH=/hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/interpolate_rea.sh
+SCRIPT_PATH=${SCRIPT_DIR}/interpolate_rea.sh
 
 data_dir=/hpc/rwork2/evalpp/data/rea_grid_0037_R03B07
 
-# Loop through years and months
-for year in {2018..2024}; do
+# Task list file: each line is "YEAR MONTH"
+TASK_LIST=${SCRIPT_DIR}/rea_task_list.txt
+
+# Generate the task list
+> $TASK_LIST
+for year in {2019..2022}; do
     for month in {01..12}; do
 
-        # Skip future months for 2024 (adjust as needed)
-        if [ $year -eq 2024 ] && [ $month -gt 09 ]; then
+        # Skip future months for 2022 (adjust as needed)
+        if [ $year -eq 2022 ] && [ $month -gt 11 ]; then
             continue
         fi
 
-        # Change to the month directory
-        cd ${data_dir}/${year}/${month}
-
-        # Get the list of day directories
-        for day in $(ls -d */ 2>/dev/null | sort | sed 's|/||'); do
-            if [ -z "$day" ]; then
-                continue
-            fi
-
-            echo "Submitting job for ${year}-${month}-${day}..."
-
-            # Submit the job with year, month, and day as arguments
-            # Use -N to set unique job name
-            qsub -N merge_rea_${year}${month}${day} \
-                 -o /hpc/uhome/extmfeik/GenPP/src/genpp/data/icon/cdo_scripts/logs/merge_rea_${year}${month}${day}.log \
-                 -v YEAR=${year},MONTH=${month},DAY=${day} \
-                 ${SCRIPT_PATH}
-
-            # Optional: add a small delay to avoid overwhelming the scheduler
-            sleep 0.01
-        done
-
-        # Go back to the original directory
-        cd -
+        # Only add if this year/month directory has data
+        if [ -d "${data_dir}/${year}/${month}" ]; then
+            echo "${year} ${month}" >> $TASK_LIST
+        fi
     done
 done
 
+# Count the number of tasks
+NUM_TASKS=$(wc -l < $TASK_LIST)
+echo "Generated ${NUM_TASKS} tasks in ${TASK_LIST}"
+
+# Submit as a single array job with sub-request numbers 1 to NUM_TASKS
+qsub -t 1-${NUM_TASKS} \
+     -v TASK_LIST=${TASK_LIST} \
+     ${SCRIPT_PATH}
+
 echo ""
-echo "All jobs submitted!"
+echo "Array job submitted with ${NUM_TASKS} sub-requests!"
 echo "Monitor with: qstat -u $USER"

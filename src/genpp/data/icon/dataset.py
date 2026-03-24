@@ -320,8 +320,10 @@ class ForecastDataset(Dataset):
         fc_path, rea_path, _, leadtime = self.samples[idx]
 
         # Load tensors (new unified format)
-        fc_tensor = torch.load(fc_path)  # unified tensor with all features [c_total, x, y]
-        rea = torch.load(rea_path)  # shape [c, x, y]
+        fc_tensor = torch.load(
+            fc_path, weights_only=True
+        )  # unified tensor with all features [c_total, x, y]
+        rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
 
         # Extract features using indices from metadata
         # Note: predicted_var indices point INTO the all_var arrays (subset relationship)
@@ -431,6 +433,47 @@ class ForecastDataset(Dataset):
         }
 
 
+class RawGroundTruthDataset(Dataset):
+    """A minimal dataset that returns raw (unscaled, unpadded) ground truth.
+
+    This dataset loads the same rea tensor files as ForecastDataset but skips
+    all normalization and transforms. It uses the same samples list to guarantee
+    identical ordering when iterated with shuffle=False.
+
+    Intended for evaluation, where ground truth should be in the original data
+    space to avoid issues with reversing normalization and padding.
+    """
+
+    def __init__(
+        self,
+        samples: list[tuple[Path, Path, np.datetime64, np.timedelta64]],
+    ) -> None:
+        """Initialize the RawGroundTruthDataset.
+
+        Args:
+            samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+                Must be the same samples list used by the corresponding
+                ForecastDataset to guarantee identical ordering.
+        """
+        self.samples = samples
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        """Load raw ground truth tensor without any normalization or transforms.
+
+        Args:
+            idx: Sample index.
+
+        Returns:
+            Dict with key 'y' containing the raw rea tensor of shape [c, x, y].
+        """
+        _, rea_path, _, _ = self.samples[idx]
+        rea = torch.load(rea_path, weights_only=True)  # shape [c, x, y]
+        return {"y": rea}
+
+
 # %%
 class ForecastDataModule(L.LightningDataModule):
     def __init__(
@@ -457,6 +500,8 @@ class ForecastDataModule(L.LightningDataModule):
         x_normalize_types: dict[str, str | None] | None = None,
         y_normalize_types: dict[str, str | None] | None = None,
         select_meta_features: list[str] | None = None,
+        norm_mode: str = "per_variable",
+        leadtimes_hours: list[int] | None = None,
     ) -> None:
         """Initialize the ForecastDataModule.
 
@@ -497,8 +542,18 @@ class ForecastDataModule(L.LightningDataModule):
                 Valid values are: 'sin_prediction_time', 'cos_prediction_time', 'latitude', 'longitude'.
                 If None, all available metadata features are used.
                 If empty list, no metadata features are used (e.g., for EMOS).
+            norm_mode (str): Normalization mode. 'per_variable' computes a single mean/std per variable
+                (stats shape [c, 1, 1]). 'spatial' computes mean/std per variable and per spatial
+                coordinate (stats shape [c, x, y]). Defaults to 'per_variable'.
+            leadtimes_hours (list[int] | None): Optional list of leadtime values in hours to keep.
+                When provided, only samples whose leadtime matches one of the specified values are
+                used for training, validation, and testing. If None, all leadtimes are used.
         """
         super().__init__()
+        if norm_mode not in ("per_variable", "spatial"):
+            raise ValueError(
+                f"Unknown norm_mode '{norm_mode}'. Supported values are 'per_variable' or 'spatial'."
+            )
         self.data_dir = Path(data_dir)
         print(f"ForecastDataModule: Loading data from {self.data_dir}")
         self.batch_size = batch_size
@@ -524,6 +579,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.x_normalize_types = x_normalize_types
         self.y_normalize_types = y_normalize_types
         self.select_meta_features = select_meta_features
+        self.norm_mode = norm_mode
 
         self.fc_tensor_dir = self.data_dir / "tensors" / "fc"
         self.rea_tensor_dir = self.data_dir / "tensors" / "rea"
@@ -534,6 +590,7 @@ class ForecastDataModule(L.LightningDataModule):
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = test_split
+        self.leadtimes_hours = leadtimes_hours
 
     def _get_train_set_identifier(self) -> str:
         """Generate a unique identifier for the train set configuration.
@@ -574,8 +631,9 @@ class ForecastDataModule(L.LightningDataModule):
                 except (ValueError, IndexError):
                     continue
 
-        # Create a hash from the list of train paths (already sorted from fc_paths)
-        train_paths_str = ",".join(train_paths)
+        # Create a hash from the list of train paths and norm_mode
+        # Including norm_mode ensures spatial and per_variable stats use different files
+        train_paths_str = ",".join(train_paths) + f"|norm_mode={self.norm_mode}"
         hash_obj = hashlib.sha256(train_paths_str.encode())
         return hash_obj.hexdigest()[:16]  # Use first 16 chars of hash
 
@@ -611,10 +669,11 @@ class ForecastDataModule(L.LightningDataModule):
                     # Calculate valid_time
                     valid_time = init_date + leadtime
                 elif len(parts) == 2:
-                    # REA file format: rea_YYYYMMDD.pt
-                    date_str = parts[1]  # YYYYMMDD
-                    # For REA files, the date is the valid_time (no leadtime)
-                    valid_time = np.datetime64(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+                    # REA file format: rea_YYYYMMDDHH.pt
+                    date_str = parts[1]  # YYYYMMDDHH
+                    valid_time = np.datetime64(
+                        f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}T{date_str[8:10]}:00:00"
+                    )
                 else:
                     continue
 
@@ -650,7 +709,7 @@ class ForecastDataModule(L.LightningDataModule):
             self._compute_norm_stats()
         else:
             print(f"Norm stats file already exists for train set (id: {train_set_id})")
-            self.norm_stats = torch.load(self.norm_stats_file)
+            self.norm_stats = torch.load(self.norm_stats_file, weights_only=True)
 
         if self.feature_metadata is None:
             print("Computing feature metadata...")
@@ -691,16 +750,22 @@ class ForecastDataModule(L.LightningDataModule):
         self.feature_metadata["max_timedelta"] = max_timedelta
 
     def _compute_tensor_stats(
-        self, tensor_paths: list[Path], feature_indices: list[int] | None = None
+        self,
+        tensor_paths: list[Path],
+        feature_indices: list[int] | None = None,
+        spatial: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute mean, std, min, max statistics for tensors in a single pass.
 
         Args:
             tensor_paths: List of paths to tensor files
             feature_indices: Optional list of indices to extract from unified tensors
+            spatial: If False (default), compute one statistic per variable (shape [c, 1, 1]).
+                If True, compute statistics per variable and per spatial coordinate
+                (shape [c, x, y]).
 
         Returns:
-            Tuple of (mean, std, min, max) tensors with shape [c, 1, 1]
+            Tuple of (mean, std, min, max) tensors with shape [c, 1, 1] or [c, x, y]
         """
         tensor_sum = None
         tensor_sum_sq = None
@@ -710,7 +775,7 @@ class ForecastDataModule(L.LightningDataModule):
 
         for tensor_path in tqdm(tensor_paths):
             # Load tensor (unified tensor format)
-            loaded = torch.load(tensor_path)
+            loaded = torch.load(tensor_path, weights_only=True)
 
             # Extract specific indices if provided
             if feature_indices is not None:
@@ -723,33 +788,58 @@ class ForecastDataModule(L.LightningDataModule):
             else:
                 tensor = loaded
 
-            # Compute spatial statistics: [c, x, y] -> [c, 1, 1]
-            spatial_sum = tensor.sum(dim=[-2, -1], keepdim=True)
-            spatial_sum_sq = (tensor**2).sum(dim=[-2, -1], keepdim=True)
+            if spatial:
+                # Spatial mode: accumulate per-coordinate [c, x, y]
+                if tensor_sum is None:
+                    tensor_sum = tensor.double()
+                    tensor_sum_sq = (tensor.double()) ** 2
+                    tensor_min = tensor.clone()
+                    tensor_max = tensor.clone()
+                else:
+                    tensor_sum += tensor.double()
+                    tensor_sum_sq += (tensor.double()) ** 2
+                    tensor_min = torch.minimum(tensor_min, tensor)
+                    tensor_max = torch.maximum(tensor_max, tensor)
 
-            if tensor_sum is None:
-                tensor_sum = spatial_sum
-                tensor_sum_sq = spatial_sum_sq
-                tensor_min = tensor.amin(dim=[-2, -1], keepdim=True)
-                tensor_max = tensor.amax(dim=[-2, -1], keepdim=True)
+                tensor_count += 1
             else:
-                tensor_sum += spatial_sum
-                tensor_sum_sq += spatial_sum_sq
-                tensor_min: torch.Tensor = torch.minimum(
-                    tensor_min, tensor.amin(dim=[-2, -1], keepdim=True)
-                )
-                tensor_max: torch.Tensor = torch.maximum(
-                    tensor_max, tensor.amax(dim=[-2, -1], keepdim=True)
-                )
+                # Per-variable mode: reduce spatial dims [c, x, y] -> [c, 1, 1]
+                spatial_sum = tensor.sum(dim=[-2, -1], keepdim=True)
+                spatial_sum_sq = (tensor**2).sum(dim=[-2, -1], keepdim=True)
 
-            tensor_count += tensor.shape[-2] * tensor.shape[-1]
+                if tensor_sum is None:
+                    tensor_sum = spatial_sum
+                    tensor_sum_sq = spatial_sum_sq
+                    tensor_min = tensor.amin(dim=[-2, -1], keepdim=True)
+                    tensor_max = tensor.amax(dim=[-2, -1], keepdim=True)
+                else:
+                    tensor_sum += spatial_sum
+                    tensor_sum_sq += spatial_sum_sq
+                    tensor_min: torch.Tensor = torch.minimum(
+                        tensor_min, tensor.amin(dim=[-2, -1], keepdim=True)
+                    )
+                    tensor_max: torch.Tensor = torch.maximum(
+                        tensor_max, tensor.amax(dim=[-2, -1], keepdim=True)
+                    )
+
+                tensor_count += tensor.shape[-2] * tensor.shape[-1]
 
         if tensor_sum is None or tensor_sum_sq is None:
             raise RuntimeError("No tensors were processed")
 
         mean = tensor_sum / tensor_count
         var = (tensor_sum_sq / tensor_count) - (mean**2)
-        std = torch.sqrt(var)
+        # Clamp variance to non-negative: the textbook formula E[x²]-E[x]² is numerically
+        # unstable and can produce tiny negative values due to floating-point cancellation,
+        # especially in spatial mode where each cell aggregates over few samples.
+        var = torch.clamp(var, min=0.0)
+        std = torch.sqrt(var).float()
+        mean = mean.float()
+        if spatial:
+            # In spatial mode, some grid cells may have zero variance (constant values,
+            # e.g. albedo=0 over water). Clamp std to a small epsilon to prevent
+            # division by zero (→ Inf/NaN) during normalization in __getitem__.
+            std = torch.clamp(std, min=1e-6)
 
         return mean, std, tensor_min, tensor_max
 
@@ -761,16 +851,22 @@ class ForecastDataModule(L.LightningDataModule):
 
         Statistics are computed ONLY on the train set.
 
-        The computed statistics have shapes:
+        When norm_mode is 'per_variable', statistics have shapes:
         - All var (mean) statistics: [c_all, 1, 1]
         - All var (std) statistics: [c_all, 1, 1]
         - REA statistics: [c, 1, 1]
+
+        When norm_mode is 'spatial', statistics have shapes:
+        - All var (mean) statistics: [c_all, x, y]
+        - All var (std) statistics: [c_all, x, y]
+        - REA statistics: [c, x, y]
         """
         # Load feature metadata first
         if self.feature_metadata is None:
             self._compute_feature_metadata()
 
         self.norm_stats = {}
+        spatial = self.norm_mode == "spatial"
 
         # Compute statistics for all variables (mean) in FC tensors
         fc_tensor_paths = list(self.fc_tensor_dir.glob("fc_*.pt"))
@@ -778,11 +874,15 @@ class ForecastDataModule(L.LightningDataModule):
         fc_tensor_paths = self._filter_train_tensor_paths(fc_tensor_paths)
 
         if fc_tensor_paths:
-            print(f"Computing all_vars_mean stats from {len(fc_tensor_paths)} train set FC tensors")
+            print(
+                f"Computing all_vars_mean stats from {len(fc_tensor_paths)} "
+                f"train set FC tensors (mode={self.norm_mode})"
+            )
             # all_vars_mean are at the beginning of the tensor
             all_mean, all_std, all_min, all_max = self._compute_tensor_stats(
                 fc_tensor_paths,
                 feature_indices=self.feature_metadata["all_var_mean_indices"],  # type: ignore
+                spatial=spatial,
             )
             self.norm_stats.update(
                 {
@@ -794,11 +894,15 @@ class ForecastDataModule(L.LightningDataModule):
             )
 
             # Compute statistics for all variables (std) in FC tensors
-            print(f"Computing all_vars_std stats from {len(fc_tensor_paths)} train set FC tensors")
+            print(
+                f"Computing all_vars_std stats from {len(fc_tensor_paths)} "
+                f"train set FC tensors (mode={self.norm_mode})"
+            )
             # all_vars_std come after all_vars_mean
             aux_mean, aux_std, aux_min, aux_max = self._compute_tensor_stats(
                 fc_tensor_paths,
                 feature_indices=self.feature_metadata["all_var_std_indices"],  # type: ignore
+                spatial=spatial,
             )
             self.norm_stats.update(
                 {
@@ -815,10 +919,14 @@ class ForecastDataModule(L.LightningDataModule):
         rea_tensor_paths = self._filter_train_tensor_paths(rea_tensor_paths)
 
         if rea_tensor_paths:
-            print(f"Computing rea stats from {len(rea_tensor_paths)} train set REA tensors")
+            print(
+                f"Computing rea stats from {len(rea_tensor_paths)} "
+                f"train set REA tensors (mode={self.norm_mode})"
+            )
             rea_mean, rea_std, rea_min, rea_max = self._compute_tensor_stats(
                 rea_tensor_paths,
                 feature_indices=None,  # REA tensors are already just the y variables
+                spatial=spatial,
             )
             self.norm_stats.update(
                 {
@@ -848,7 +956,7 @@ class ForecastDataModule(L.LightningDataModule):
                 )
 
             if self.norm_stats_file.exists():
-                self.norm_stats = torch.load(self.norm_stats_file)
+                self.norm_stats = torch.load(self.norm_stats_file, weights_only=True)
             else:
                 raise ValueError(
                     "norm_stats is None and norm_stats file does not exist. "
@@ -864,6 +972,15 @@ class ForecastDataModule(L.LightningDataModule):
 
         # Collect and sort samples by valid_time (init_date + leadtime)
         all_samples = self._collect_samples()
+
+        # Filter by leadtimes if specified
+        if self.leadtimes_hours is not None:
+            lt_set = {np.timedelta64(h, "h") for h in self.leadtimes_hours}
+            all_samples = [s for s in all_samples if s[3] in lt_set]
+            logger.info(
+                f"Filtered to leadtimes {self.leadtimes_hours}h: {len(all_samples)} samples remaining"
+            )
+
         all_samples.sort(key=lambda x: x[2] + x[3])  # Sort by valid_time (init_date + leadtime)
 
         # Parse split date ranges
@@ -1253,7 +1370,10 @@ class ForecastDataModule(L.LightningDataModule):
 
                 # Calculate target date
                 target_date = init_date + leadtime
-                target_date_str = str(target_date)[:10].replace("-", "")  # YYYYMMDD
+                # Format as YYYYMMDDHH to match rea tensor filenames
+                target_date_str = (
+                    str(target_date)[:13].replace("-", "").replace("T", "")
+                )  # YYYYMMDDHH
 
                 # Build corresponding rea path
                 rea_path = self.rea_tensor_dir / f"rea_{target_date_str}.pt"
@@ -1323,6 +1443,44 @@ class ForecastDataModule(L.LightningDataModule):
             dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context  # type: ignore
         return DataLoader(self.test_dataset, **dataloader_kwargs)  # type: ignore
 
+    def raw_gt_dataloader(self, split: str) -> DataLoader:
+        """Create a DataLoader that yields raw (unscaled, unpadded) ground truth.
+
+        Uses the same samples list as the corresponding ForecastDataset to
+        guarantee identical ordering when iterated with shuffle=False.
+
+        Args:
+            split: One of 'train', 'val', or 'test'.
+
+        Returns:
+            DataLoader yielding dicts with key 'y' (raw rea tensors).
+        """
+        dataset_attr = {"train": "train_dataset", "val": "val_dataset", "test": "test_dataset"}
+        if split not in dataset_attr:
+            raise ValueError(f"Unknown split '{split}'. Must be one of 'train', 'val', 'test'.")
+
+        forecast_dataset = getattr(self, dataset_attr[split])
+        raw_dataset = RawGroundTruthDataset(samples=forecast_dataset.samples)
+
+        batch_size = {
+            "train": self.train_batch_size,
+            "val": self.val_batch_size,
+            "test": self.test_batch_size,
+        }[split]
+
+        dataloader_kwargs: dict = {
+            "batch_size": batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers if self.num_workers > 0 else False,
+        }
+        if self.prefetch_factor is not None and self.num_workers > 0:
+            dataloader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.multiprocessing_context is not None and self.num_workers > 0:
+            dataloader_kwargs["multiprocessing_context"] = self.multiprocessing_context
+        return DataLoader(raw_dataset, **dataloader_kwargs)  # type: ignore
+
     @property
     def y_reverseModules(self) -> list[ReverseAffineTransform]:
         """Get reverse transformation modules for y (target) variables.
@@ -1334,9 +1492,12 @@ class ForecastDataModule(L.LightningDataModule):
         during prepare_data() and the normalization type (zscore or minmax) specified
         for each y variable.
 
+        When norm_mode is 'per_variable', mean and scale are scalar tensors.
+        When norm_mode is 'spatial', mean and scale are [x, y] tensors.
+
         Returns:
             list[ReverseAffineTransform]: List containing one reverse transformation module
-                per y variable. Each module's mean and scale tensors are scalar values.
+                per y variable.
                 For zscore normalization: reverses (y - mean) / std -> y * std + mean
                 For minmax normalization: reverses (y - min) / (max - min) -> y * (max - min) + min
 
@@ -1345,6 +1506,8 @@ class ForecastDataModule(L.LightningDataModule):
         """
         if self.norm_stats is None:
             raise RuntimeError("Normalization statistics not available. Call prepare_data() first.")
+
+        spatial = self.norm_mode == "spatial"
 
         # Build one ReverseAffineTransform per y variable
         reverse_modules = []
@@ -1359,16 +1522,25 @@ class ForecastDataModule(L.LightningDataModule):
             if norm_type == "zscore":
                 # For zscore: x_normalized = (x - mean) / std
                 # Reverse: x = x_normalized * std + mean
-                mean = self.norm_stats["rea_mean"][i].squeeze()
-                scale = self.norm_stats["rea_std"][i].squeeze()
+                if spatial:
+                    # [c, x, y] -> [x, y]
+                    mean = self.norm_stats["rea_mean"][i]
+                    scale = self.norm_stats["rea_std"][i]
+                else:
+                    mean = self.norm_stats["rea_mean"][i].squeeze()
+                    scale = self.norm_stats["rea_std"][i].squeeze()
             elif norm_type == "minmax":
                 # For minmax: x_normalized = (x - min) / (max - min)
                 # Reverse: x = x_normalized * (max - min) + min
-                mean = self.norm_stats["rea_min"][i].squeeze()
-                scale = (
-                    self.norm_stats["rea_max"][i].squeeze()
-                    - self.norm_stats["rea_min"][i].squeeze()
-                )
+                if spatial:
+                    mean = self.norm_stats["rea_min"][i]
+                    scale = self.norm_stats["rea_max"][i] - self.norm_stats["rea_min"][i]
+                else:
+                    mean = self.norm_stats["rea_min"][i].squeeze()
+                    scale = (
+                        self.norm_stats["rea_max"][i].squeeze()
+                        - self.norm_stats["rea_min"][i].squeeze()
+                    )
             elif norm_type is None:
                 # No normalization applied, use identity transform (scale=1, mean=0)
                 mean = torch.tensor(0.0)
