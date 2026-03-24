@@ -40,6 +40,7 @@ from genpp.configs import register_resolvers
 from genpp.data.icon import DATA_DIR
 from genpp.eval.icon.icon_cgm_predict_eval import (
     _load_ground_truth_from_samples,
+    _crps_maps_to_xarray,
     _predictions_to_xarray,
     _rescale_y,
     compute_icon_scores_per_leadtime,
@@ -52,7 +53,14 @@ from genpp.eval.utils import (
     save_scores_df,
     update_wandb_run,
 )
-from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
+from genpp.models.scores import (
+    EnergyScore,
+    EnsembleCRPS,
+    MultiScaleEnergyScore,
+    MultiScalePatchwiseEnergyScore,
+    PatchwiseEnergyScore,
+    VariogramScore,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -361,10 +369,14 @@ def compute_ecc_scores(
     y_rescaled: torch.Tensor,
     timedeltas: np.ndarray,
     y_select_variables: list[str],
+    samples: list,
     *,
     score_file: Path,
+    model_dir: Path,
+    split: str,
     model_class: str,
     skip_variogram: bool,
+    verbose: bool,
 ) -> dict:
     """Compute CRPS, Energy Score, and Variogram Score for ECC predictions.
 
@@ -373,19 +385,29 @@ def compute_ecc_scores(
         y_rescaled: Rescaled ground truth [N, n_vars, h, w].
         timedeltas: Array of lead times [N].
         y_select_variables: List of target variable names.
+        samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
         score_file: Path to the scores CSV file.
+        model_dir: Path to the model output directory.
+        split: Current data split name.
         model_class: Name of the model class.
         skip_variogram: Whether to skip variogram score.
+        verbose: Whether to emit verbose logs.
 
     Returns:
         Dict of scores per leadtime.
     """
     crps_fn = EnsembleCRPS().cuda()
     es_fn = EnergyScore(clamp=False).cuda()
+    pes_fn = PatchwiseEnergyScore(clamp=False).cuda()
+    mses_fn = MultiScaleEnergyScore(clamp=False).cuda()
+    mspes_fn = MultiScalePatchwiseEnergyScore(clamp=False).cuda()
     vs_fn = VariogramScore(p=0.5, chunk_size=256).cuda()
 
     n_times = ecc_preds.shape[0]
     crps_list, es_pv_list, es_full_list = [], [], []
+    pes_pv_list, pes_full_list = [], []
+    mses_pv_list, mses_full_list = [], []
+    mspes_pv_list, mspes_full_list = [], []
     vs_pv_list, vs_full_list = [], []
 
     for i in trange(n_times, desc="Computing ECC scores"):
@@ -396,6 +418,12 @@ def compute_ecc_scores(
             crps_list.append(crps_fn(pred_i, y_i).cpu())
             es_pv_list.append(es_fn(pred_i, y_i, mode="per_var").cpu())
             es_full_list.append(es_fn(pred_i, y_i, mode="complete").cpu())
+            pes_pv_list.append(pes_fn(pred_i, y_i, mode="per_var").cpu())
+            pes_full_list.append(pes_fn(pred_i, y_i, mode="complete").cpu())
+            mses_pv_list.append(mses_fn(pred_i, y_i, mode="per_var").cpu())
+            mses_full_list.append(mses_fn(pred_i, y_i, mode="complete").cpu())
+            mspes_pv_list.append(mspes_fn(pred_i, y_i, mode="per_var").cpu())
+            mspes_full_list.append(mspes_fn(pred_i, y_i, mode="complete").cpu())
             if not skip_variogram:
                 vs_pv_list.append(vs_fn(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs_fn(pred_i, y_i, mode="complete").cpu())
@@ -406,8 +434,26 @@ def compute_ecc_scores(
             torch.cuda.empty_cache()
 
     crps_per_margin = torch.cat(crps_list, dim=0)
+    crps_maps_path = model_dir / f"{split}_crps_maps.nc"
+    crps_maps_ds = _crps_maps_to_xarray(
+        crps_maps=crps_per_margin,
+        samples=samples,
+        y_select_variables=y_select_variables,
+    )
+    crps_maps_ds.to_netcdf(crps_maps_path)
+    log_msg(
+        f"ECC CRPS maps saved to {crps_maps_path} with shape {crps_maps_ds['crps'].shape}",
+        verbose,
+    )
+
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
     energy_score_full_u = torch.cat(es_full_list, dim=0)
+    patchwise_energy_score_per_var_u = torch.cat(pes_pv_list, dim=0)
+    patchwise_energy_score_full_u = torch.cat(pes_full_list, dim=0)
+    multiscale_energy_score_per_var_u = torch.cat(mses_pv_list, dim=0)
+    multiscale_energy_score_full_u = torch.cat(mses_full_list, dim=0)
+    multiscale_patchwise_energy_score_per_var_u = torch.cat(mspes_pv_list, dim=0)
+    multiscale_patchwise_energy_score_full_u = torch.cat(mspes_full_list, dim=0)
     variogram_pv_u = torch.cat(vs_pv_list, dim=0) if not skip_variogram else None
     variogram_full_u = torch.cat(vs_full_list, dim=0) if not skip_variogram else None
 
@@ -417,11 +463,23 @@ def compute_ecc_scores(
     crps_full = reduce(crps_per_margin, "t d x y -> 1", "mean")
     es_per_var = reduce(energy_score_per_var_u, "t d -> d", "mean")
     es_full = reduce(energy_score_full_u, "t -> 1", "mean")
+    pes_per_var = reduce(patchwise_energy_score_per_var_u, "t d -> d", "mean")
+    pes_full = reduce(patchwise_energy_score_full_u, "t -> 1", "mean")
+    mses_per_var = reduce(multiscale_energy_score_per_var_u, "t d -> d", "mean")
+    mses_full = reduce(multiscale_energy_score_full_u, "t -> 1", "mean")
+    mspes_per_var = reduce(multiscale_patchwise_energy_score_per_var_u, "t d -> d", "mean")
+    mspes_full = reduce(multiscale_patchwise_energy_score_full_u, "t -> 1", "mean")
 
     print(f"[{method_label}] Mean CRPS per var: {crps_per_var}")
     print(f"[{method_label}] Mean CRPS combined: {crps_full}")
     print(f"[{method_label}] Mean ES per var: {es_per_var}")
     print(f"[{method_label}] Mean ES combined: {es_full}")
+    print(f"[{method_label}] Mean PES per var: {pes_per_var}")
+    print(f"[{method_label}] Mean PES combined: {pes_full}")
+    print(f"[{method_label}] Mean MSES per var: {mses_per_var}")
+    print(f"[{method_label}] Mean MSES combined: {mses_full}")
+    print(f"[{method_label}] Mean MSPES per var: {mspes_per_var}")
+    print(f"[{method_label}] Mean MSPES combined: {mspes_full}")
 
     # Log scores
     log_scores(
@@ -447,6 +505,48 @@ def compute_ecc_scores(
         metric="EnergyScore",
         variables=["combined"],
         scores=es_full,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="PatchwiseEnergyScore",
+        variables=y_select_variables,
+        scores=pes_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="PatchwiseEnergyScore",
+        variables=["combined"],
+        scores=pes_full,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="MultiScaleEnergyScore",
+        variables=y_select_variables,
+        scores=mses_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="MultiScaleEnergyScore",
+        variables=["combined"],
+        scores=mses_full,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=y_select_variables,
+        scores=mspes_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=method_label,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=["combined"],
+        scores=mspes_full,
     )
 
     if not skip_variogram:
@@ -475,6 +575,12 @@ def compute_ecc_scores(
         crps_per_margin,
         energy_score_per_var_u,
         energy_score_full_u,
+        patchwise_energy_score_per_var_u,
+        patchwise_energy_score_full_u,
+        multiscale_energy_score_per_var_u,
+        multiscale_energy_score_full_u,
+        multiscale_patchwise_energy_score_per_var_u,
+        multiscale_patchwise_energy_score_full_u,
         y_select_variables=y_select_variables,
         vss_per_var=variogram_pv_u,
         vss_complete=variogram_full_u,
@@ -531,10 +637,15 @@ def evaluate_split(
 
     if use_cached:
         log_msg(f"Loading cached ECC predictions from {predictions_path}...", verbose)
+        log_msg("Using cached ECC predictions; skipping model forward pass.", verbose)
         ds = xr.open_dataset(predictions_path)
         ecc_preds_rescaled = torch.from_numpy(ds["prediction"].values)
         ds.close()
     else:
+        log_msg(
+            f"No cached ECC predictions found at {predictions_path} (or force_repredict set); running model forward pass.",
+            verbose,
+        )
         # Step 1: Run model forward pass
         log_msg(f"Running predictions on {split} split...", verbose)
         raw_predictions = trainer.predict(model, dataloader, return_predictions=True)
@@ -583,9 +694,13 @@ def evaluate_split(
         y_rescaled,
         timedeltas,
         y_select_variables,
+        samples=dataset.samples,
         score_file=score_file,
+        model_dir=model_dir,
+        split=split,
         model_class=model_class,
         skip_variogram=skip_variogram,
+        verbose=verbose,
     )
 
     return scores

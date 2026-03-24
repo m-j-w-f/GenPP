@@ -184,9 +184,9 @@ echo "=============================================="
 # Run the provided command and capture exit status for informative error messages
 set +e  # Disable exit on error temporarily to capture the exit code
 # EMOS (DONE)
-pixi run -e gpu python src/genpp/train.py --config-name base_emos data=icon_cut model/lr_scheduler=reduceLROnPlateau data.batch_size=8 model.optimizer.lr=0.001 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_emos data=icon_cut model/lr_scheduler=reduceLROnPlateau data.batch_size=8 model.optimizer.lr=0.001 data.norm_mode=spatial
 # DRN (DONE)
-pixi run -e gpu python src/genpp/train.py --config-name base_drn data=icon_full_minmax data.dataloader.num_workers=10 model/lr_scheduler=reduceLROnPlateau data.batch_size=8 "model.hidden_channels=[256, 128, 64]" model.optimizer.lr=0.0003 data.norm_mode=spatial
+# pixi run -e gpu python src/genpp/train.py --config-name base_drn data=icon_full_minmax data.dataloader.num_workers=10 model/lr_scheduler=reduceLROnPlateau data.batch_size=8 "model.hidden_channels=[256, 128, 64]" model.optimizer.lr=0.0003 data.norm_mode=spatial
 
 # LNGM
 # pixi run -e gpu python src/genpp/train.py --config-name base_chen model=cnn_chen_noise data=icon_full_pad_x model/lr_scheduler=reduceLROnPlateau data.dataloader.num_workers=10 +model.n_samples_train=20 +model.n_samples_predict=40 data.train_batch_size=8 data.val_batch_size=8 data.test_batch_size=8 model/loss_fn=energy_score model.optimizer.lr=0.001 "model.decoder_unet_channels=[16, 32]" "model.std_unet_channels=[32, 64, 128]" model.internal_td_scaling=abs data.norm_mode=spatial

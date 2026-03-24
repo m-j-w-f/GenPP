@@ -42,7 +42,14 @@ from genpp.eval.utils import (
     save_scores_df,
     update_wandb_run,
 )
-from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
+from genpp.models.scores import (
+    EnergyScore,
+    EnsembleCRPS,
+    MultiScaleEnergyScore,
+    MultiScalePatchwiseEnergyScore,
+    PatchwiseEnergyScore,
+    VariogramScore,
+)
 
 # Grid definition from target_grid.txt (rotated lat/lon grid)
 GRID_XSIZE = 260
@@ -304,11 +311,101 @@ def _predictions_to_xarray(
     return ds
 
 
+def _crps_maps_to_xarray(
+    crps_maps: torch.Tensor,
+    samples: list,
+    y_select_variables: list[str],
+) -> xr.Dataset:
+    """Convert per-sample CRPS maps to init_time/lead_time gridded xarray.
+
+    Args:
+        crps_maps: Tensor of shape [N, c, x, y] with per-location CRPS values.
+        samples: List of (fc_path, rea_path, init_date, leadtime) tuples.
+        y_select_variables: List of target variable names.
+
+    Returns:
+        xr.Dataset with one data variable ``crps`` and dimensions
+        [init_time, lead_time, variable, rlon, rlat].
+
+    Raises:
+        ValueError: If duplicate (init_time, lead_time) pairs are found.
+    """
+    init_times = np.array([s[2] for s in samples])
+    lead_times = np.array([s[3] for s in samples])
+
+    pair_index = pd.MultiIndex.from_arrays(
+        [init_times, lead_times], names=["init_time", "lead_time"]
+    )
+    dup_mask = pair_index.duplicated(keep=False)
+    if dup_mask.any():
+        dup_pairs = pair_index[dup_mask].unique()
+        preview = ", ".join([f"({i}, {l})" for i, l in dup_pairs[:5]])  # noqa: E741
+        raise ValueError(
+            "Duplicate (init_time, lead_time) pairs found in ICON samples. "
+            f"Expected unique pairs but found {len(dup_pairs)} duplicates. "
+            f"Examples: {preview}"
+        )
+
+    unique_init = np.sort(np.unique(init_times))
+    unique_lead = np.sort(np.unique(lead_times))
+
+    init_to_idx = {val: i for i, val in enumerate(unique_init)}
+    lead_to_idx = {val: i for i, val in enumerate(unique_lead)}
+
+    crps_np = crps_maps.cpu().numpy().astype(np.float32)
+    n_var, n_x, n_y = crps_np.shape[1:]
+
+    crps_grid = np.full(
+        (len(unique_init), len(unique_lead), n_var, n_x, n_y),
+        np.nan,
+        dtype=np.float32,
+    )
+
+    for sample_idx, (init_time, lead_time) in enumerate(zip(init_times, lead_times)):
+        i = init_to_idx[init_time]
+        j = lead_to_idx[lead_time]
+        crps_grid[i, j] = crps_np[sample_idx]
+
+    rlon, rlat = _build_grid_coords()
+
+    ds = xr.Dataset(
+        {
+            "crps": xr.DataArray(
+                data=crps_grid,
+                dims=["init_time", "lead_time", "variable", "rlon", "rlat"],
+                coords={
+                    "init_time": unique_init,
+                    "lead_time": unique_lead,
+                    "variable": y_select_variables,
+                    "rlon": rlon,
+                    "rlat": rlat,
+                },
+            )
+        },
+        attrs={
+            "grid_mapping_name": "rotated_latitude_longitude",
+            "grid_north_pole_longitude": -170.0,
+            "grid_north_pole_latitude": 40.0,
+            "description": "Per-location CRPS maps on ICON rotated lat/lon grid",
+        },
+    )
+
+    valid_time = unique_init[:, None] + unique_lead[None, :]
+    ds = ds.assign_coords(valid_time=(("init_time", "lead_time"), valid_time))
+    return ds
+
+
 def compute_icon_scores_per_leadtime(
     prediction_timedeltas: np.ndarray,
     crpss: torch.Tensor,
     ess_per_var: torch.Tensor,
     ess_complete: torch.Tensor,
+    pess_per_var: torch.Tensor,
+    pess_complete: torch.Tensor,
+    msess_per_var: torch.Tensor,
+    msess_complete: torch.Tensor,
+    mspess_per_var: torch.Tensor,
+    mspess_complete: torch.Tensor,
     y_select_variables: list[str],
     vss_per_var: torch.Tensor | None = None,
     vss_complete: torch.Tensor | None = None,
@@ -324,6 +421,12 @@ def compute_icon_scores_per_leadtime(
         crpss: CRPS scores with shape (time, feature, x, y).
         ess_per_var: Energy scores per variable with shape (time, feature).
         ess_complete: Energy scores complete with shape (time,).
+        pess_per_var: Patchwise energy scores per variable with shape (time, feature).
+        pess_complete: Patchwise energy scores complete with shape (time,).
+        msess_per_var: Multi-scale energy scores per variable with shape (time, feature).
+        msess_complete: Multi-scale energy scores complete with shape (time,).
+        mspess_per_var: Multi-scale patchwise energy scores per variable with shape (time, feature).
+        mspess_complete: Multi-scale patchwise energy scores complete with shape (time,).
         y_select_variables: List of target variable names.
         vss_per_var: Variogram scores per variable with shape (time, feature).
         vss_complete: Variogram scores complete with shape (time,).
@@ -336,10 +439,21 @@ def compute_icon_scores_per_leadtime(
     td_str = [f"{t / np.timedelta64(1, 'h'):.0f}h" for t in td]
 
     # Build score keys dynamically from variable names
-    scores_delta: dict = {method: {"CRPS_combined": {}, "EnergyScore_combined": {}}}
+    scores_delta: dict = {
+        method: {
+            "CRPS_combined": {},
+            "EnergyScore_combined": {},
+            "PatchwiseEnergyScore_combined": {},
+            "MultiScaleEnergyScore_combined": {},
+            "MultiScalePatchwiseEnergyScore_combined": {},
+        }
+    }
     for var_name in y_select_variables:
         scores_delta[method][f"CRPS_{var_name}"] = {}
         scores_delta[method][f"EnergyScore_{var_name}"] = {}
+        scores_delta[method][f"PatchwiseEnergyScore_{var_name}"] = {}
+        scores_delta[method][f"MultiScaleEnergyScore_{var_name}"] = {}
+        scores_delta[method][f"MultiScalePatchwiseEnergyScore_{var_name}"] = {}
 
     if vss_per_var is not None and vss_complete is not None:
         scores_delta[method]["VariogramScore_combined"] = {}
@@ -351,6 +465,12 @@ def compute_icon_scores_per_leadtime(
         crpss_delta = crpss[mask]
         ess_per_var_delta = ess_per_var[mask]
         ess_complete_delta = ess_complete[mask]
+        pess_per_var_delta = pess_per_var[mask]
+        pess_complete_delta = pess_complete[mask]
+        msess_per_var_delta = msess_per_var[mask]
+        msess_complete_delta = msess_complete[mask]
+        mspess_per_var_delta = mspess_per_var[mask]
+        mspess_complete_delta = mspess_complete[mask]
 
         scores_delta[method]["CRPS_combined"][delta_str] = reduce(
             crpss_delta, "t f x y -> 1", "mean"
@@ -367,6 +487,30 @@ def compute_icon_scores_per_leadtime(
             scores_delta[method][f"EnergyScore_{var_name}"][delta_str] = ess_per_var_delta.mean(
                 dim=0
             )[vi].item()
+
+        scores_delta[method]["PatchwiseEnergyScore_combined"][delta_str] = pess_complete_delta.mean(
+            dim=0
+        ).item()
+        for vi, var_name in enumerate(y_select_variables):
+            scores_delta[method][f"PatchwiseEnergyScore_{var_name}"][delta_str] = (
+                pess_per_var_delta.mean(dim=0)[vi].item()
+            )
+
+        scores_delta[method]["MultiScaleEnergyScore_combined"][delta_str] = (
+            msess_complete_delta.mean(dim=0).item()
+        )
+        for vi, var_name in enumerate(y_select_variables):
+            scores_delta[method][f"MultiScaleEnergyScore_{var_name}"][delta_str] = (
+                msess_per_var_delta.mean(dim=0)[vi].item()
+            )
+
+        scores_delta[method]["MultiScalePatchwiseEnergyScore_combined"][delta_str] = (
+            mspess_complete_delta.mean(dim=0).item()
+        )
+        for vi, var_name in enumerate(y_select_variables):
+            scores_delta[method][f"MultiScalePatchwiseEnergyScore_{var_name}"][delta_str] = (
+                mspess_per_var_delta.mean(dim=0)[vi].item()
+            )
 
         if vss_per_var is not None and vss_complete is not None:
             vss_per_var_delta = vss_per_var[mask]
@@ -418,6 +562,7 @@ def evaluate_split(
 
     if use_cached:
         log_msg(f"Loading cached predictions from {predictions_path}...", verbose)
+        log_msg("Using cached predictions; skipping model forward pass.", verbose)
         ds = xr.open_dataset(predictions_path)
         predictions_rescaled = torch.from_numpy(ds["prediction"].values)
         ds.close()
@@ -426,6 +571,10 @@ def evaluate_split(
         log_msg("Loading raw ground truth from dataset samples...", verbose)
         y_original = _load_ground_truth_from_samples(samples, verbose=verbose)
     else:
+        log_msg(
+            f"No cached predictions found at {predictions_path} (or force_repredict set); running model forward pass.",
+            verbose,
+        )
         # Create a dedicated eval dataloader with shuffle=False to ensure
         # predictions align with ground truth ordering.
         eval_dataloader = DataLoader(
@@ -466,11 +615,17 @@ def evaluate_split(
     log_msg("Computing evaluation scores...", verbose)
     crps_ens = EnsembleCRPS().cuda()
     es = EnergyScore(clamp=False).cuda()
+    pes = PatchwiseEnergyScore(clamp=False).cuda()
+    mses = MultiScaleEnergyScore(clamp=False).cuda()
+    mspes = MultiScalePatchwiseEnergyScore(clamp=False).cuda()
     # Use chunked variogram score on GPU to avoid OOM while maintaining speed
     vs = VariogramScore(p=0.5, chunk_size=256).cuda()
 
     n_times = predictions_rescaled.shape[0]
     crps_list, es_pv_list, es_full_list = [], [], []
+    pes_pv_list, pes_full_list = [], []
+    mses_pv_list, mses_full_list = [], []
+    mspes_pv_list, mspes_full_list = [], []
     vs_pv_list, vs_full_list = [], []
 
     for i in trange(n_times, desc="Computing scores"):
@@ -480,14 +635,39 @@ def evaluate_split(
             crps_list.append(crps_ens(pred_i, y_i).cpu())
             es_pv_list.append(es(pred_i, y_i, mode="per_var").cpu())
             es_full_list.append(es(pred_i, y_i, mode="complete").cpu())
+            pes_pv_list.append(pes(pred_i, y_i, mode="per_var").cpu())
+            pes_full_list.append(pes(pred_i, y_i, mode="complete").cpu())
+            mses_pv_list.append(mses(pred_i, y_i, mode="per_var").cpu())
+            mses_full_list.append(mses(pred_i, y_i, mode="complete").cpu())
+            mspes_pv_list.append(mspes(pred_i, y_i, mode="per_var").cpu())
+            mspes_full_list.append(mspes(pred_i, y_i, mode="complete").cpu())
             if not skip_variogram:
                 # Chunked variogram score computation on GPU avoids OOM
                 vs_pv_list.append(vs(pred_i, y_i, mode="per_var").cpu())
                 vs_full_list.append(vs(pred_i, y_i, mode="complete").cpu())
 
     crps_per_margin = torch.cat(crps_list, dim=0)
+
+    crps_maps_path = model_dir / f"{split}_crps_maps.nc"
+    crps_maps_ds = _crps_maps_to_xarray(
+        crps_maps=crps_per_margin,
+        samples=samples,
+        y_select_variables=y_select_variables,
+    )
+    crps_maps_ds.to_netcdf(crps_maps_path)
+    log_msg(
+        f"CRPS maps saved to {crps_maps_path} with shape {crps_maps_ds['crps'].shape}",
+        verbose,
+    )
+
     energy_score_per_var_u = torch.cat(es_pv_list, dim=0)
     energy_score_full_u = torch.cat(es_full_list, dim=0)
+    patchwise_energy_score_per_var_u = torch.cat(pes_pv_list, dim=0)
+    patchwise_energy_score_full_u = torch.cat(pes_full_list, dim=0)
+    multiscale_energy_score_per_var_u = torch.cat(mses_pv_list, dim=0)
+    multiscale_energy_score_full_u = torch.cat(mses_full_list, dim=0)
+    multiscale_patchwise_energy_score_per_var_u = torch.cat(mspes_pv_list, dim=0)
+    multiscale_patchwise_energy_score_full_u = torch.cat(mspes_full_list, dim=0)
     variogram_score_per_var_u = torch.cat(vs_pv_list, dim=0) if not skip_variogram else None
     variogram_score_full_u = torch.cat(vs_full_list, dim=0) if not skip_variogram else None
 
@@ -497,6 +677,16 @@ def evaluate_split(
     crps_full = reduce(crps_per_margin, "t d x y -> 1", "mean")
     energy_score_per_var = reduce(energy_score_per_var_u, "t d -> d", "mean")
     energy_score_full = reduce(energy_score_full_u, "t -> 1", "mean")
+    patchwise_energy_score_per_var = reduce(patchwise_energy_score_per_var_u, "t d -> d", "mean")
+    patchwise_energy_score_full = reduce(patchwise_energy_score_full_u, "t -> 1", "mean")
+    multiscale_energy_score_per_var = reduce(multiscale_energy_score_per_var_u, "t d -> d", "mean")
+    multiscale_energy_score_full = reduce(multiscale_energy_score_full_u, "t -> 1", "mean")
+    multiscale_patchwise_energy_score_per_var = reduce(
+        multiscale_patchwise_energy_score_per_var_u, "t d -> d", "mean"
+    )
+    multiscale_patchwise_energy_score_full = reduce(
+        multiscale_patchwise_energy_score_full_u, "t -> 1", "mean"
+    )
 
     if not skip_variogram:
         variogram_score_per_var = reduce(variogram_score_per_var_u, "t d -> d", "mean")
@@ -534,6 +724,48 @@ def evaluate_split(
         variables=["combined"],
         scores=energy_score_full,
     )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="PatchwiseEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=patchwise_energy_score_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="PatchwiseEnergyScore",
+        variables=["combined"],
+        scores=patchwise_energy_score_full,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScaleEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=multiscale_energy_score_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScaleEnergyScore",
+        variables=["combined"],
+        scores=multiscale_energy_score_full,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=datamodule.y_select_variables,
+        scores=multiscale_patchwise_energy_score_per_var,
+    )
+    log_scores(
+        file=score_file,
+        model=model_class,
+        metric="MultiScalePatchwiseEnergyScore",
+        variables=["combined"],
+        scores=multiscale_patchwise_energy_score_full,
+    )
 
     if not skip_variogram:
         log_scores(
@@ -558,6 +790,12 @@ def evaluate_split(
         crps_per_margin,
         energy_score_per_var_u,
         energy_score_full_u,
+        patchwise_energy_score_per_var_u,
+        patchwise_energy_score_full_u,
+        multiscale_energy_score_per_var_u,
+        multiscale_energy_score_full_u,
+        multiscale_patchwise_energy_score_per_var_u,
+        multiscale_patchwise_energy_score_full_u,
         y_select_variables=y_select_variables,
         vss_per_var=variogram_score_per_var_u if not skip_variogram else None,
         vss_complete=variogram_score_full_u if not skip_variogram else None,
