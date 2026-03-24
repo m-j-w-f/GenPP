@@ -36,12 +36,20 @@ from genpp.data.weatherbench2 import (
 from src.genpp.eval.wb2 import best_models
 from genpp.eval.utils import (
     compute_scores_per_leadtime,
+    load_predictions_dataarray,
     log_scores,
     save_predictions_dataarray,
     save_scores_df,
     update_wandb_run,
 )
-from genpp.models.scores import EnergyScore, EnsembleCRPS, VariogramScore
+from genpp.models.scores import (
+    EnergyScore,
+    EnsembleCRPS,
+    MultiScaleEnergyScore,
+    MultiScalePatchwiseEnergyScore,
+    PatchwiseEnergyScore,
+    VariogramScore,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -275,19 +283,12 @@ SPLIT_CONFIG = {
 }
 
 
-def get_split_predictions_and_obs(split, model, trainer, datamodule, cfg, verbose):
-    """Run model forward pass and load ground truth for *split*.
+def get_split_obs(split, datamodule, cfg):
+    """Load ground truth observations for *split* without running the model.
 
-    Returns (predictions_xr, y_obs, prediction_index).
+    Returns (y_obs, prediction_index).
     """
-    setup_stage, dl_method, meta_key = SPLIT_CONFIG[split]
-
-    datamodule.setup(stage=setup_stage)
-    dataloader = getattr(datamodule, dl_method)()
-
-    log_msg(f"Running predictions on {split} split...", verbose)
-    predictions = trainer.predict(model, dataloader, return_predictions=True)
-    stacked = stack_predictions(predictions)
+    _, _, meta_key = SPLIT_CONFIG[split]
 
     init_times = datamodule.cache_metadata["feature_metadata"]["time"][meta_key]
     timedeltas = datamodule.cache_metadata["feature_metadata"]["prediction_timedelta"][meta_key]
@@ -307,7 +308,24 @@ def get_split_predictions_and_obs(split, model, trainer, datamodule, cfg, verbos
     )
     feature_order = list(cfg.data.y_select_variables)
     y_obs = y_obs.sel(feature=feature_order)
+    return y_obs, prediction_index
 
+
+def get_split_predictions_and_obs(split, model, trainer, datamodule, cfg, verbose):
+    """Run model forward pass and load ground truth for *split*.
+
+    Returns (predictions_xr, y_obs, prediction_index).
+    """
+    setup_stage, dl_method, _ = SPLIT_CONFIG[split]
+
+    datamodule.setup(stage=setup_stage)
+    dataloader = getattr(datamodule, dl_method)()
+
+    log_msg(f"Running predictions on {split} split...", verbose)
+    predictions = trainer.predict(model, dataloader, return_predictions=True)
+    stacked = stack_predictions(predictions)
+
+    y_obs, prediction_index = get_split_obs(split, datamodule, cfg)
     predictions_xr = predictions_to_dataarray(y_obs, stacked)
     return predictions_xr, y_obs, prediction_index
 
@@ -410,12 +428,35 @@ def compute_copula_scores(
         "prediction", "sample", "feature", "longitude", "latitude"
     )
 
-    crps_fn = EnsembleCRPS()
-    es_fn = EnergyScore(clamp=False)
-    vs_fn = VariogramScore(p=0.5)
+    crps_fn = EnsembleCRPS().to(device)
+    es_fn = EnergyScore(clamp=False).to(device)
+    pw_es_fn = PatchwiseEnergyScore(
+        beta=1.0, clamp=True, patch_size=3, normalize=True, unbiased=True
+    ).to(device)
+    ms_es_fn = MultiScaleEnergyScore(
+        beta=1.0,
+        clamp=True,
+        blur_kernel_sizes=[3, 7],
+        scale_weights=[1.0, 1.0, 1.0],
+        normalize=True,
+        unbiased=True,
+    ).to(device)
+    mspw_es_fn = MultiScalePatchwiseEnergyScore(
+        beta=1.0,
+        clamp=True,
+        blur_kernel_sizes=[3, 7],
+        scale_weights=[1.0, 1.0, 1.0],
+        patch_size=3,
+        normalize=True,
+        unbiased=True,
+    ).to(device)
+    vs_fn = VariogramScore(p=0.5).to(device)
 
     prediction = y_da.prediction
     crpss_list, ess_pv_list, ess_c_list = [], [], []
+    pw_ess_pv_list, pw_ess_c_list = [], []
+    ms_ess_pv_list, ms_ess_c_list = [], []
+    mspw_ess_pv_list, mspw_ess_c_list = [], []
     vss_pv_list, vss_c_list = [], []
 
     for p in tqdm(prediction, desc=f"Scoring {method_name}"):
@@ -429,6 +470,12 @@ def compute_copula_scores(
             crpss_list.append(crps_fn(pred_t, obs_t).cpu())
             ess_pv_list.append(es_fn(pred_t, obs_t, mode="per_var").cpu())
             ess_c_list.append(es_fn(pred_t, obs_t, mode="complete").cpu())
+            pw_ess_pv_list.append(pw_es_fn(pred_t, obs_t, mode="per_var").cpu())
+            pw_ess_c_list.append(pw_es_fn(pred_t, obs_t, mode="complete").cpu())
+            ms_ess_pv_list.append(ms_es_fn(pred_t, obs_t, mode="per_var").cpu())
+            ms_ess_c_list.append(ms_es_fn(pred_t, obs_t, mode="complete").cpu())
+            mspw_ess_pv_list.append(mspw_es_fn(pred_t, obs_t, mode="per_var").cpu())
+            mspw_ess_c_list.append(mspw_es_fn(pred_t, obs_t, mode="complete").cpu())
             if not skip_variogram:
                 vss_pv_list.append(vs_fn(pred_t, obs_t, mode="per_var").cpu())
                 vss_c_list.append(vs_fn(pred_t, obs_t, mode="complete").cpu())
@@ -436,6 +483,12 @@ def compute_copula_scores(
     crpss = torch.cat(crpss_list, dim=0)
     ess_per_var = torch.cat(ess_pv_list, dim=0)
     ess_complete = torch.cat(ess_c_list, dim=0)
+    pw_ess_per_var = torch.cat(pw_ess_pv_list, dim=0)
+    pw_ess_complete = torch.cat(pw_ess_c_list, dim=0)
+    ms_ess_per_var = torch.cat(ms_ess_pv_list, dim=0)
+    ms_ess_complete = torch.cat(ms_ess_c_list, dim=0)
+    mspw_ess_per_var = torch.cat(mspw_ess_pv_list, dim=0)
+    mspw_ess_complete = torch.cat(mspw_ess_c_list, dim=0)
     vss_per_var = torch.cat(vss_pv_list, dim=0) if not skip_variogram else None
     vss_complete = torch.cat(vss_c_list, dim=0) if not skip_variogram else None
 
@@ -443,6 +496,12 @@ def compute_copula_scores(
     print(f"[{method_name}] Mean CRPS: {reduce(crpss, 't f lat lon -> f', 'mean')}")
     print(f"[{method_name}] Mean ES per var: {ess_per_var.mean(dim=0)}")
     print(f"[{method_name}] Mean ES combined: {ess_complete.mean(dim=0)}")
+    print(f"[{method_name}] Mean PW-ES per var: {pw_ess_per_var.mean(dim=0)}")
+    print(f"[{method_name}] Mean PW-ES combined: {pw_ess_complete.mean(dim=0)}")
+    print(f"[{method_name}] Mean MS-ES per var: {ms_ess_per_var.mean(dim=0)}")
+    print(f"[{method_name}] Mean MS-ES combined: {ms_ess_complete.mean(dim=0)}")
+    print(f"[{method_name}] Mean MSPW-ES per var: {mspw_ess_per_var.mean(dim=0)}")
+    print(f"[{method_name}] Mean MSPW-ES combined: {mspw_ess_complete.mean(dim=0)}")
     if not skip_variogram:
         print(f"[{method_name}] Mean VS per var: {vss_per_var.mean(dim=0)}")  # type: ignore
         print(f"[{method_name}] Mean VS combined: {vss_complete.mean(dim=0)}")  # type: ignore
@@ -476,6 +535,48 @@ def compute_copula_scores(
         ["combined"],
         ess_complete.mean(dim=0, keepdim=True),
     )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "PatchwiseEnergyScore",
+        datamodule.y_select_variables,
+        pw_ess_per_var.mean(dim=0),
+    )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "PatchwiseEnergyScore",
+        ["combined"],
+        pw_ess_complete.mean(dim=0, keepdim=True),
+    )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "MultiScaleEnergyScore",
+        datamodule.y_select_variables,
+        ms_ess_per_var.mean(dim=0),
+    )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "MultiScaleEnergyScore",
+        ["combined"],
+        ms_ess_complete.mean(dim=0, keepdim=True),
+    )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "MultiScalePatchwiseEnergyScore",
+        datamodule.y_select_variables,
+        mspw_ess_per_var.mean(dim=0),
+    )
+    log_scores(
+        score_file,
+        f"{model_class}+{method_name}",
+        "MultiScalePatchwiseEnergyScore",
+        ["combined"],
+        mspw_ess_complete.mean(dim=0, keepdim=True),
+    )
     if not skip_variogram:
         log_scores(
             score_file,
@@ -499,6 +600,12 @@ def compute_copula_scores(
         ess_complete,
         vss_per_var,
         vss_complete,
+        pw_es_per_var=pw_ess_per_var,
+        pw_es_complete=pw_ess_complete,
+        ms_es_per_var=ms_ess_per_var,
+        ms_es_complete=ms_ess_complete,
+        mspw_es_per_var=mspw_ess_per_var,
+        mspw_es_complete=mspw_ess_complete,
         method=method_name,
     )
     return scores_delta
@@ -543,20 +650,29 @@ def process_model(model_entry, splits, args):
     devices = parse_device(args.device)
     trainer = L.Trainer(logger=False, accelerator="gpu", devices=devices)
 
-    # --- Always obtain train predictions for GCA Sigma estimation ---
-    log_msg("Getting train predictions for GCA Sigma estimation...", args.verbose)
-    train_preds_xr, y_train, train_pred_idx = get_split_predictions_and_obs(
-        "train", model, trainer, datamodule, cfg, args.verbose
-    )
-    latent = transform_to_latent_gaussian(y_train, train_preds_xr)
-    flat = latent.stack(space=("feature", "longitude", "latitude"))
-    Sigma = np.cov(flat.values, rowvar=False)
-    del latent, flat  # free memory
+    # --- Check which splits need ECC/GCA computation (not cached) ---
+    splits_need_ecc = [s for s in splits if not (model_dir / f"{s}_predictions_ecc.zarr").exists()]
+    splits_need_gca = [s for s in splits if not (model_dir / f"{s}_predictions_gca.zarr").exists()]
+    splits_need_forward = set(splits_need_ecc) | set(splits_need_gca)
 
-    # Keep train data only if the train split is requested for evaluation
-    need_train = "train" in splits
-    if not need_train:
-        del train_preds_xr, y_train, train_pred_idx
+    # --- Compute GCA Sigma only if at least one split needs GCA ---
+    Sigma = None
+    if splits_need_gca:
+        log_msg("Getting train predictions for GCA Sigma estimation...", args.verbose)
+        train_preds_xr, y_train, train_pred_idx = get_split_predictions_and_obs(
+            "train", model, trainer, datamodule, cfg, args.verbose
+        )
+        latent = transform_to_latent_gaussian(y_train, train_preds_xr)
+        flat = latent.stack(space=("feature", "longitude", "latitude"))
+        Sigma = np.cov(flat.values, rowvar=False)
+        del latent, flat
+
+        need_train = "train" in splits
+        if not need_train:
+            del train_preds_xr, y_train, train_pred_idx
+            train_preds_xr = train_pred_idx = y_train = None  # type: ignore[assignment]
+    else:
+        log_msg("All GCA predictions cached, skipping Sigma estimation.", args.verbose)
         train_preds_xr = train_pred_idx = y_train = None  # type: ignore[assignment]
 
     # --- Evaluate each requested split ---
@@ -568,22 +684,31 @@ def process_model(model_entry, splits, args):
         print(f"Evaluating split: {split}")
         print(f"{'=' * 60}")
 
-        if split == "train":
-            predictions_xr = train_preds_xr
-            y_obs = y_train
-            prediction_index = train_pred_idx
+        # Only run the model forward pass if we need to generate predictions
+        if split in splits_need_forward:
+            if split == "train" and splits_need_gca:
+                # Already computed during Sigma estimation
+                predictions_xr = train_preds_xr
+                y_obs = y_train
+                prediction_index = train_pred_idx
+            else:
+                predictions_xr, y_obs, prediction_index = get_split_predictions_and_obs(
+                    split, model, trainer, datamodule, cfg, args.verbose
+                )
         else:
-            predictions_xr, y_obs, prediction_index = get_split_predictions_and_obs(
-                split, model, trainer, datamodule, cfg, args.verbose
-            )
+            log_msg(f"All predictions cached for {split}, skipping forward pass.", args.verbose)
+            y_obs, prediction_index = get_split_obs(split, datamodule, cfg)
+            predictions_xr = None
 
         # --- ECC ---
-        log_msg("Running ECC postprocessing...", args.verbose)
-        ecc_preds = do_ecc(predictions_xr, prediction_index)
-        if args.save_predictions:
-            save_predictions_dataarray(
-                ecc_preds, model_dir / f"{split}_predictions_ecc.zarr", overwrite=True
-            )
+        ecc_pred_path = model_dir / f"{split}_predictions_ecc.zarr"
+        if ecc_pred_path.exists():
+            log_msg(f"Loading cached ECC predictions from {ecc_pred_path}...", args.verbose)
+            ecc_preds = load_predictions_dataarray(ecc_pred_path)
+        else:
+            log_msg("Running ECC postprocessing...", args.verbose)
+            ecc_preds = do_ecc(predictions_xr, prediction_index)
+            save_predictions_dataarray(ecc_preds, ecc_pred_path, overwrite=True)
 
         log_msg("Computing ECC scores...", args.verbose)
         ecc_scores = compute_copula_scores(
@@ -598,12 +723,14 @@ def process_model(model_entry, splits, args):
         )
 
         # --- GCA ---
-        log_msg("Running GCA postprocessing...", args.verbose)
-        gca_preds = do_gca(Sigma, predictions_xr, y_obs.shape)  # type: ignore
-        if args.save_predictions:
-            save_predictions_dataarray(
-                gca_preds, model_dir / f"{split}_predictions_gca.zarr", overwrite=True
-            )
+        gca_pred_path = model_dir / f"{split}_predictions_gca.zarr"
+        if gca_pred_path.exists():
+            log_msg(f"Loading cached GCA predictions from {gca_pred_path}...", args.verbose)
+            gca_preds = load_predictions_dataarray(gca_pred_path)
+        else:
+            log_msg("Running GCA postprocessing...", args.verbose)
+            gca_preds = do_gca(Sigma, predictions_xr, y_obs.shape)  # type: ignore
+            save_predictions_dataarray(gca_preds, gca_pred_path, overwrite=True)
 
         log_msg("Computing GCA scores...", args.verbose)
         gca_scores = compute_copula_scores(

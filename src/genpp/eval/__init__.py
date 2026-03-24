@@ -105,3 +105,42 @@ class BestEncoders:
 
     autoencoder: ModelEntry
     classifierEncoder: ModelEntry
+
+
+best_models: BestModels = BestModels(
+    emos=[ModelEntry(id="bnmfhfsh")],
+    drn=[ModelEntry(id="m5y9kwlh")],
+    chen=[
+        ModelEntry(id="057uzdg4", tag="ind_es"),
+        ModelEntry(id="4g2v39ob", tag="ind_pes"),
+        ModelEntry(id="1wmdbxm1", tag="ind_mses"),
+        ModelEntry(id="5b2jan4d", tag="ind_mspes"),
+        ModelEntry(id="unt6oe9w", tag="dir_es"),
+        ModelEntry(id="y2to8vmf", tag="dir_pes"),
+        ModelEntry(id="hrf26g7y", tag="dir_mses"),
+        ModelEntry(id="yfigjk3e", tag="dir_mspes"),
+    ],
+    engression=[
+        ModelEntry(id="3j5g7ils", tag="ind_es"),
+        ModelEntry(id="2ajwxmir", tag="ind_pes"),
+        ModelEntry(id="euak9uee", tag="ind_mses"),
+        ModelEntry(id="3eevjkfj", tag="ind_mspes"),
+        ModelEntry(id="5jjbvdex", tag="dir_es"),
+        ModelEntry(id="kf7uayf6", tag="dir_pes"),
+        ModelEntry(id="gpdka5qd", tag="dir_mses"),
+        ModelEntry(id="7ww3tj56", tag="dir_mspes"),
+    ],
+    fm=[
+        ModelEntry(id="f5yyzzxf", tag="ind_unet"),
+        ModelEntry(id="fmz08y1j", tag="dir_unet"),
+        ModelEntry(id="2t98jag4", tag="ind_uvit"),
+        ModelEntry(id="oddm8ydj", tag="dir_uvit"),
+    ],
+)
+
+best_encoders: BestEncoders = BestEncoders(
+    autoencoder=ModelEntry(id="60kge09d"), classifierEncoder=ModelEntry(id="feik/genpp/zln61d2q")
+)
+
+
+__all__ = ["best_models", "best_encoders"]

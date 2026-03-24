@@ -70,6 +70,63 @@ class Pad(Transform):
         return F.pad(data, self.padding)
 
 
+class PermuteChannel(Transform):
+    """Permute the spatial values of a single channel for feature importance analysis.
+
+    Shuffles the flattened spatial grid of the specified channel, breaking spatial
+    structure while preserving the marginal distribution. Useful for permutation-based
+    feature importance assessment.
+
+    Args:
+        channel_index (int): Index of the feature channel to permute.
+        seed (int | None): Optional random seed for reproducibility.
+    """
+
+    def __init__(self, channel_index: int, seed: int | None = None):
+        self.channel_index = channel_index
+        self.seed = seed
+
+    def transform(self, data: torch.Tensor) -> torch.Tensor:
+        """Permute spatial dimensions of the specified channel.
+
+        For 4D inputs, each batch element receives an independent random
+        permutation. When a seed is set, the generator is seeded once and
+        successive batch elements consume sequential random states, so results
+        are reproducible but differ across the batch dimension.
+
+        Args:
+            data: Tensor with shape (feature, longitude, latitude) or
+                  (batch, feature, longitude, latitude).
+
+        Returns:
+            torch.Tensor: Tensor with the specified channel's spatial values shuffled.
+        """
+        result = data.clone()
+        generator = torch.Generator()
+        if self.seed is not None:
+            generator.manual_seed(self.seed)
+
+        if data.ndim == 3:
+            # (feature, lon, lat)
+            channel = result[self.channel_index]
+            flat = channel.flatten()
+            perm = torch.randperm(flat.numel(), generator=generator)
+            result[self.channel_index] = flat[perm].reshape(channel.shape)
+        elif data.ndim == 4:
+            # (batch, feature, lon, lat)
+            for i in range(result.shape[0]):
+                channel = result[i, self.channel_index]
+                flat = channel.flatten()
+                perm = torch.randperm(flat.numel(), generator=generator)
+                result[i, self.channel_index] = flat[perm].reshape(channel.shape)
+        else:
+            raise ValueError(
+                f"Expected 3D (feature, lon, lat) or 4D (batch, feature, lon, lat) tensor, "
+                f"got {data.ndim}D."
+            )
+        return result
+
+
 class Pipe(Transform):
     """A pipeline that chains multiple transforms together.
 
