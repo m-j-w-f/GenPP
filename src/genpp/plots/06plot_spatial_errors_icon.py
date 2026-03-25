@@ -160,13 +160,15 @@ def _var_label(var_name: str) -> dict[str, float | str]:
         "2m_temperature": {
             "cmap": "magma",
             "label": "CRPS 2m temperature",
+            "vmin_floor": 0.3,
             "vmax_cap": 1.8,
             "over_color": "cyan",
         },
         "10m_wind_speed": {
             "cmap": "viridis",
             "label": "CRPS 10m wind speed",
-            "vmax_cap": 1.1,
+            "vmin_floor": 0.4,
+            "vmax_cap": 2.0,
             "over_color": "hotpink",
         },
     }
@@ -179,6 +181,7 @@ def _var_label(var_name: str) -> dict[str, float | str]:
     return {
         "cmap": "cividis",
         "label": f"CRPS {var_name}",
+        "vmin_floor": 0.0,
         "vmax_cap": float("inf"),
         "over_color": "white",
     }
@@ -284,6 +287,8 @@ for var_name in crps_vars:
     cfg = _var_label(var_name)
     cmap = plt.get_cmap(str(cfg["cmap"])).copy()
     cmap.set_over(str(cfg["over_color"]))
+    vmin = float(cfg["vmin_floor"])
+    vmax = float(cfg["vmax_cap"])
 
     col_variants: list[list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]] = []
     col_titles: list[str] = []
@@ -352,7 +357,8 @@ for var_name in crps_vars:
                             cmap=cmap,
                             transform=rotated_crs,
                             shading="auto",
-                            vmax=float(cfg["vmax_cap"]),
+                            vmin=vmin,
+                            vmax=vmax,
                             rasterized=True,
                         )
                         if DRAW_MAP_FEATURES:
@@ -365,7 +371,8 @@ for var_name in crps_vars:
                             b_arr.T,
                             cmap=cmap,
                             shading="auto",
-                            vmax=float(cfg["vmax_cap"]),
+                            vmin=vmin,
+                            vmax=vmax,
                             rasterized=True,
                         )
                     ax.set_title("Baseline", fontsize=14)
@@ -386,7 +393,8 @@ for var_name in crps_vars:
                             cmap=cmap,
                             transform=rotated_crs,
                             shading="auto",
-                            vmax=float(cfg["vmax_cap"]),
+                            vmin=vmin,
+                            vmax=vmax,
                             rasterized=True,
                         )
                         if DRAW_MAP_FEATURES:
@@ -399,7 +407,8 @@ for var_name in crps_vars:
                             arr.T,
                             cmap=cmap,
                             shading="auto",
-                            vmax=float(cfg["vmax_cap"]),
+                            vmin=vmin,
+                            vmax=vmax,
                             rasterized=True,
                         )
 
