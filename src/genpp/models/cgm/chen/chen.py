@@ -408,7 +408,7 @@ class _CNNChenModelBase(BaseChenModel, ABC):
         else:
             emb = None
 
-        # TODO it would make sense to use a residual connection here, but the original paper does not use it.
+        # IDEA it would make sense to use a residual connection here, but the original paper does not use it.
         # Also we have to figure out how to find the mean of the correct variable (2m_temperature or 10m_wind_speed).
         # This is easy with the improved data loading
         pred_mean = self.mean_model(mean)  # Shape [batch_size, 1, out_features, lon, lat]

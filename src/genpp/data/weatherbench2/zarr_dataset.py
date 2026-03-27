@@ -75,10 +75,6 @@ class ZarrDataModule(L.LightningDataModule):
             stage (str): The stage to set up ('fit', 'validate', 'test', or None for all).
         """
         if stage == "fit" or stage is None:
-            # TODO check if this time split works correctly
-            # It does but we loose coords information
-            # BUG this does not work correctly
-            # FIX: could unstack select and restack?
             train_dataset = self.ds.sel(time=self.split["train"])
             self.train_tensor_dataset = self._dataset_to_tensor_dataset(train_dataset)
         if stage == "validate" or stage == "fit" or stage is None:

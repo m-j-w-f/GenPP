@@ -84,6 +84,7 @@ class BaseFlowMatchingModel(BaseGenerativeModule):
         if use_rescaler:
             raise NotImplementedError("Rescaling is not implemented yet.")
             # TODO implement rescaling
+            # -> Currently called by hand after prediction
             if isinstance(rescaler, Sequence):
                 filtered = [m for m in rescaler if m is not None]
                 self.rescaler = nn.ModuleList(filtered) if filtered else None

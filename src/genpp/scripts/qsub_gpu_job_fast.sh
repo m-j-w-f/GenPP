@@ -88,8 +88,7 @@
 # model.backbone.channels=[64,128] model.backbone.num_residual_layers=2 \
 # model/lr_scheduler=constant model.optimizer.lr=0.0003"
 
-#TODO: there was a typo so npt the patchwise energy score was used
-#LNGM - PES (Running)
+#LNGM - PES
 # COMMAND="pixi run -e gpu python src/genpp/train.py \
 # --config-name base_chen model=cnn_chen_noise \
 # data=icon_full_pad_x \
@@ -104,7 +103,7 @@
 # model/lr_scheduler=constant \
 # trainer.accumulate_grad_batches=2"
 
-#LNGM - ES (Running)
+#LNGM - ES
 # COMMAND="pixi run -e gpu python src/genpp/train.py \
 # --config-name base_chen model=cnn_chen_noise \
 # data=icon_full_pad_x \
@@ -118,8 +117,7 @@
 # model.optimizer.lr=0.0003 \
 # model/lr_scheduler=constant"
 
-#TODO: there was a typo so npt the patchwise energy score was used
-# ENGREESSION - PES (Running)
+# ENGREESSION - PES
 # COMMAND="pixi run -e gpu python src/genpp/train.py \
 # --config-name base_engression model=cnn_engression_noise \
 # data=icon_full_pad_x \
@@ -133,8 +131,7 @@
 # model/lr_scheduler=constant \
 # trainer.accumulate_grad_batches=2"
 
-#TODO: there was a typo so npt the patchwise energy score was used
-# ENGREESSION - ES (Running)
+# ENGREESSION - ES
 # COMMAND="pixi run -e gpu python src/genpp/train.py \
 # --config-name base_engression model=cnn_engression_noise \
 # data=icon_full_pad_x \
@@ -148,7 +145,7 @@
 # model/lr_scheduler=constant \
 # trainer.accumulate_grad_batches=2"
 
-# DRN (Done)
+# DRN
 # COMMAND="pixi run -e gpu python -O src/genpp/train.py \
 # --config-name base_drn data=icon_full_minmax \
 # data.dataloader.num_workers=10 \

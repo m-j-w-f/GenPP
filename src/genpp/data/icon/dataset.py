@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # %% [markdown]
 # ## Changes after 2022112300 06-UTC
 #
-# TODO investigate how the vars change after the switch date 2022112300.
+# The underlying grid switches after 2022112300.
 # See [ICON-EPS Model Changes PDF (November 2022)](https://www.dwd.de/DE/fachnutzer/forschung_lehre/numerische_wettervorhersage/nwv_aenderungen/_functions/DownloadBox_modellaenderungen/icon_eps/pdf_2022/pdf_icon_eps_23_11_2022.pdf?__blob=publicationFile&v=2)
 # The changes will become effective for the 06-UTC forecast run
 #
@@ -691,14 +691,6 @@ class ForecastDataModule(L.LightningDataModule):
         from the train set for normalization. The stats file includes a train set
         identifier to ensure we recompute if the train set changes.
         """
-        # TODO fix some error here
-        # For now this does not concern us as much as the data is complete
-        # However some file errors here and should be skipped
-        # ens_nc_paths = sorted(list((DATA_DIR / "ensmean").glob("*.nc")))
-        # self._get_fc_tensors(ens_nc_paths)
-
-        # rea_nc_paths = sorted(list((DATA_DIR / "rea").glob("*.nc")))
-        # self._get_rea_tensors(rea_nc_paths)
 
         # Generate train set identifier and set norm_stats_file path
         train_set_id = self._get_train_set_identifier()
@@ -714,8 +706,6 @@ class ForecastDataModule(L.LightningDataModule):
         if self.feature_metadata is None:
             print("Computing feature metadata...")
             self._compute_feature_metadata()
-
-        # TODO if on gpu cluster, move files to specific locations
 
     def _compute_feature_metadata(self) -> None:
         """Load or compute feature metadata including max timedelta and feature indices."""

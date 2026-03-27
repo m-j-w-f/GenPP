@@ -62,15 +62,6 @@ pytorch-cpu = ">=2.9.1,<3"
 torchvision=">=0.25.0,<0.26"
 
 [tool.pixi.tasks]
-sync = '''rsync -avzr --progress --human-readable
-  --exclude='.pixi/'
-  --exclude='__pycache__/'
-  --exclude='outputs/'
-  --exclude='lightning_logs/'
-  --exclude='wandb/'
-  --exclude='.DS_Store'
-  --exclude='data/weatherbench2/hres_t0.zarr/'
-   . $RSYNC_USER@econ-stat-RR02.econ.kit.edu:/home/$RSYNC_USER/GenPP/'''
 wandb-agent = "src/genpp/scripts/run_wandb_agent.sh"
 launch-gpu-job = "src/genpp/scripts/launch_gpu_job.sh"
 test = "pytest"

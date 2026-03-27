@@ -71,7 +71,7 @@ class PredictiveTruncatedNormalDistribution(PredictiveDistribution):
                 mu = x[:, 0]
                 sigma = x[:, 1]
                 # Apply final activation
-                # TODO this assumes that wind speed will always be min max transformed
+                # This assumes that wind speed will always be min max transformed
                 mu = torch.nn.functional.softplus(mu)  # Must be positive
                 sigma = torch.nn.functional.softplus(sigma) + 1e-9  # Must be strictly positive
                 if rescaler is not None:

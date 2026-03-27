@@ -89,6 +89,6 @@ class EMOS(DistributionRegression):
         # Interleave the means and stds so that we have mean_var0, std_var0, mean_var1, std_var1, ...
         params = torch.stack([means, stds], dim=2)  # Shape [b, n_vars, 2, h, w]
         params = rearrange(params, "b c two h w -> b (c two) h w")
-        # TODO check what this function here expects (in which order)
+
         params = self.out_distribution.final_activation(params)
         return params  # type: ignore
