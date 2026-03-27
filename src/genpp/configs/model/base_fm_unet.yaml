@@ -1,0 +1,23 @@
+# UNet-based Flow Matching Model Configuration
+_target_: PLACEHOLDER_FOR_FM_UNET_MODEL
+n_samples: 50
+solver_iter: 10
+padding: ${data.spatial.padding_list}
+use_rescaler: false  # Whether to use rescalers from the datamodule
+variable_names: ${data.y_select_variables}
+
+# Model backbone parameters
+backbone:
+  _target_: genpp.models.cgm.fm.UNetCVF
+  channels:
+    - 32
+    - 64
+  num_residual_layers: 1
+  t_embed_dim: 4
+  embedding_dim: 5
+  height: ${data.spatial.padded.longitude}
+  width: ${data.spatial.padded.latitude}
+  channels_conditioning: ${data.features.input_concat} # y is the conditioning variable here
+  channels_x: ${data.features.output}
+
+# Optimizer and learning rate scheduler are imported automatically due to the folder structure

@@ -1,0 +1,7 @@
+# Model hyperparameters
+_target_: genpp.eval.FID.encoder.ClassifierEncoder
+in_channels: 2   # Number of input channels
+padding: [4, 5, 2, 1]  # Pad so that the size is 40 x 40
+num_classes: 2  # Number of classes for classification
+latent_dim: 0 # Dimensionality of the latent space
+use_rescaler: False # For compatibility with other models

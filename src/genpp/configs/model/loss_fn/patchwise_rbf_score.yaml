@@ -1,0 +1,4 @@
+_target_: genpp.models.scores.PatchwiseRBFScore
+lengthscales: [1.0]
+patch_size: 3
+unbiased: true

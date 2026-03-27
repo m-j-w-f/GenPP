@@ -1,0 +1,30 @@
+program: src/genpp/train.py
+name: testsweep_fm_uvit2
+description: Sweep for Flow matching model model with a uvit backbone with multiple lead times
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4]
+  data.batch_size:
+    values: [8, 32]
+  model.backbone.embed_dim:
+    values: [32, 64, 128]
+  model.backbone.depth:
+    values: [1, 2]
+  model.internal_td_scaling:
+    values: ['abs', 'std']
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_fmuvit
+  - ${args_no_hyphens}

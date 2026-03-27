@@ -1,0 +1,23 @@
+# ICON Full DataModule Configuration - Spatial Normalization + MinMax Wind
+# Combines spatial normalization with minmax for wind variables (for DRN model).
+
+defaults:
+  - icon_full
+
+# ============================================================================
+# SPATIAL NORMALIZATION + MINMAX WIND CONFIGURATION
+# ============================================================================
+norm_mode: spatial
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+
+# Per-variable normalization for target variables
+# Use minmax for wind speed to ensure positive outputs
+y_normalize_types:
+  'T_2M+height_2.0': zscore
+  'VMAX_10M+height_2_10.0': minmax
+
+# No spatial transforms for standard configuration
+spatial:
+  x_transform: null
+  y_transform: null

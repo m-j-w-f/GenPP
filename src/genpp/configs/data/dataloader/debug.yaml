@@ -1,0 +1,8 @@
+# Standard DataLoader configuration
+# batch_size: null  # Determined by the batch size of the generators found in data.batch size
+# which is in the weatherbench2_full.yaml config
+num_workers: 0
+prefetch_factor: !!null
+multiprocessing_context: !!null
+pin_memory: !!null
+persistent_workers: !!null

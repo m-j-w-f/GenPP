@@ -1,0 +1,8 @@
+# Default logger configuration for Weights & Biases
+_target_: lightning.pytorch.loggers.WandbLogger
+project: "genpp"
+name: null  # Will be auto-generated
+save_dir: "logs/"
+log_model: true
+group: null
+job_type: "train"

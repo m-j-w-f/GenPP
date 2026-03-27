@@ -1,0 +1,30 @@
+program: src/genpp/train.py
+name: testsweep_fm_unet2
+description: Sweep for Flow matching model with a unet backbone with multiple lead times
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4]
+  data.batch_size:
+    values: [8, 32]
+  model.backbone.channels:
+    values: [[64, 128]]
+  model.backbone.num_residual_layers:
+    values: [2]
+  model.internal_td_scaling:
+    values: ['abs', 'std']
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_fmunet
+  - ${args_no_hyphens}

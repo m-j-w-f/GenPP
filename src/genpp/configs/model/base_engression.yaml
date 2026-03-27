@@ -1,0 +1,36 @@
+# Base CNN-based Engression Model Configuration
+# This serves as a base configuration for CNN Engression models.
+# It can be extended for specific variants like noise or direct models.
+# See cnn_engression_noise.yaml and cnn_engression_direct.yaml for specific configurations.
+_target_: PLACEHOLDER_FOR_CNN_ENGRESSION_MODEL
+
+# Input/output configuration
+num_in_vars: ${data.features.input_features} # Number of input variables/features
+in_channels: ${data.features.input_concat} # Total input channels (input features * aggregation levels + meta features)
+out_channels: ${data.features.output}
+variable_names: ${data.y_select_variables}
+height: ${data.spatial.padded.longitude}
+width: ${data.spatial.padded.latitude}
+
+# Model architecture parameters
+embedding_dim: 5
+channels: [32, 64]
+noise_channels: 32
+num_layers_per_block: 2
+use_resblock: true
+kernel_size: 3
+add_bn: true
+
+# Sampling parameters
+# For backwards compatibility, n_samples sets both train and predict if they're not specified
+n_samples: 50  # Default for both training and prediction
+# n_samples_train: 50  # Optional: Override number of samples during training
+# n_samples_predict: 50  # Optional: Override number of samples during prediction
+
+# Padding for output cropping
+padding: ${data.spatial.padding_list}
+
+# Rescaler (not implemented yet)
+use_rescaler: false
+
+# Loss function, Optimizer and learning rate scheduler are imported automatically due to the folder structure

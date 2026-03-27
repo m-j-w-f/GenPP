@@ -1,0 +1,26 @@
+program: src/genpp/train.py
+name: autoencoder
+description: Sweep for the Autoencoder model for the FID metric
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4]
+  data.batch_size:
+    values: [128, 256, 512]
+  model.latent_dim:
+    values: [64, 128, 256]
+
+command:
+  - pixi
+  - run
+  - -e
+  - default
+  - python
+  - ${program}
+  - --config-name
+  - base_autoencoder
+  - ${args_no_hyphens}

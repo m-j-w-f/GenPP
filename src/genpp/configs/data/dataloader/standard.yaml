@@ -1,0 +1,8 @@
+# Standard DataLoader configuration
+# batch_size: null  # Determined by the batch size of the generators found in data.batch size
+# which is in the weatherbench2_full.yaml config
+prefetch_factor: 3
+num_workers: 4
+multiprocessing_context: "forkserver"
+pin_memory: true
+persistent_workers: true # Keep workers alive between epochs

@@ -1,0 +1,36 @@
+# Base CNN-based Chen Model Configuration
+# This serves as a base configuration for CNN Chen models.
+# It can be extended for specific variants like noise or direct models.
+# See cnn_chen_noise.yaml and cnn_chen_direct.yaml for specific configurations.
+_target_: PLACEHOLDER_FOR_CNN_CHEN_MODEL
+
+# Model architecture parameters
+in_features: ${data.features.input_features}
+meta_features: ${data.features.meta_features}
+out_features: ${data.features.output}
+variable_names: ${data.y_select_variables}
+height: ${data.spatial.padded.longitude}
+width: ${data.spatial.padded.latitude}
+noise_dim: 5 # Every gridpoint has noise added of noise_dim
+embedding_dim: 5
+# Number of samples configuration
+# For backwards compatibility, n_samples sets both train and predict if they're not specified
+n_samples: 50  # Default for both training and prediction
+# n_samples_train: 50  # Optional: Override number of samples during training
+# n_samples_predict: 50  # Optional: Override number of samples during prediction (and validation)
+use_rescaler: false  # Whether to use rescalers from the datamodule
+
+padding: ${data.spatial.padding_list}
+
+std_unet_channels: [32, 64, 64]
+decoder_unet_channels: [32, 64, 64]
+
+# Activation function
+final_activation:
+  _target_: genpp.models.layers.FinalActivation
+  activations:
+    # Fix use min max normalization for Wind speed -> Use softplus/relu then
+    - _target_: torch.nn.Identity # Temperature (standardized)
+    - _target_: torch.nn.Identity # Wind speed (standardized)
+
+# Loss function, Optimizer and learning rate scheduler are imported automatically due to the folder structure

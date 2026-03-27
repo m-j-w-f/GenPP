@@ -1,0 +1,29 @@
+# UNet-based Flow Matching Model Configuration
+_target_: PLACEHOLDER_FOR_UVIT_FM_MODEL
+n_samples: 50
+solver_iter: 10
+padding: ${data.spatial.padding_list}
+use_rescaler: false  # Whether to use rescalers from the datamodule
+variable_names: ${data.y_select_variables}
+
+# Model backbone parameters
+backbone:
+  _target_: genpp.models.cgm.fm.UViTCVF
+  img_height: ${data.spatial.padded.longitude}
+  img_width: ${data.spatial.padded.latitude}
+  patch_size_height: 4
+  patch_size_width: 4
+  in_channels: ${data.features.output} # this is x, the variable to be predicted
+  channels_conditioning: ${data.features.input_concat} # y is the conditioning variable here
+  embed_dim: ${eval:'4 * 4 * 2'}
+  pixel_embed_dim: 5
+  depth: 2
+  num_heads: 4
+  mlp_ratio: 4.0
+  qkv_bias: False
+  qk_scale: None
+  conv: True
+  skip: True
+
+
+# Optimizer and learning rate scheduler are imported automatically due to the folder structure

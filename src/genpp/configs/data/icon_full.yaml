@@ -1,0 +1,180 @@
+# ICON Full Forecast DataModule Configuration
+# Flattened config combining icon_forecast + spatial/standard + splits/standard
+
+# ============================================================================
+# SPATIAL CONFIGURATION
+# ============================================================================
+# ICON uses rotated latitude-longitude grid with dimensions from target_grid.txt
+# x dimension (260) corresponds to rotated longitude, y dimension (240) to rotated latitude
+spatial:
+  original:
+    latitude: 240
+    longitude: 260
+  x_transform: null
+  y_transform: null
+
+# ============================================================================
+# TIME SPLITS CONFIGURATION
+# ============================================================================
+# Split by forecast valid time (init_time + lead_time)
+# Note: ICON ForecastDataModule handles splits internally based on valid_time
+splits:
+  train:
+    start: "2019-01-15"
+    end: "2020-11-22"
+  val:
+    start: "2020-11-23"
+    end: "2021-11-22"
+  test:
+    start: "2021-11-23"
+    end: "2022-11-22"
+
+# ============================================================================
+# VARIABLE SELECTION
+# ============================================================================
+x_select_variables:
+  - 'ALB_RAD'
+  - 'ASOB_S'
+  - 'ASOB_T'
+  - 'ATHB_S'
+  - 'ATHB_T'
+  - 'CLCH+plev_0.0'
+  - 'CLCL+plev_2_80000.0'
+  - 'CLCM+plev_3_40000.0'
+  - 'CLCT'
+  - 'HBAS_CON'
+  - 'HTOP_CON'
+  - 'PMSL'
+  - 'RAIN_CON'
+  - 'RAIN_GSP'
+  - 'SNOW_CON'
+  - 'SNOW_GSP'
+  - 'SOBS_RAD'
+  - 'TD_2M+height_2.0'
+  - 'THBS_RAD'
+  - 'TMAX_2M+height_2.0'
+  - 'TMIN_2M+height_2.0'
+  - 'TOT_PREC'
+  - 'TQC'
+  - 'TQI'
+  - 'TQV'
+  - 'T_2M+height_2.0'
+  - 'T_G'
+  - 'U_10M+height_2_10.0'
+  - 'VMAX_10M+height_2_10.0'
+  - 'V_10M+height_2_10.0'
+  - 'W_SNOW'
+  - 'W_SO+depth_0.0'
+  - 'W_SO+depth_0.01'
+  - 'W_SO+depth_0.03'
+  - 'W_SO+depth_0.09'
+  - 'W_SO+depth_0.27'
+  - 'W_SO+depth_0.81'
+  - 'W_SO+depth_2.43'
+  - 'W_SO+depth_7.29'
+  - 'Z0'
+
+y_select_variables:
+  - 'T_2M+height_2.0'
+  - 'VMAX_10M+height_2_10.0'
+
+meta_features:
+  - 'sin_prediction_time'
+  - 'cos_prediction_time'
+  - 'latitude'
+  - 'longitude'
+
+# Select which metadata features to use (subset of meta_features above)
+# Set to null or empty list to use no metadata features (e.g., for EMOS)
+select_meta_features: ${data.meta_features}
+
+# ============================================================================
+# BATCH CONFIGURATION
+# ============================================================================
+# Default batch size used when specific batch sizes are not provided
+batch_size: 32
+# Separate batch sizes for train, val, and test dataloaders
+# Set to null to use the default batch_size
+train_batch_size: null
+val_batch_size: null
+test_batch_size: null
+
+# ============================================================================
+# NORMALIZATION CONFIGURATION
+# ============================================================================
+# Default normalization types for x (input) and y (target) variables.
+# Supported values: 'zscore' or 'minmax'. Both default to 'zscore'.
+x_default_normalize_type: zscore
+y_default_normalize_type: zscore
+
+# Normalization mode: how statistics are computed.
+# 'per_variable': one mean/std per variable (stats shape [c, 1, 1])
+# 'spatial': mean/std per variable and per spatial coordinate (stats shape [c, x, y])
+norm_mode: per_variable
+
+# ============================================================================
+# PER-VARIABLE NORMALIZATION (Optional)
+# ============================================================================
+# Specify normalization type per variable. Supported values: 'zscore', 'minmax', or null (no normalization)
+# Variables not listed here use the default normalize type above.
+#
+# Example for x variables:
+#   x_normalize_types:
+#     'T_2M+height_2.0': zscore        # Use z-score normalization
+#     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
+#     'SOME_VAR': null                  # No normalization
+#
+# Example for y variables:
+#   y_normalize_types:
+#     'T_2M+height_2.0': zscore        # Use z-score normalization
+#     'VMAX_10M+height_2_10.0': minmax  # Use min-max normalization
+x_normalize_types: null
+y_normalize_types: null
+
+# ============================================================================
+# FURTHER EXPORTED INFO
+# ============================================================================
+# These will be consumed by the model to get correct input sizes etc
+features:
+  input_features: ${eval:'len(${data.x_select_variables})'}
+  aggregation_levels: 2
+  meta_features: ${eval:'len(${data.meta_features}) if ${data.select_meta_features} is None else len(${data.select_meta_features})'}
+  output: ${eval:'len(${data.y_select_variables})'}
+  input_concat: ${eval:'${data.features.input_features} * ${data.features.aggregation_levels} + ${data.features.meta_features}'}
+
+
+# ============================================================================
+# LEADTIME FILTERING (Optional)
+# ============================================================================
+# Filter to specific leadtimes (in hours). Set to null to use all leadtimes.
+# Example: [24] for only 24h leadtime, [6, 12, 24] for multiple leadtimes
+leadtimes_hours: null
+
+# ============================================================================
+# DATA MODULE
+# ============================================================================
+module:
+  _target_: genpp.data.icon.dataset.ForecastDataModule
+  x_select_variables: ${data.x_select_variables}
+  y_select_variables: ${data.y_select_variables}
+  select_meta_features: ${data.select_meta_features}
+  batch_size: ${data.batch_size}
+  train_batch_size: ${data.train_batch_size}
+  val_batch_size: ${data.val_batch_size}
+  test_batch_size: ${data.test_batch_size}
+  x_default_normalize_type: ${data.x_default_normalize_type}
+  y_default_normalize_type: ${data.y_default_normalize_type}
+  num_workers: ${data.dataloader.num_workers}
+  prefetch_factor: ${data.dataloader.prefetch_factor}
+  multiprocessing_context: ${data.dataloader.multiprocessing_context}
+  pin_memory: ${data.dataloader.pin_memory}
+  persistent_workers: ${data.dataloader.persistent_workers}
+  x_transform: ${data.spatial.x_transform}
+  y_transform: ${data.spatial.y_transform}
+  train_split: ${data.splits.train}
+  val_split: ${data.splits.val}
+  test_split: ${data.splits.test}
+  x_normalize_types: ${data.x_normalize_types}
+  y_normalize_types: ${data.y_normalize_types}
+  norm_mode: ${data.norm_mode}
+  leadtimes_hours: ${data.leadtimes_hours}

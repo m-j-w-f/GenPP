@@ -1,0 +1,40 @@
+
+program: src/genpp/train.py
+name: Engression_ICON_direct_multiscale_energy score
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3]
+  model.channels:
+    values:
+      - [16, 32]
+      - [32, 64]
+      - [16]
+
+
+
+command:
+  - pixi
+  - run
+  - -e
+  - gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_engression
+  - model=cnn_engression_direct
+  - model/lr_scheduler=reduceLROnPlateau
+  - data=icon_full_pad_x
+  - data.dataloader.num_workers=10
+  - +model.n_samples_train=20
+  - +model.n_samples_predict=40
+  - data.train_batch_size=4
+  - data.val_batch_size=4
+  - data.test_batch_size=4
+  - trainer.accumulate_grad_batches=2
+  - model/loss_fn=multiscale_energy_score
+  - ${args_no_hyphens}

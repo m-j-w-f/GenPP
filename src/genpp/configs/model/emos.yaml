@@ -1,0 +1,11 @@
+# Emos model config
+_target_: genpp.models.distributionalRegression.EMOS
+variable_names: ${data.y_select_variables}
+out_distribution:
+  _target_: genpp.models.distributionalRegression.distributions.PredictiveCombinedDistribution
+  _partial_: true # we need to pass the rescalers to it
+height: ${data.spatial.original.longitude}
+width: ${data.spatial.original.latitude}
+embedding_dim: 0 # This is here for completeness and should not be modified
+use_rescaler: false # This is basically a linear regession to the scale is alredy correct, we also should not use any standardization for this model
+n_lead_times: 5 # This is the number of different lead times we want to have different parameters for.

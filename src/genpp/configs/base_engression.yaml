@@ -1,0 +1,26 @@
+# Main configuration file for GenPP training with Engression
+defaults:
+  - data/dataloader: standard
+  - data: wb2_full_pad_x
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
+  - model/loss_fn: energy_score
+  - model: cnn_engression_direct
+  - trainer: default
+  - logger: wandb
+  - hydra: standard
+  - _self_
+
+name: ENGRESSION
+seed: 42
+
+# Override default batch size for engression model to avoid OOM
+data:
+  batch_size: 8
+
+logger:
+  tags:
+    - ${hydra:runtime.choices.data}
+    - ${hydra:runtime.choices.model}
+    - ${hydra:runtime.choices.model/loss_fn}
+    - ${oc.env:USER}

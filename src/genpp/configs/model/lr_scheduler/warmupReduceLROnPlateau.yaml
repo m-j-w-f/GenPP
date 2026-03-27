@@ -1,0 +1,22 @@
+scheduler:
+  _target_: torch.optim.lr_scheduler.SequentialLR
+  _partial_: true
+  schedulers:
+    # Phase 1: Linear Warmup
+    - _target_: torch.optim.lr_scheduler.LinearLR
+      _partial_: true
+      start_factor: 1e-6
+      end_factor: 1.0
+      total_iters: 500
+    # Phase 2: Reduce on Plateau
+    - _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+      _partial_: true
+      mode: "min"
+      factor: 0.5
+      patience: 5
+      min_lr: 1e-7
+      monitor: "val_loss"
+  milestones:
+    - 500
+interval: "step"
+frequency: 1

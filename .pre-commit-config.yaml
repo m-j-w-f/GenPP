@@ -1,0 +1,29 @@
+repos:
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v5.0.0  # Use the latest stable version
+      hooks:
+        - id: trailing-whitespace
+        - id: end-of-file-fixer
+        - id: check-yaml
+        - id: check-added-large-files
+          args: ['--maxkb=5120']
+
+    - repo: https://github.com/asottile/pyupgrade
+      rev: v3.21.2
+      hooks:
+        - id: pyupgrade
+          args: [--py313-plus]
+
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.12.3  # Ruff version
+      hooks:
+        - id: ruff-check
+          args: [ --fix ]
+        - id: ruff-format
+          args: [--line-length=100]
+
+    - repo: https://github.com/Yelp/detect-secrets
+      rev: v1.5.0
+      hooks:
+        - id: detect-secrets
+          exclude: '(\.ipynb$|pixi\.lock)'

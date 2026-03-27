@@ -1,0 +1,36 @@
+program: src/genpp/train.py
+name: chen_loss_fn_sweep
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3]
+  data.batch_size:
+    values: [8]
+  model.decoder_unet_channels:
+    values:
+      - [32, 64, 64]
+  model.std_unet_channels:
+    values:
+      - [32, 64, 64]
+  model/loss_fn:
+    values:
+      - energy_score
+      - patchwise_energy_score
+      - multiscale_energy_score
+      - multiscale_patchwise_energy_score
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_chen
+  - model=cnn_chen_noise # Use noise model for all sweeps
+  - ${args_no_hyphens}

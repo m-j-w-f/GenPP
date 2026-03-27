@@ -1,0 +1,16 @@
+# ICON Full DataModule Configuration - Spatial Normalization
+# Uses per-coordinate (spatial) normalization: stats computed per variable
+# AND per spatial coordinate (lat/lon), resulting in stats shape [c, x, y]
+# instead of the default per-variable [c, 1, 1].
+
+defaults:
+  - icon_full
+
+# ============================================================================
+# SPATIAL NORMALIZATION CONFIGURATION
+# ============================================================================
+# Override norm_mode to compute statistics per variable per spatial coordinate.
+# This means each grid point has its own mean/std, which can better account
+# for spatial variations in the data (e.g., temperature differences between
+# coastal and inland grid points).
+norm_mode: spatial

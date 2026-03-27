@@ -1,0 +1,6 @@
+_target_: genpp.models.scores.MultiScalePatchwiseRBFScore
+lengthscales: [1.0]
+blur_kernel_sizes: [3, 7]
+scale_weights: [1.0, 1.0, 1.0]
+patch_size: 3
+unbiased: true

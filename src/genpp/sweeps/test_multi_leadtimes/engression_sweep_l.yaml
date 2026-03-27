@@ -1,0 +1,35 @@
+program: src/genpp/train.py
+name: testsweep_engression
+description: Sweep for Engression model with multiple lead times and learned scalings
+metric:
+  name: val_loss
+  goal: minimize
+method: grid
+
+parameters:
+  model.optimizer.lr:
+    values: [!!float 1e-3, !!float  1e-4]
+  data.batch_size:
+    values: [8]
+  model.internal_td_scaling:
+    values: ['abs', 'std', "learned"]
+  model.channels:
+    values:
+      - [16]
+      - [32]
+      - [16, 32]
+      - [32, 64]
+      - [16, 32, 64]
+
+
+
+command:
+  - pixi
+  - run
+  - -e
+  - dev-gpu
+  - python
+  - ${program}
+  - --config-name
+  - base_engression
+  - ${args_no_hyphens}

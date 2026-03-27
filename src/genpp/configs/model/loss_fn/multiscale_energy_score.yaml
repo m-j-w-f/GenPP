@@ -1,0 +1,7 @@
+_target_: genpp.models.scores.MultiScaleEnergyScore
+beta: 1.0
+clamp: true
+blur_kernel_sizes: [3, 7]
+scale_weights: [1.0, 1.0, 1.0]
+normalize: true
+unbiased: false

@@ -1,0 +1,6 @@
+defaults:
+  - base_fm_uvit_cfg
+
+_target_: genpp.models.cgm.FlowMatchingDirectModelCFG
+backbone:
+  td_embedding_dim: 8

@@ -1,0 +1,4 @@
+# Disabled logger for debugging
+_target_: lightning.pytorch.loggers.CSVLogger
+save_dir: "logs/"
+name: "debug"

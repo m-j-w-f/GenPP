@@ -1,0 +1,20 @@
+# Main configuration file for Classifier training (FID)
+defaults:
+  - data/dataloader: simple
+  - data: classification_dataset
+  - model/optimizer: adamW
+  - model/lr_scheduler: constant
+  - model: classifierencoder
+  - trainer: fast
+  - logger: wandb
+  - hydra: standard
+  - _self_
+
+name: CLASSIFIER(FID)
+seed: 42
+
+logger:
+  tags:
+    - "test"
+    - "fid"
+    - "classifier"

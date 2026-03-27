@@ -1,0 +1,5 @@
+_target_: genpp.models.scores.MultiScaleRBFScore
+lengthscales: [1.0]
+blur_kernel_sizes: [3, 7]
+scale_weights: [1.0, 1.0, 1.0]
+unbiased: true
